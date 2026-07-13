@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/bitofbytes-io/noted/internal/assets"
 	"github.com/bitofbytes-io/noted/internal/config"
@@ -113,5 +114,41 @@ func TestIntegrationUploadCleanupOnMetadataFailure(t *testing.T) {
 		if len(entries) != 0 {
 			t.Fatalf("metadata failure left %d %s object(s)", len(entries), kind)
 		}
+	}
+}
+
+func TestIntegrationPracticeWeekAggregatesByUTCDate(t *testing.T) {
+	service, current, _ := integrationService(t)
+	ctx := context.Background()
+	workID := "10000000-0000-4000-8000-000000000003"
+	monday := time.Date(2035, time.May, 7, 9, 0, 0, 0, time.UTC)
+	tuesday := monday.Add(24 * time.Hour)
+
+	first, err := service.CreateManualPractice(ctx, current.ID, PracticeInput{
+		WorkID: workID, StartedAt: &monday, DurationSeconds: 600, Notes: "integration aggregation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.CreateManualPractice(ctx, current.ID, PracticeInput{
+		WorkID: workID, StartedAt: &tuesday, DurationSeconds: 900, Notes: "integration aggregation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = service.Pool.Exec(ctx, `DELETE FROM practice_sessions WHERE id = ANY($1::uuid[])`, []string{first.ID, second.ID})
+	})
+
+	summary, err := service.PracticeWeek(ctx, current.ID, monday.Add(48*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.StartsOn != "2035-05-07" || summary.TotalSeconds != 1500 || summary.SessionCount != 2 {
+		t.Fatalf("unexpected weekly summary: %+v", summary)
+	}
+	if len(summary.Days) != 7 || summary.Days[0].DurationSeconds != 600 || summary.Days[0].SessionCount != 1 ||
+		summary.Days[1].DurationSeconds != 900 || summary.Days[1].SessionCount != 1 {
+		t.Fatalf("unexpected daily aggregation: %+v", summary.Days)
 	}
 }

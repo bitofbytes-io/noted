@@ -1,0 +1,312 @@
+@if (error()) {
+  <div class="error" role="alert">{{ error() }}</div>
+}
+@if (success()) {
+  <div class="success" role="status">{{ success() }}</div>
+}
+@if (loading()) {
+  <div class="loading">Opening work…</div>
+} @else if (work(); as item) {
+  <div class="back-row"><a routerLink="/library">← Library</a></div>
+  <section class="work-hero">
+    <div>
+      <p class="eyebrow">
+        {{ item.period || 'Personal library' }} · {{ item.catalogNumber || 'No catalog number' }}
+      </p>
+      <h1>{{ item.title }}</h1>
+      <p class="composer-line">{{ item.composer }}</p>
+      @if (item.subtitle) {
+        <p class="lede">{{ item.subtitle }}</p>
+      }
+      <div class="chip-row">
+        <span class="status-chip">{{ item.learnerState.status }}</span>
+        @for (tag of item.learnerState.tags; track tag) {
+          <span class="tag-chip">{{ tag }}</span>
+        }
+      </div>
+    </div>
+    <div class="practice-cta">
+      @if (timer.running(); as running) {
+        <span>{{
+          running.workId === item.id ? 'Practicing this work' : 'Practicing ' + running.workTitle
+        }}</span>
+        <strong>{{ timer.formatElapsed() }}</strong>
+      } @else {
+        <span>Practice is always explicit</span>
+        <button class="button" (click)="startPractice()" [disabled]="timer.busy()">
+          Start Practice
+        </button>
+      }
+    </div>
+  </section>
+
+  @if (timer.running()?.workId === item.id) {
+    <section class="card stop-panel">
+      <div>
+        <p class="eyebrow">Timer running · {{ timer.formatElapsed() }}</p>
+        <h2>Finish this practice session</h2>
+      </div>
+      <div class="form-grid compact">
+        <div class="field">
+          <label for="stop-start">Start measure</label
+          ><input id="stop-start" type="number" min="1" [(ngModel)]="stopDraft.startMeasure" />
+        </div>
+        <div class="field">
+          <label for="stop-end">End measure</label
+          ><input id="stop-end" type="number" min="1" [(ngModel)]="stopDraft.endMeasure" />
+        </div>
+        <div class="field">
+          <label for="stop-bpm">Ending BPM</label
+          ><input
+            id="stop-bpm"
+            type="number"
+            min="30"
+            max="300"
+            [(ngModel)]="stopDraft.endingBpm"
+          />
+        </div>
+        <div class="field">
+          <label for="stop-hand">Hand / part</label
+          ><input id="stop-hand" [(ngModel)]="stopDraft.handPart" />
+        </div>
+        <div class="field full">
+          <label for="stop-notes">Notes</label
+          ><textarea id="stop-notes" [(ngModel)]="stopDraft.notes"></textarea>
+        </div>
+      </div>
+      <button class="button" (click)="stopPractice()" [disabled]="timer.busy()">
+        Stop & save practice
+      </button>
+    </section>
+  }
+
+  <div class="details-grid">
+    <main>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Representations</p>
+          <h2>Editions & score assets</h2>
+        </div>
+        <button class="button secondary small" (click)="showEdition = !showEdition">
+          + Edition
+        </button>
+      </div>
+      @if (showEdition) {
+        <form class="card form-grid edition-form" (ngSubmit)="addEdition()">
+          <div class="field">
+            <label for="edition-name">Name</label
+            ><input id="edition-name" name="editionName" [(ngModel)]="editionDraft.name" required />
+          </div>
+          <div class="field">
+            <label for="edition-editor">Editor</label
+            ><input id="edition-editor" name="editor" [(ngModel)]="editionDraft.editor" />
+          </div>
+          <div class="field">
+            <label for="edition-publisher">Publisher</label
+            ><input id="edition-publisher" name="publisher" [(ngModel)]="editionDraft.publisher" />
+          </div>
+          <div class="field">
+            <label for="edition-source">Source URL</label
+            ><input id="edition-source" name="source" [(ngModel)]="editionDraft.sourceUrl" />
+          </div>
+          <div class="field full">
+            <label for="edition-rights">Rights note</label
+            ><input id="edition-rights" name="rights" [(ngModel)]="editionDraft.rightsNote" />
+          </div>
+          <button class="button" type="submit" [disabled]="saving()">Create edition</button>
+        </form>
+      }
+      @for (edition of item.editions; track edition.id) {
+        <article class="card edition-card">
+          <header>
+            <div>
+              <h3>{{ edition.name }}</h3>
+              <p>{{ edition.editor || edition.publisher || 'Personal edition' }}</p>
+            </div>
+            <span>{{ edition.publicationYear || '' }}</span>
+          </header>
+          <div class="provenance">
+            <strong>Provenance</strong
+            ><span>{{ edition.rightsNote || 'No edition rights note' }}</span>
+            @if (edition.sourceUrl) {
+              <a [href]="edition.sourceUrl" target="_blank" rel="noreferrer">Source ↗</a>
+            }
+          </div>
+          @if (edition.assets.length) {
+            <div class="asset-list">
+              @for (asset of edition.assets; track asset.id) {
+                <div class="asset-row">
+                  <span class="asset-icon">{{ asset.assetType === 'pdf' ? 'PDF' : 'XML' }}</span>
+                  <div>
+                    <strong>{{ asset.originalFilename }}</strong
+                    ><span
+                      >{{ (asset.byteSize / 1024).toFixed(1) }} KB · SHA-256
+                      {{ asset.sha256.slice(0, 10) }}…</span
+                    ><small>{{ asset.rightsNote }}</small>
+                  </div>
+                  @if (asset.assetType === 'pdf') {
+                    <a
+                      class="button secondary small"
+                      [routerLink]="['/reader', asset.id]"
+                      [queryParams]="{ workId: item.id }"
+                      >Read</a
+                    >
+                  } @else {
+                    <a
+                      class="button small"
+                      [routerLink]="['/player', asset.id]"
+                      [queryParams]="{
+                        workId: item.id,
+                        measures: item.movements[0]?.measureCount || 1,
+                      }"
+                      >Play</a
+                    >
+                  }
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="empty-state">No score files in this edition yet.</div>
+          }
+        </article>
+      }
+
+      <section class="card upload-panel">
+        <div>
+          <p class="eyebrow">Secure local import</p>
+          <h2>Upload score asset</h2>
+          <p class="meta">
+            PDF, .musicxml, or .xml up to 25 MB. Files receive opaque storage keys and SHA-256
+            checksums.
+          </p>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="upload-edition">Edition</label
+            ><select id="upload-edition" [(ngModel)]="selectedEditionId">
+              @for (edition of item.editions; track edition.id) {
+                <option [value]="edition.id">{{ edition.name }}</option>
+              }
+            </select>
+          </div>
+          <div class="field">
+            <label for="upload-file">File</label
+            ><input
+              id="upload-file"
+              type="file"
+              accept=".pdf,.musicxml,.xml,application/pdf"
+              (change)="chooseFile($event)"
+            />
+          </div>
+          <div class="field">
+            <label for="upload-source">Source URL</label
+            ><input id="upload-source" type="url" [(ngModel)]="uploadSource" />
+          </div>
+          <div class="field">
+            <label for="upload-rights">Rights note</label
+            ><input id="upload-rights" [(ngModel)]="uploadRights" required placeholder="Required" />
+          </div>
+        </div>
+        <button
+          class="button"
+          (click)="upload()"
+          [disabled]="!uploadFile || !uploadRights.trim() || saving()"
+        >
+          {{ saving() ? 'Uploading…' : 'Upload & verify' }}
+        </button>
+      </section>
+    </main>
+
+    <aside>
+      <section class="card summary-card">
+        <p class="eyebrow">Practice summary</p>
+        <strong>{{ duration(item.practiceSummary.totalSeconds) }}</strong
+        ><span
+          >{{ item.practiceSummary.sessionCount }} saved
+          {{ item.practiceSummary.sessionCount === 1 ? 'session' : 'sessions' }}</span
+        ><a routerLink="/practice">Open practice log →</a>
+      </section>
+      <section class="card state-card">
+        <p class="eyebrow">Learner state</p>
+        <h2>Your relationship</h2>
+        <div class="field">
+          <label for="learner-status">Status</label
+          ><select id="learner-status" [(ngModel)]="learnerDraft.status">
+            @for (status of statuses; track status) {
+              <option [value]="status">{{ status }}</option>
+            }
+          </select>
+        </div>
+        <label class="favorite-toggle"
+          ><input type="checkbox" [(ngModel)]="learnerDraft.isFavorite" />
+          <span>★ Favorite</span></label
+        >
+        <div class="field">
+          <label for="difficulty">Personal difficulty</label
+          ><input id="difficulty" [(ngModel)]="learnerDraft.personalDifficulty" />
+        </div>
+        <div class="field">
+          <label for="last-bpm">Most recent BPM</label
+          ><input
+            id="last-bpm"
+            type="number"
+            min="30"
+            max="300"
+            [(ngModel)]="learnerDraft.lastBpm"
+          />
+        </div>
+        <div class="field">
+          <label for="personal-notes">Personal notes</label
+          ><textarea id="personal-notes" [(ngModel)]="learnerDraft.personalNotes"></textarea>
+        </div>
+        <fieldset>
+          <legend>Personal tags</legend>
+          @for (tag of tags(); track tag.id) {
+            <label
+              ><input
+                type="checkbox"
+                [checked]="selectedTagIds.includes(tag.id)"
+                (change)="toggleTag(tag.id, $any($event.target).checked)"
+              />
+              {{ tag.name }}</label
+            >
+          }
+        </fieldset>
+        <div class="new-tag">
+          <input [(ngModel)]="newTag" placeholder="New tag" /><button
+            class="button secondary small"
+            (click)="createTag()"
+          >
+            Add
+          </button>
+        </div>
+        <button class="button" (click)="saveLearnerState()" [disabled]="saving()">
+          Save learner state
+        </button>
+      </section>
+      <section class="card metadata-card">
+        <p class="eyebrow">Catalog</p>
+        <dl>
+          <div>
+            <dt>Key</dt>
+            <dd>{{ item.keySignature || '—' }}</dd>
+          </div>
+          <div>
+            <dt>Difficulty</dt>
+            <dd>{{ item.publishedDifficultyLabel || '—' }}</dd>
+          </div>
+          <div>
+            <dt>Movements</dt>
+            <dd>{{ item.movements.length }}</dd>
+          </div>
+        </dl>
+        @for (movement of item.movements; track movement.id) {
+          <div class="movement">
+            <strong>{{ movement.sequenceNumber }}. {{ movement.title }}</strong
+            ><span>{{ movement.tempoMarking }} · {{ movement.measureCount || '?' }} measures</span>
+          </div>
+        }
+      </section>
+    </aside>
+  </div>
+}

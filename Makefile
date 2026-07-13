@@ -26,8 +26,11 @@ api-run:
 web-start:
 	cd web && npm start
 
-local: db-up
-	@echo "PostgreSQL is running. In separate terminals run: make migrate seed api-run web-start"
+local: db-up migrate seed
+	@set -eu; \
+		go run ./cmd/api & api_pid=$$!; \
+		trap 'kill "$$api_pid" 2>/dev/null || true' EXIT INT TERM; \
+		cd web && npm start
 
 test: db-up migrate seed test-api test-web
 

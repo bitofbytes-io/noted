@@ -1,0 +1,125 @@
+.settings-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.settings-section h2 {
+  margin-bottom: 5px;
+}
+.setting-row {
+  align-items: center;
+  border-block: 1px solid var(--line);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 16px 0;
+}
+.setting-row div {
+  flex: 1;
+}
+.setting-row strong,
+.setting-row span {
+  display: block;
+}
+.setting-row span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.setting-row select,
+.setting-row > input[type='number'] {
+  background: white;
+  border: 1px solid var(--line-strong);
+  min-height: 40px;
+  padding: 8px;
+  text-align: center;
+  width: 110px;
+}
+.checkbox-row {
+  cursor: pointer;
+}
+.checkbox-row input {
+  accent-color: var(--blue);
+  height: 22px;
+  width: 22px;
+}
+.identity {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 45px 1fr auto;
+}
+.identity > span {
+  align-items: center;
+  background: var(--blue);
+  color: white;
+  display: flex;
+  font-size: 18px;
+  font-weight: 800;
+  height: 45px;
+  justify-content: center;
+}
+.identity strong,
+.identity small {
+  display: block;
+}
+.identity small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+.identity b {
+  background: var(--blue-soft);
+  color: var(--blue-dark);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 6px;
+  text-transform: uppercase;
+}
+.about p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.about dl {
+  margin: 0;
+}
+.about dl div {
+  border-top: 1px solid var(--line);
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+  padding: 9px 0;
+}
+.about dd {
+  font-weight: 700;
+  margin: 0;
+}
+.save-bar {
+  align-items: center;
+  background: #101217;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding: 16px 20px;
+}
+.save-bar span {
+  color: #b5b8c0;
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .save-bar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+}

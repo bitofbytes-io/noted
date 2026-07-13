@@ -9,6 +9,7 @@ local.mk
 
 # Authentication/browser state
 .auth/
+.playwright-cli/
 
 # Build and dependency outputs reserved for the future scaffold
 bin/
@@ -27,3 +28,4 @@ web/playwright-report/
 
 # Verification artifacts are generated locally; selected screenshots are copied to docs.
 screenshots/*.png
+output/playwright/
