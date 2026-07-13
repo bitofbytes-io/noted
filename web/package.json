@@ -7,8 +7,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "lint": "prettier --check \"src/**/*.{ts,html,scss}\" \"e2e/**/*.ts\" && tsc --noEmit -p tsconfig.app.json",
-    "format": "prettier --write \"src/**/*.{ts,html,scss}\" \"e2e/**/*.ts\"",
+    "lint": "prettier --check \"src/**/*.{ts,html,scss}\" \"e2e/**/*.ts\" \"playwright.config.ts\" && tsc --noEmit -p tsconfig.app.json",
+    "format": "prettier --write \"src/**/*.{ts,html,scss}\" \"e2e/**/*.ts\" \"playwright.config.ts\"",
     "e2e": "playwright test"
   },
   "prettier": {

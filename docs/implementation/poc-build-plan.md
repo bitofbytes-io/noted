@@ -1,6 +1,6 @@
 # Noted POC implementation plan
 
-Status: Executing on `codex/noted-poc`
+Status: Complete on `codex/noted-poc`
 Last updated: 2026-07-13
 
 ## Decisions and assumptions
@@ -20,6 +20,8 @@ Last updated: 2026-07-13
 4. **Player spike and implementation** — compare libraries, isolate selected adapters, render measures, synthesize audio, tempo/range/loop controls, capability states. Covers POC-050–058.
 5. **Practice and preferences** — audible metronome, durable one-at-a-time timer, manual/correct/delete flows, Monday-first summaries, settings. Covers POC-060–083.
 6. **Hardening** — ownership/path/upload cleanup tests, frontend state tests, three-flow browser coverage, responsive pass, clean-checkout run, secret/artifact review.
+
+All six stages are complete. Final evidence and the requirement-to-test map are recorded in [verification.md](verification.md).
 
 ## Migration sequence
 
