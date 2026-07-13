@@ -161,7 +161,7 @@ The POC is successful when all three core flows work locally and:
 ## POC non-goals
 
 - IMSLP or other public-source automation.
-- PDF-to-MusicXML optical recognition.
+- PDF-to-MusicXML optical recognition. Audiveris is now the selected post-POC direction, but recognition remains outside this completed POC.
 - Music notation editing or recognition correction.
 - Apple Pencil annotations.
 - Google OAuth during the first local vertical slice.

@@ -129,3 +129,16 @@ Example logical layout:
 ## Future portability
 
 The Go backend should define asset storage behind a small internal interface supporting put, open, delete, existence, and metadata/checksum operations. The first implementation uses the NFS filesystem. A future S3 implementation can be added if signed URLs, external integrations, scale, or independent storage services become valuable.
+
+## Future Audiveris worker
+
+The post-POC OCR increment adds a private, asynchronous `noted-omr-worker` running a pinned Audiveris/Java distribution. It is not part of the initial deployment definition of done.
+
+- Do not expose the worker through Traefik or grant it OAuth/session secrets.
+- Give it read/write access only to bounded job staging and derived-output paths, not the entire household share when the platform can enforce narrower mounts.
+- Schedule conservatively with explicit CPU, memory, temporary-space, page-count, runtime, and concurrency limits; multi-page OMR is substantially heavier than ordinary API work.
+- Keep PostgreSQL job ownership and authorization in the Go API. Prefer an internal claim/lease protocol or narrowly scoped queue over direct browser invocation.
+- Disable outbound network access unless a documented runtime dependency requires it.
+- Preserve version/configuration provenance, bounded logs, checksums, and optional `.omr` project artifacts for troubleshooting/future correction.
+- Include derived MusicXML, retained `.omr` artifacts, and job state in backup/restore and reconciliation policy.
+- Complete an AGPL-3.0 compliance review for the exact packaging, deployment, modifications, and user interaction before the worker is released.

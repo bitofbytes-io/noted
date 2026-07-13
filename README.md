@@ -67,7 +67,7 @@ The [verification record](docs/implementation/verification.md) maps requirements
 - A durable one-at-a-time practice timer, manual entries, correction/deletion, and Monday-first summaries.
 - Responsive cobalt/white interface exercised at a 1024×1366 portrait viewport.
 
-Annotations, OMR, lessons, sharing, offline support, performance assessment, production OAuth, NAS/NFS provisioning, and deployment remain explicitly deferred.
+Audiveris-based OMR is specified as a gated post-POC increment; built-in notation correction remains later work. Annotations, lessons, sharing, offline support, performance assessment, production OAuth, NAS/NFS provisioning, and deployment also remain deferred.
 
 ## Design and architecture
 
@@ -77,4 +77,5 @@ Annotations, OMR, lessons, sharing, offline support, performance assessment, pro
 - [API contract](docs/architecture/api-contract.md)
 - [Visual direction](docs/design/visual-direction.md)
 - [Implementation handoff](docs/implementation/handoff.md)
+- [Audiveris OCR decision](docs/decisions/0002-audiveris-ocr-pipeline.md)
 - [Deployment architecture (future)](docs/architecture/deployment.md)

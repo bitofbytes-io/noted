@@ -61,4 +61,4 @@ The clean worktree was removed afterward. The final source review found no commi
 
 ## Known limitations
 
-The score-library tradeoffs and fallbacks are documented in [ADR 0001](../decisions/0001-browser-score-rendering-and-playback.md). Production OAuth, NFS/NAS storage, deployment, annotations, OMR, lessons, sharing, offline use, and performance assessment remain deferred as required.
+The score-library tradeoffs and fallbacks are documented in [ADR 0001](../decisions/0001-browser-score-rendering-and-playback.md). Production OAuth, NFS/NAS storage, deployment, annotations, lessons, sharing, offline use, and performance assessment remain deferred as required. Audiveris OCR is specified separately in [ADR 0002](../decisions/0002-audiveris-ocr-pipeline.md) as a gated post-POC increment and is not claimed by this verification record.

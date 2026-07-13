@@ -104,6 +104,52 @@ Required implementations:
 
 An S3 implementation is not required but must remain possible without changing HTTP or domain contracts.
 
+## Post-POC Audiveris recognition extension
+
+Audiveris is the selected engine candidate for the first OCR-assisted upload increment. It is a Java/AGPL-3.0 Optical Music Recognition application that accepts printed score images/PDFs and can run headlessly with batch transcription and MusicXML export. The completed POC remains PDF/MusicXML upload-only; this extension is not part of its runtime or migration set.
+
+### Component boundary
+
+Add a private `omr-worker` process rather than embedding Java or Audiveris APIs into the Go request process:
+
+```text
+Angular UI
+    |
+    | request/status
+    v
+Go API ---- PostgreSQL recognition_jobs
+    |
+    | bounded job + opaque source/output paths
+    v
+Audiveris worker ---- private temporary/derived asset storage
+    |
+    `---- .mxl output + optional .omr project artifact
+```
+
+- The Go API authenticates the learner, verifies access to the source asset, creates job state, and imports validated results.
+- The worker has no public HTTP route and does not decide authorization. It receives one opaque job at a time through an internal queue/runner contract.
+- The worker uses a pinned Audiveris release and its batch CLI (`-batch -transcribe -export -output`) without shell interpolation of user-controlled names.
+- Each job gets a private temporary directory, execution deadline, page/size limit, memory/CPU limit, concurrency limit, and cleanup on every terminal state.
+- Network access should be disabled unless a documented Audiveris runtime prerequisite requires it. Inputs and outputs are treated as untrusted files.
+- Only validated MusicXML output becomes a `score_asset`. Prefer Audiveris plain MusicXML export initially; if compressed `.mxl` is accepted, enforce archive entry/count/expanded-size limits, safe paths, and expected score content. The `.omr` book, logs, and intermediate files remain private job artifacts rather than browser-addressable assets.
+
+### Recognition workflow
+
+1. Finish the normal PDF/image upload and make the original immediately readable.
+2. Let the learner explicitly request OCR; upload does not silently start an expensive job.
+3. Authorize the source and create a `queued` recognition job with engine/version/configuration provenance.
+4. Materialize the authorized source into an isolated job directory and run Audiveris asynchronously.
+5. Capture bounded logs and transition to `failed` with a stable, sanitized error when the process fails, times out, exceeds limits, or produces no valid score.
+6. Validate the MusicXML structure and size, calculate its checksum, store it under an opaque derived key, and link it to the source asset and edition.
+7. Mark the result `Unverified OCR`. The learner can explicitly inspect/play it, rerun recognition, replace it with corrected MusicXML, or delete it independently of the original.
+8. Retain the `.omr` project artifact when configured so a later Audiveris/external-editor correction workflow can resume without redefining Noted as a notation editor.
+
+The first increment targets printed Common Western Music Notation. Audiveris documents that handwritten music is unsupported and that recognition is not perfectly accurate; the UI and data model must not imply otherwise.
+
+### Licensing gate
+
+Audiveris is licensed under AGPL-3.0. Before code or deployment work begins, record a review of the exact version, packaging, modifications, user/network interaction, notices, and corresponding-source delivery. Keeping Audiveris in a separate process is an architectural and operational boundary, not a conclusion about license obligations.
+
 ## Local authentication mode
 
 - `AUTH_MODE=development` resolves requests to a configured seeded user.
@@ -200,3 +246,5 @@ Exact command implementation belongs to the implementation plan, but a clean che
 | Local Angular dev server | `noted-ui` Nginx container |
 | Local Go process | `noted-api` Swarm service |
 | Direct local ports | Traefik at `noted.bitofbytes.io` |
+
+The future `omr-worker` is an additional private production component with shared access only to its bounded input/output area. It must not be exposed through Traefik or receive database/OAuth credentials.

@@ -399,6 +399,15 @@ The open questions will be answered in rounds so that early answers can shape la
 - User uploads are private until explicitly shared.
 - Public discovery should search IMSLP and potentially other sources, after which selected music is imported into the user's Noted library.
 
+### Subsequent OCR direction selected
+
+This supersedes the earlier assumption that correction must be completed before any playback. Unverified playback may be useful when it is clearly labeled; correction is still required before a generated score is treated as trusted.
+
+- Use [Audiveris](https://github.com/Audiveris/audiveris) as the selected engine candidate for the first OCR-assisted upload increment, subject to representative piano-score validation and AGPL-3.0 compliance review.
+- Run recognition asynchronously in batch mode and preserve the original source plus derived MusicXML lineage.
+- Do not build a notation-correction experience into the first OCR increment. Label results as unverified, allow explicit playback/retry/replacement/deletion, and retain the optional Audiveris `.omr` artifact for a future Audiveris or external-editor correction workflow.
+- Printed Common Western Music Notation is the initial input boundary; handwritten-score recognition is not promised.
+
 ### Round 4: search, practice records, sharing, and experience boundaries
 
 1. When searching for a composition, should results lead with the work and then show editions, or show every downloadable score directly in the results?

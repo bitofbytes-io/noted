@@ -7,7 +7,7 @@ Last updated: 2026-07-13
 
 Stand up a private, deployable web application that lets two learners sign in separately, maintain personal repertoire, upload and view scores, play structured scores, use a metronome, and record basic practice activity.
 
-This plan deliberately avoids requiring automatic PDF-to-notation conversion for the first usable build.
+This plan deliberately avoids requiring automatic PDF-to-notation conversion for the first usable stand-up. The selected post-stand-up OCR direction is a separate Audiveris batch-worker increment described below.
 
 ## Recommended first-version boundary
 
@@ -30,7 +30,7 @@ This plan deliberately avoids requiring automatic PDF-to-notation conversion for
 
 ### Excluded from the first stand-up
 
-- Automatic optical music recognition from arbitrary PDFs.
+- Automatic optical music recognition from arbitrary PDFs (deferred to the post-stand-up Audiveris increment).
 - A built-in notation correction editor.
 - Guaranteed automated IMSLP download/import.
 - ISBN table-of-contents recognition.
@@ -258,6 +258,18 @@ Until this research is complete, the safe first workflow is to retain a source U
 - Privacy, account deletion, and data export behavior appropriate for the initial audience.
 - End-to-end tests for sign-in, upload, playback, and practice logging.
 
+### M6: OCR-assisted upload
+
+- Run a pinned Audiveris release as an asynchronous worker, not in the Go API request process.
+- Let a learner explicitly request recognition for an eligible printed PDF/image asset.
+- Export and validate MusicXML, store it as a derived score asset, and preserve source lineage plus engine/configuration provenance.
+- Show queued/running/succeeded/failed job state and actionable failure feedback.
+- Label generated output `Unverified OCR`; allow explicit playback, rerun, replacement, and deletion while preserving the original.
+- Retain the private `.omr` project artifact when practical to support later correction outside Noted.
+- Add representative-score quality/resource tests, tenant-isolation tests, output-validation tests, and an AGPL-3.0 compliance record.
+
+M6 does not include a Noted correction editor or handwritten-score recognition. It can begin only after the first stand-up definition of done is met and the technical/licensing spike is accepted.
+
 ## First-version definition of done
 
 The first version is stood up when:
@@ -281,6 +293,7 @@ The first version is stood up when:
 4. **iPad browser constraints:** audio, large documents, touch interaction, and memory behavior must be tested on the real device.
 5. **Scope pressure:** OMR, annotations, lessons, book recognition, and learning content can each become substantial products of their own.
 6. **Rights and privacy:** uploaded scans and separate family accounts require clear storage, access, deletion, and provenance rules.
+7. **OMR accuracy and licensing:** Audiveris cannot guarantee perfect recognition, and its AGPL-3.0 obligations must be reviewed for the exact worker/deployment model before release.
 
 ## Recommended immediate next step
 

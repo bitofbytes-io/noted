@@ -128,6 +128,18 @@ Automatic performance listening, note highlighting, instrument-sound selection, 
 - FR-080: Settings appears in primary bottom navigation and is not duplicated in the dashboard header.
 - FR-081: The dashboard header retains access to the learner's account/profile.
 
+### Optical music recognition
+
+- FR-090: When a learner uploads an eligible printed PDF or score image without structured notation, the learner can explicitly request optical music recognition.
+- FR-091: The first recognition implementation uses a pinned release of [Audiveris](https://github.com/Audiveris/audiveris) in batch mode to transcribe the source and export MusicXML.
+- FR-092: Recognition preserves the original source asset and creates a separate derived MusicXML asset linked to that exact source, edition, user, engine version, and job.
+- FR-093: Recognition is asynchronous and exposes queued, running, succeeded, and failed states with useful retryable/non-retryable error feedback.
+- FR-094: Machine-generated notation is labeled `Unverified OCR` and retains the Audiveris version, processing time, and relevant configuration/provenance.
+- FR-095: The first OCR increment does not include a Noted notation-correction interface. A learner may inspect and play the unverified result with a visible accuracy warning, replace it with independently corrected MusicXML, rerun recognition, or delete the derived result without deleting the original.
+- FR-096: The first OCR increment targets printed Common Western Music Notation. Handwritten scores and unsupported notation are rejected or reported as unsupported rather than presented as trustworthy conversions.
+- FR-097: The system may retain the private Audiveris `.omr` project artifact so a future correction workflow can resume from the recognition result without rerunning the entire source.
+- FR-098: A future correction increment may use Audiveris's interactive editor or a compatible external notation editor. Building a notation editor inside Noted is not required.
+
 ## Provisional non-functional requirements
 
 - NFR-001: The primary score-reading interface is optimized for a 13-inch portrait iPad at music-stand distance.
@@ -139,6 +151,10 @@ Automatic performance listening, note highlighting, instrument-sound selection, 
 - NFR-007: The initial interface uses a light theme and keeps score pages visually white.
 - NFR-008: The visual language is simple, utilitarian, structured, and based on crisp boundaries rather than ornamental styling.
 - NFR-009: Dashboard information density preserves intentional whitespace and avoids a cramped presentation.
+- NFR-010: Audiveris runs outside the synchronous upload request in an isolated, resource-limited worker with bounded input size, page count, execution time, memory, CPU, temporary storage, and concurrency.
+- NFR-011: The OMR worker has no public route and no direct authority over learner data; the Go API authorizes the source, owns job state, and imports only validated outputs.
+- NFR-012: Recognition artifacts use opaque storage keys, are private by default, and follow the same authorization, checksum, retention, backup, and deletion rules as original assets.
+- NFR-013: Before distribution or deployment, the implementation must complete and record an AGPL-3.0 compliance review for the exact Audiveris integration, including notices, corresponding-source obligations, modifications, and network use. Process isolation must not be treated as a substitute for that review.
 
 Offline use is a potential later enhancement rather than an initial requirement.
 
@@ -146,7 +162,8 @@ Offline use is a potential later enhancement rather than an initial requirement.
 
 - IMSLP and alternative catalog/search integration, rights, attribution, download, caching, and redistribution constraints.
 - Bibliographic and table-of-contents sources available from ISBNs.
-- Open-source optical music recognition quality and deployment options.
+- Audiveris spike using representative clean, noisy, multi-page, and complex piano scores; measure/rhythm accuracy, failure modes, CLI behavior, resource use, and MusicXML compatibility with the selected player.
+- Audiveris AGPL-3.0 integration and distribution/compliance review before committing the production topology.
 - MusicXML versus MEI as storage/interchange formats.
 - Browser-based notation rendering and synthesized playback options.
 - Apple Pencil annotation performance, persistence, coordinate mapping, and PDF compatibility on iPad browsers.
@@ -154,4 +171,4 @@ Offline use is a potential later enhancement rather than an initial requirement.
 
 ## POC boundary
 
-The release sequence and local POC boundary are now established. See `poc-requirements.md` for the authoritative implementation-planning scope. Search/import automation, annotation, score recognition, lessons, and learning remain later work unless explicitly included by a future requirements revision.
+The release sequence and local POC boundary are now established. See `poc-requirements.md` for the authoritative implementation-planning scope. The Audiveris OCR requirements above describe a post-POC increment and do not retroactively expand the completed POC. Search/import automation, annotation, OCR correction, lessons, and learning remain later work unless explicitly included by a future requirements revision.

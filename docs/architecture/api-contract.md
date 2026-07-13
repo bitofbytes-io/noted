@@ -66,6 +66,17 @@ The planner may choose a client-only running timer with one final create call fo
 - `GET /api/preferences`
 - `PATCH /api/preferences` — week start and metronome preferences.
 
+## Post-POC OCR extension
+
+These routes are reserved for the Audiveris increment and are not implemented by the completed POC:
+
+- `POST /api/assets/{assetId}/recognition-jobs` — explicitly request OCR for an authorized eligible source.
+- `GET /api/recognition-jobs/{jobId}` — return learner-scoped status, engine/version, timestamps, sanitized failure details, and output asset when available.
+- `POST /api/recognition-jobs/{jobId}/retry` — create a bounded retry after a terminal failure.
+- `DELETE /api/recognition-jobs/{jobId}` — cancel when possible or remove terminal job artifacts subject to retention policy; never delete the original source implicitly.
+
+A successful job returns a normal MusicXML asset linked to its source with `verificationState: "unverified_ocr"`. The UI must display that state before playback. Job creation is idempotent for an active source/user/configuration fingerprint and returns `202 Accepted`; it never holds the upload request open while Audiveris runs.
+
 ## Representative error codes
 
 - `validation_failed`
@@ -78,6 +89,11 @@ The planner may choose a client-only running timer with one final create call fo
 - `asset_storage_unavailable`
 - `invalid_measure_range`
 - `practice_timer_already_running`
+- `recognition_already_running`
+- `recognition_unsupported_source`
+- `recognition_failed`
+- `recognition_timed_out`
+- `recognition_output_invalid`
 
 ## Contract tests expected
 
@@ -88,3 +104,4 @@ The planner may choose a client-only running timer with one final create call fo
 - Movement/asset references in practice belong to the selected work.
 - Week boundaries begin on Monday.
 - Timer conflicts and invalid measure ranges return stable errors.
+- Future OCR jobs cannot read another learner's source or expose their output/logs; invalid, oversized, timed-out, and failed jobs leave no imported MusicXML or temporary files.

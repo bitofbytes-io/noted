@@ -179,6 +179,45 @@ composer 1 ── * work 1 ── * movement
 
 Do not add empty speculative tables solely for these later concepts. Add them through migrations when their requirements become active.
 
+## Post-POC recognition model
+
+The Audiveris increment activates recognition lineage without changing the meaning of an original score asset.
+
+### Future score_assets extensions
+
+- `asset_type` additionally permits validated source images (`png`, `jpeg`, `tiff`) when the OCR increment begins
+- `derived_from_asset_id` (nullable self-reference; required for OCR output)
+- `derivation_type` (nullable; `omr` initially)
+- `verification_state` (`original`, `unverified_ocr`, `accepted`, `corrected`)
+- `recognition_job_id` (nullable)
+
+The original and generated MusicXML are separate immutable binary objects. Re-running OCR creates a new result/version rather than silently replacing an existing asset. `accepted` records a learner decision to use a result; it is not a claim of note-perfect recognition.
+
+### recognition_jobs
+
+- `id`
+- `user_id`
+- `source_asset_id`
+- `status` (`queued`, `running`, `succeeded`, `failed`, `canceled`)
+- `engine` (`audiveris` initially)
+- `engine_version`
+- `configuration` (bounded JSON or normalized fields)
+- `output_asset_id` (nullable until success)
+- `project_storage_key` (optional private `.omr` artifact)
+- `attempt_number`
+- `error_code`, `error_message` (sanitized; nullable)
+- `queued_at`, `started_at`, `finished_at`
+- `created_at`, `updated_at`
+
+Validation and ownership rules:
+
+- The source must be an eligible PDF/image asset visible to the requesting learner.
+- Source, derived asset, recognition job, edition, and user scope must remain consistent.
+- Only one active job per source/user/configuration fingerprint should run at once; retries create auditable attempts.
+- Deleting a derived result does not delete the original. Original deletion must account for or cascade derived/job artifacts deliberately.
+- Worker logs and `.omr` projects are private operational artifacts with explicit retention limits and no direct public route.
+- If Audiveris emits compressed `.mxl`, the importer must enforce archive entry/count/expanded-size limits and reject paths or unexpected content. The initial implementation may instead configure Audiveris for plain MusicXML output.
+
 ## Dashboard query expectations
 
 The implementation plan should account for these read models:
