@@ -1,0 +1,23 @@
+# Local runtime data and uploaded POC assets
+.local/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+local.mk
+
+# Authentication/browser state
+.auth/
+
+# Build and dependency outputs reserved for the future scaffold
+bin/
+coverage/
+dist/
+node_modules/
+web/node_modules/
+web/dist/
+
+# Editor and OS files
+.DS_Store
+*.swp
