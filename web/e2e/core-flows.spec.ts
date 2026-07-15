@@ -83,6 +83,8 @@ test.describe.serial('Noted core POC flows', () => {
 
   test('Flow C: explicitly time practice and see the saved summary', async ({ page }, testInfo) => {
     await page.goto('/practice');
+    await expect(page.getByRole('heading', { name: 'Practice', exact: true })).toBeVisible();
+    await expect(page.getByText('Loading practice history…')).toBeHidden();
     const staleTimer = page.getByRole('button', { name: 'Discard timer' });
     if (await staleTimer.isVisible()) {
       page.once('dialog', (dialog) => dialog.accept());
