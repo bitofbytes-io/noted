@@ -266,8 +266,18 @@ func (s *Service) AddMovement(ctx context.Context, userID, workID string, input 
 	if err := validateResourceID(workID); err != nil {
 		return Movement{}, err
 	}
-	if input.SequenceNumber < 1 || strings.TrimSpace(input.Title) == "" {
-		return Movement{}, ValidationError{Fields: map[string]string{"movement": "sequence number and title are required"}}
+	fields := map[string]string{}
+	if input.SequenceNumber < 1 {
+		fields["sequenceNumber"] = "must be positive"
+	}
+	if strings.TrimSpace(input.Title) == "" {
+		fields["title"] = "is required"
+	}
+	if input.MeasureCount != nil && *input.MeasureCount < 1 {
+		fields["measureCount"] = "must be positive"
+	}
+	if len(fields) > 0 {
+		return Movement{}, ValidationError{Fields: fields}
 	}
 	var movement Movement
 	err := s.Pool.QueryRow(ctx, `

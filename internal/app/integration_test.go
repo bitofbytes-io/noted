@@ -265,6 +265,27 @@ func TestIntegrationReplaceWorkTagsReturnsSelectedIDs(t *testing.T) {
 	}
 }
 
+func TestIntegrationAddMovementRejectsNonPositiveMeasureCount(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	measureCount := 0
+	_, err := service.AddMovement(ctx, fixture.UserID, fixture.WorkID, MovementInput{
+		SequenceNumber: 2, Title: "Invalid movement", MeasureCount: &measureCount,
+	})
+	var validation ValidationError
+	if !errors.As(err, &validation) || validation.Fields["measureCount"] == "" {
+		t.Fatalf("invalid measure count error = %v, want measureCount validation", err)
+	}
+	var count int
+	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM movements WHERE work_id=$1 AND sequence_number=2`, fixture.WorkID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("invalid movement was inserted")
+	}
+}
+
 func TestIntegrationUploadCleanupOnMetadataFailure(t *testing.T) {
 	service, current, root := integrationService(t)
 	path := filepath.Join(t.TempDir(), "exercise.pdf")
