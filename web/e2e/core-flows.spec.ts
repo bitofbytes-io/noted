@@ -82,6 +82,13 @@ test.describe.serial('Noted core POC flows', () => {
   });
 
   test('Flow C: explicitly time practice and see the saved summary', async ({ page }, testInfo) => {
+    await page.goto('/practice');
+    const staleTimer = page.getByRole('button', { name: 'Discard timer' });
+    if (await staleTimer.isVisible()) {
+      page.once('dialog', (dialog) => dialog.accept());
+      await staleTimer.click();
+      await expect(page.getByText('Running timer discarded.')).toBeVisible();
+    }
     await page.goto('/home');
     await page.getByRole('link', { name: seededWork }).click();
     await page.getByRole('button', { name: 'Start Practice' }).click();
