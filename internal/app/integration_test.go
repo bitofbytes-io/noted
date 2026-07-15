@@ -14,6 +14,7 @@ import (
 	"github.com/bitofbytes-io/noted/internal/assets"
 	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -149,12 +150,9 @@ func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
 	ctx := context.Background()
-	if _, err := service.Pool.Exec(ctx, `UPDATE works SET catalog_number='Shared 1' WHERE id=$1`, fixture.WorkID); err != nil {
-		t.Fatal(err)
-	}
 
 	created, err := service.CreateWork(ctx, current.ID, CreateWorkInput{
-		Title: "Integration work", Composer: "Integration Composer", CatalogNumber: "Shared 1",
+		Title: "Integration work", Composer: "Integration Composer",
 		EditionName: "Current learner edition", RightsNote: "Current learner copy",
 	})
 	if err != nil {
@@ -164,7 +162,7 @@ func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
 		t.Fatalf("create work made duplicate shared identity %s, want %s", created.ID, fixture.WorkID)
 	}
 	var workCount, learnerCount, editionCount int
-	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM works WHERE composer_id=(SELECT composer_id FROM works WHERE id=$1) AND title='Integration work' AND catalog_number='Shared 1'`, fixture.WorkID).Scan(&workCount); err != nil {
+	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM works WHERE composer_id=(SELECT composer_id FROM works WHERE id=$1) AND title='Integration work' AND catalog_number IS NULL`, fixture.WorkID).Scan(&workCount); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM learner_works WHERE user_id=$1 AND work_id=$2`, current.ID, fixture.WorkID).Scan(&learnerCount); err != nil {
@@ -175,6 +173,23 @@ func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
 	}
 	if workCount != 1 || learnerCount != 1 || editionCount != 1 {
 		t.Fatalf("shared work reuse counts = work:%d learner:%d edition:%d", workCount, learnerCount, editionCount)
+	}
+}
+
+func TestIntegrationDatabaseRejectsDuplicateCataloglessWorkIdentity(t *testing.T) {
+	service, current, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	var composerID string
+	if err := service.Pool.QueryRow(ctx, `SELECT composer_id::text FROM works WHERE id=$1`, fixture.WorkID).Scan(&composerID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.Pool.Exec(ctx, `
+		INSERT INTO works(composer_id,title,catalog_number,created_by_user_id)
+		VALUES($1,'Integration work',NULL,$2)`, composerID, current.ID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "works_composer_id_title_catalog_number_key" {
+		t.Fatalf("duplicate catalogless work error = %v, want unique constraint", err)
 	}
 }
 

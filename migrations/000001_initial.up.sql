@@ -39,7 +39,7 @@ CREATE TABLE works (
     created_by_user_id uuid NOT NULL REFERENCES users(id),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (composer_id, title, catalog_number)
+    UNIQUE NULLS NOT DISTINCT (composer_id, title, catalog_number)
 );
 
 CREATE TABLE movements (
