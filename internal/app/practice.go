@@ -71,6 +71,12 @@ type PracticePatchInput struct {
 	Notes           PatchField[string]    `json:"notes"`
 }
 
+type PracticeFilters struct {
+	WorkID string
+	From   *time.Time
+	To     *time.Time
+}
+
 func (s *Service) validatePracticeContext(ctx context.Context, userID, workID string, movementID, assetID *string, startMeasure, endMeasure *int) error {
 	if err := validateResourceID(workID); err != nil {
 		return err
@@ -389,9 +395,11 @@ func (s *Service) GetPracticeSession(ctx context.Context, userID, sessionID stri
 	return item, err
 }
 
-func (s *Service) ListPractice(ctx context.Context, userID, workID string) ([]PracticeSession, error) {
+func (s *Service) ListPractice(ctx context.Context, userID string, filters PracticeFilters) ([]PracticeSession, error) {
 	rows, err := s.Pool.Query(ctx, practiceSelect+` WHERE ps.user_id=$1 AND ($2='' OR ps.work_id::text=$2)
-		ORDER BY (ps.ended_at IS NULL) DESC, ps.started_at DESC LIMIT 100`, userID, workID)
+		AND ($3::timestamptz IS NULL OR ps.started_at >= $3)
+		AND ($4::timestamptz IS NULL OR ps.started_at <= $4)
+		ORDER BY (ps.ended_at IS NULL) DESC, ps.started_at DESC LIMIT 100`, userID, filters.WorkID, filters.From, filters.To)
 	if err != nil {
 		return nil, err
 	}

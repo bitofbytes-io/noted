@@ -51,7 +51,7 @@ Upload responses include asset identity, type, size, checksum, PDF/playback capa
 
 ## Practice
 
-- `GET /api/practice-sessions?from=&to=&workId=` — recent learner sessions.
+- `GET /api/practice-sessions?from=&to=&workId=` — recent learner sessions; `from` and `to` are inclusive RFC 3339 `startedAt` bounds.
 - `POST /api/practice-sessions/start` — start explicit timer for a work and optional passage context.
 - `POST /api/practice-sessions/{sessionId}/stop` — stop timer and add final fields.
 - `POST /api/practice-sessions` — create manual session.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/bitofbytes-io/noted/internal/config"
 )
@@ -36,6 +37,34 @@ func multipartRequest(t *testing.T, filename string, content []byte) *http.Reque
 	request := httptest.NewRequest("POST", "/api/editions/edition/assets", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
+}
+
+func TestParsePracticeFilters(t *testing.T) {
+	request := httptest.NewRequest("GET", "/api/practice-sessions?workId=work-1&from=2034-03-05T09%3A00%3A00Z&to=2034-03-06T09%3A00%3A00Z", nil)
+	filters, err := parsePracticeFilters(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filters.WorkID != "work-1" || filters.From == nil || filters.To == nil {
+		t.Fatalf("parsed filters = %+v", filters)
+	}
+	if want := time.Date(2034, time.March, 5, 9, 0, 0, 0, time.UTC); !filters.From.Equal(want) {
+		t.Fatalf("from = %v, want %v", filters.From, want)
+	}
+}
+
+func TestParsePracticeFiltersRejectsInvalidOrReversedDates(t *testing.T) {
+	for name, target := range map[string]string{
+		"invalid":  "/api/practice-sessions?from=March-5",
+		"reversed": "/api/practice-sessions?from=2034-03-06T09%3A00%3A00Z&to=2034-03-05T09%3A00%3A00Z",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parsePracticeFilters(httptest.NewRequest("GET", target, nil))
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
 }
 
 func TestReadMultipartUploadStreamsFileAndCleansStagingFile(t *testing.T) {

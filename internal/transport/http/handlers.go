@@ -341,12 +341,41 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listPractice(w http.ResponseWriter, r *http.Request) {
-	items, err := h.Service.ListPractice(r.Context(), currentUser(r).ID, r.URL.Query().Get("workId"))
+	filters, err := parsePracticeFilters(r)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	items, err := h.Service.ListPractice(r.Context(), currentUser(r).ID, filters)
 	if err != nil {
 		h.handleError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func parsePracticeFilters(r *http.Request) (app.PracticeFilters, error) {
+	filters := app.PracticeFilters{WorkID: r.URL.Query().Get("workId")}
+	fields := map[string]string{}
+	for name, target := range map[string]**time.Time{"from": &filters.From, "to": &filters.To} {
+		raw := r.URL.Query().Get(name)
+		if raw == "" {
+			continue
+		}
+		value, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			fields[name] = "must be an RFC 3339 timestamp"
+			continue
+		}
+		*target = &value
+	}
+	if len(fields) == 0 && filters.From != nil && filters.To != nil && filters.From.After(*filters.To) {
+		fields["from"] = "must not follow to"
+	}
+	if len(fields) > 0 {
+		return app.PracticeFilters{}, app.ValidationError{Fields: fields}
+	}
+	return filters, nil
 }
 
 func (h *Handler) startPractice(w http.ResponseWriter, r *http.Request) {

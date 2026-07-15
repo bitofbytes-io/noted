@@ -716,7 +716,7 @@ func TestIntegrationListPracticeKeepsOldRunningTimerAheadOfHistoryLimit(t *testi
 		t.Fatal(err)
 	}
 
-	items, err := service.ListPractice(ctx, fixture.UserID, "")
+	items, err := service.ListPractice(ctx, fixture.UserID, PracticeFilters{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,6 +725,37 @@ func TestIntegrationListPracticeKeepsOldRunningTimerAheadOfHistoryLimit(t *testi
 	}
 	if items[0].ID != running.ID || items[0].EndedAt != nil {
 		t.Fatalf("old running timer was not prioritized ahead of bounded history: %+v", items[0])
+	}
+}
+
+func TestIntegrationListPracticeHonorsInclusiveDateFilters(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	starts := []time.Time{
+		time.Date(2034, time.March, 4, 9, 0, 0, 0, time.UTC),
+		time.Date(2034, time.March, 5, 9, 0, 0, 0, time.UTC),
+		time.Date(2034, time.March, 6, 9, 0, 0, 0, time.UTC),
+	}
+	created := make([]PracticeSession, 0, len(starts))
+	for _, started := range starts {
+		session, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+			WorkID: fixture.WorkID, StartedAt: &started, DurationSeconds: 60,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		created = append(created, session)
+	}
+
+	items, err := service.ListPractice(ctx, fixture.UserID, PracticeFilters{
+		WorkID: fixture.WorkID, From: &starts[1], To: &starts[1],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != created[1].ID {
+		t.Fatalf("bounded practice list = %+v, want only middle boundary session %s", items, created[1].ID)
 	}
 }
 
