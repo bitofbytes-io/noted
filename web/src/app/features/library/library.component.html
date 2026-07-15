@@ -1,0 +1,145 @@
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Your repertoire</p>
+    <h1>Library</h1>
+    <p class="lede">One work stays one work, even when it has multiple editions and score files.</p>
+  </div>
+  <button class="button" type="button" (click)="showCreate = !showCreate">
+    {{ showCreate ? 'Close' : '+ Add a work' }}
+  </button>
+</div>
+
+@if (showCreate) {
+  <section class="card create-panel" aria-labelledby="create-work-title">
+    <div>
+      <p class="eyebrow">Catalog</p>
+      <h2 id="create-work-title">Create work and first edition</h2>
+    </div>
+    <form class="form-grid" (ngSubmit)="createWork()">
+      <div class="field">
+        <label for="title">Work title</label
+        ><input id="title" name="title" [(ngModel)]="draft.title" required />
+      </div>
+      <div class="field">
+        <label for="composer">Composer</label
+        ><input id="composer" name="composer" [(ngModel)]="draft.composer" required />
+      </div>
+      <div class="field">
+        <label for="catalog">Catalog number</label
+        ><input id="catalog" name="catalog" [(ngModel)]="draft.catalogNumber" />
+      </div>
+      <div class="field">
+        <label for="key">Key</label><input id="key" name="key" [(ngModel)]="draft.keySignature" />
+      </div>
+      <div class="field">
+        <label for="period">Period</label
+        ><input id="period" name="period" [(ngModel)]="draft.period" />
+      </div>
+      <div class="field">
+        <label for="edition">Edition name</label
+        ><input id="edition" name="edition" [(ngModel)]="draft.editionName" required />
+      </div>
+      <div class="field">
+        <label for="source">Source URL</label
+        ><input id="source" name="source" type="url" [(ngModel)]="draft.sourceUrl" />
+      </div>
+      <div class="field">
+        <label for="rights">Rights note</label
+        ><input
+          id="rights"
+          name="rights"
+          [(ngModel)]="draft.rightsNote"
+          placeholder="Public domain, licensed, or owned copy"
+        />
+      </div>
+      <div class="full button-row">
+        <button class="button" type="submit" [disabled]="saving()">
+          {{ saving() ? 'Creating…' : 'Create work' }}</button
+        ><span class="meta">You can upload PDF and MusicXML on the next screen.</span>
+      </div>
+    </form>
+  </section>
+}
+
+<form class="card filter-panel" (ngSubmit)="applyFilters()" role="search">
+  <div class="field search-field">
+    <label for="library-search">Search</label
+    ><input id="library-search" name="q" [(ngModel)]="query" placeholder="Title or composer" />
+  </div>
+  <div class="field">
+    <label for="status-filter">Status</label
+    ><select id="status-filter" name="status" [(ngModel)]="status">
+      <option value="">All statuses</option>
+      @for (item of statuses; track item) {
+        <option [value]="item">{{ item }}</option>
+      }
+    </select>
+  </div>
+  <div class="field">
+    <label for="favorite-filter">Favorite</label
+    ><select id="favorite-filter" name="favorite" [(ngModel)]="favorite">
+      <option value="">Any</option>
+      <option value="true">Favorites</option>
+      <option value="false">Not favorites</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="tag-filter">Tag</label
+    ><select id="tag-filter" name="tag" [(ngModel)]="tag">
+      <option value="">All tags</option>
+      @for (item of tags(); track item.id) {
+        <option [value]="item.name">{{ item.name }}</option>
+      }
+    </select>
+  </div>
+  <div class="filter-buttons">
+    <button class="button" type="submit">Apply</button
+    ><button class="button secondary" type="button" (click)="clearFilters()">Clear</button>
+  </div>
+</form>
+
+@if (error()) {
+  <div class="error" role="alert">{{ error() }}</div>
+}
+@if (loading()) {
+  <div class="loading">Searching your library…</div>
+} @else if (works().length) {
+  <div class="library-list">
+    @for (work of works(); track work.id) {
+      <article class="work-row">
+        <button
+          class="favorite-mark"
+          [class.on]="work.isFavorite"
+          type="button"
+          disabled
+          [attr.aria-label]="work.isFavorite ? 'Favorite' : 'Not favorite'"
+        >
+          ★
+        </button>
+        <div class="work-identity">
+          <a [routerLink]="['/works', work.id]">{{ work.title }}</a
+          ><span>{{ work.composer }}</span>
+        </div>
+        <span class="status-chip">{{ work.status }}</span>
+        <div class="chip-row">
+          @for (item of work.tags; track item) {
+            <span class="tag-chip">{{ item }}</span>
+          }
+        </div>
+        <div class="availability">
+          <span class="capability" [class.yes]="work.hasPdf" [class.no]="!work.hasPdf">PDF</span
+          ><span class="capability" [class.yes]="work.hasPlayback" [class.no]="!work.hasPlayback"
+            >Playback</span
+          >
+        </div>
+        <a class="open-link" [routerLink]="['/works', work.id]" aria-label="Open work">→</a>
+      </article>
+    }
+  </div>
+} @else {
+  <div class="empty-state">
+    <h2>No works found</h2>
+    <p>Adjust the filters or create the first work in your library.</p>
+    <button class="button" (click)="showCreate = true">Add a work</button>
+  </div>
+}

@@ -1,0 +1,63 @@
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Standalone tool</p>
+    <h1>Metronome</h1>
+    <p class="lede">
+      A clear, audible pulse that keeps running until you stop it. Starting it requires a tap so
+      mobile Safari can unlock audio safely.
+    </p>
+  </div>
+</div>
+@if (error()) {
+  <div class="error" role="alert">{{ error() }}</div>
+}
+<div class="metronome-layout">
+  <section class="metronome-body" [class.running]="metronome.running()">
+    <div class="beat-dots" aria-label="Four beat accent pattern">
+      @for (beat of [1, 2, 3, 4]; track beat) {
+        <span [class.active]="metronome.beat() === beat"></span>
+      }
+    </div>
+    <div class="arm"><span></span></div>
+    <div class="tempo-readout">
+      <strong>{{ bpm }}</strong
+      ><span>beats per minute</span>
+    </div>
+    <button class="start-button" (click)="toggle()">
+      {{ metronome.running() ? 'Stop' : 'Start' }}
+    </button>
+  </section>
+  <aside class="card controls-card">
+    <p class="eyebrow">Tempo</p>
+    <h2>Set the pulse</h2>
+    <div class="stepper">
+      <button (click)="updateBpm(bpm - 1)" aria-label="Decrease BPM">−</button
+      ><input type="number" min="30" max="240" [(ngModel)]="bpm" (change)="updateBpm(bpm)" /><button
+        (click)="updateBpm(bpm + 1)"
+        aria-label="Increase BPM"
+      >
+        +
+      </button>
+    </div>
+    <input
+      class="tempo-slider"
+      type="range"
+      min="30"
+      max="240"
+      [(ngModel)]="bpm"
+      (input)="updateBpm(bpm)"
+      aria-label="BPM"
+    />
+    <div class="tempo-marks"><span>30</span><span>120</span><span>240</span></div>
+    <label class="accent-toggle"
+      ><input type="checkbox" [(ngModel)]="accent" (change)="updateAccent(accent)" /><span
+        ><strong>Accent beat one</strong><small>Higher click every four beats</small></span
+      ></label
+    >
+    <button class="button secondary" (click)="save()">Save as default</button>
+    @if (saved()) {
+      <div class="success">Metronome preference saved.</div>
+    }
+    <p class="meta">Supported range: 30–240 BPM. One sound is used in this POC.</p>
+  </aside>
+</div>

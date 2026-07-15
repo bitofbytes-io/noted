@@ -1,0 +1,239 @@
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Intentional tracking</p>
+    <h1>Practice</h1>
+    <p class="lede">
+      Playback never records practice on its own. Start a timer explicitly or add an honest manual
+      entry.
+    </p>
+  </div>
+  <button class="button secondary" (click)="showManual = !showManual">
+    {{ showManual ? 'Close entry' : '+ Manual entry' }}
+  </button>
+</div>
+@if (error()) {
+  <div class="error" role="alert">{{ error() }}</div>
+}
+@if (success()) {
+  <div class="success" role="status">{{ success() }}</div>
+}
+
+@if (timer.running(); as running) {
+  <section class="running-card">
+    <div>
+      <p class="eyebrow">Timer active</p>
+      <h2>{{ running.workTitle }}</h2>
+      <strong>{{ timer.formatElapsed() }}</strong
+      ><span>Started {{ running.startedAt | date: 'h:mm a' }}</span>
+      <button
+        class="discard-timer"
+        type="button"
+        (click)="discardTimer()"
+        [disabled]="timer.busy()"
+      >
+        Discard timer
+      </button>
+    </div>
+    <div class="stop-fields">
+      <div class="field">
+        <label for="timer-start-measure">Start measure</label
+        ><input
+          id="timer-start-measure"
+          type="number"
+          min="1"
+          [(ngModel)]="stopDraft.startMeasure"
+        />
+      </div>
+      <div class="field">
+        <label for="timer-end-measure">End measure</label
+        ><input id="timer-end-measure" type="number" min="1" [(ngModel)]="stopDraft.endMeasure" />
+      </div>
+      <div class="field">
+        <label for="timer-bpm">Ending BPM</label
+        ><input id="timer-bpm" type="number" min="30" max="300" [(ngModel)]="stopDraft.endingBpm" />
+      </div>
+      <div class="field">
+        <label for="timer-hand">Hand / part</label
+        ><input id="timer-hand" [(ngModel)]="stopDraft.handPart" />
+      </div>
+      <div class="field notes">
+        <label for="timer-notes">Notes</label
+        ><input id="timer-notes" [(ngModel)]="stopDraft.notes" />
+      </div>
+      <button class="stop-button" (click)="stopTimer()" [disabled]="timer.busy()">
+        Stop & save
+      </button>
+    </div>
+  </section>
+} @else {
+  <section class="card start-card">
+    <div>
+      <p class="eyebrow">New timed session</p>
+      <h2>What are you practicing?</h2>
+    </div>
+    <div class="start-controls">
+      <select [(ngModel)]="selectedTimerWork" aria-label="Work to practice">
+        @for (work of works(); track work.id) {
+          <option [value]="work.id">{{ work.title }} — {{ work.composer }}</option>
+        }</select
+      ><button
+        class="button"
+        (click)="startTimer()"
+        [disabled]="!selectedTimerWork || timer.busy()"
+      >
+        Start Practice
+      </button>
+    </div>
+  </section>
+}
+
+@if (showManual) {
+  <section class="card manual-card">
+    <div>
+      <p class="eyebrow">{{ editingId ? 'Correction' : 'Manual record' }}</p>
+      <h2>{{ editingId ? 'Edit practice entry' : 'Add completed practice' }}</h2>
+    </div>
+    <form class="form-grid" (ngSubmit)="saveManual()">
+      <div class="field">
+        <label for="manual-work">Work</label
+        ><select id="manual-work" name="work" [(ngModel)]="draft.workId" required>
+          @for (work of works(); track work.id) {
+            <option [value]="work.id">{{ work.title }}</option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="duration">Duration (minutes)</label
+        ><input
+          id="duration"
+          name="duration"
+          type="number"
+          min="1"
+          max="1440"
+          [(ngModel)]="draft.durationMinutes"
+          required
+        />
+      </div>
+      <div class="field">
+        <label for="manual-start">Start measure</label
+        ><input
+          id="manual-start"
+          name="startMeasure"
+          type="number"
+          min="1"
+          [(ngModel)]="draft.startMeasure"
+        />
+      </div>
+      <div class="field">
+        <label for="manual-end">End measure</label
+        ><input
+          id="manual-end"
+          name="endMeasure"
+          type="number"
+          min="1"
+          [(ngModel)]="draft.endMeasure"
+        />
+      </div>
+      <div class="field">
+        <label for="manual-start-bpm">Starting BPM</label
+        ><input
+          id="manual-start-bpm"
+          name="startingBpm"
+          type="number"
+          min="30"
+          max="300"
+          [(ngModel)]="draft.startingBpm"
+        />
+      </div>
+      <div class="field">
+        <label for="manual-end-bpm">Ending BPM</label
+        ><input
+          id="manual-end-bpm"
+          name="endingBpm"
+          type="number"
+          min="30"
+          max="300"
+          [(ngModel)]="draft.endingBpm"
+        />
+      </div>
+      <div class="field">
+        <label for="manual-hand">Hand / part</label
+        ><input
+          id="manual-hand"
+          name="handPart"
+          [(ngModel)]="draft.handPart"
+          placeholder="Both, RH, LH…"
+        />
+      </div>
+      <div class="field full">
+        <label for="manual-notes">Notes</label
+        ><textarea id="manual-notes" name="notes" [(ngModel)]="draft.notes"></textarea>
+      </div>
+      <div class="button-row full">
+        <button class="button" type="submit" [disabled]="saving()">
+          {{ saving() ? 'Saving…' : editingId ? 'Save correction' : 'Save practice' }}
+        </button>
+        @if (editingId) {
+          <button class="button secondary" type="button" (click)="cancelEdit()">Cancel</button>
+        }
+      </div>
+    </form>
+  </section>
+}
+
+<div class="section-heading">
+  <div>
+    <p class="eyebrow">History</p>
+    <h2>Recent sessions</h2>
+  </div>
+  <span class="meta">Your entries only</span>
+</div>
+@if (loading()) {
+  <div class="loading">Loading practice history…</div>
+} @else if (sessions().length) {
+  <div class="session-list">
+    @for (session of sessions(); track session.id) {
+      <article class="session-row">
+        <time [attr.datetime]="session.startedAt"
+          ><strong>{{ session.startedAt | date: 'MMM d' }}</strong
+          ><span>{{ session.startedAt | date: 'h:mm a' }}</span></time
+        >
+        <div class="session-work">
+          <a [routerLink]="['/works', session.workId]">{{ session.workTitle }}</a
+          ><span>{{ session.entryMethod === 'timer' ? 'Timed session' : 'Manual entry' }}</span>
+        </div>
+        <strong class="session-duration">{{ duration(session.durationSeconds) }}</strong>
+        <div class="session-detail">
+          @if (session.startMeasure) {
+            <span
+              >Measures {{ session.startMeasure }}–{{
+                session.endMeasure || session.startMeasure
+              }}</span
+            >
+          }
+          @if (session.endingBpm || session.startingBpm) {
+            <span
+              >{{ session.startingBpm || session.endingBpm
+              }}{{
+                session.endingBpm && session.startingBpm !== session.endingBpm
+                  ? ' → ' + session.endingBpm
+                  : ''
+              }}
+              BPM</span
+            >
+          }
+          @if (session.handPart) {
+            <span>{{ session.handPart }}</span>
+          }
+        </div>
+        <p>{{ session.notes || 'No notes' }}</p>
+        <div class="row-actions">
+          <button (click)="edit(session)">Edit</button
+          ><button (click)="remove(session)">Delete</button>
+        </div>
+      </article>
+    }
+  </div>
+} @else {
+  <div class="empty-state">No completed sessions yet. Start the timer or add a manual entry.</div>
+}

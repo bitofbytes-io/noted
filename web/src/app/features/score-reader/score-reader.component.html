@@ -1,0 +1,53 @@
+<section class="reader-shell" [class.controls-hidden]="controlsHidden">
+  <header class="reader-header">
+    <a [routerLink]="workId ? ['/works', workId] : ['/library']" aria-label="Back to work">←</a>
+    <div>
+      <strong>{{ asset()?.originalFilename || 'PDF score' }}</strong
+      ><span>Faithful PDF view</span>
+    </div>
+    <button class="reader-button" (click)="controlsHidden = true">Hide controls</button>
+  </header>
+
+  @if (error()) {
+    <div class="error reader-error" role="alert">{{ error() }}</div>
+  }
+  @if (loading()) {
+    <div class="reader-loading">Rendering score…</div>
+  }
+  <section #stage class="pdf-stage" aria-label="PDF score page">
+    <canvas #canvas></canvas>
+  </section>
+
+  <button
+    class="reveal-controls"
+    (click)="controlsHidden = false"
+    aria-label="Show reader controls"
+  >
+    •••
+  </button>
+  <button
+    class="pencil-button"
+    disabled
+    title="Annotations come in a later phase"
+    aria-label="Annotations coming later"
+  >
+    ✎<span>Later</span>
+  </button>
+
+  <div class="reader-controls">
+    <button (click)="changePage(-1)" [disabled]="page <= 1" aria-label="Previous page">←</button>
+    <span
+      >Page <strong>{{ page }}</strong> / {{ pageCount }}</span
+    >
+    <button (click)="changePage(1)" [disabled]="page >= pageCount" aria-label="Next page">→</button>
+    <span class="control-separator"></span>
+    <button [class.active]="fit === 'width'" (click)="setFit('width')">Fit width</button>
+    <button [class.active]="fit === 'page'" (click)="setFit('page')">Fit page</button>
+    @if (workId && !timer.running()) {
+      <button class="practice-control" (click)="startPractice()">Start Practice</button>
+    }
+    @if (timer.running()?.workId === workId) {
+      <a class="practice-control running" routerLink="/practice">● {{ timer.formatElapsed() }}</a>
+    }
+  </div>
+</section>

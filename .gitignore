@@ -1,0 +1,31 @@
+# Local runtime data and uploaded POC assets
+.local/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+local.mk
+
+# Authentication/browser state
+.auth/
+.playwright-cli/
+
+# Build and dependency outputs reserved for the future scaffold
+bin/
+coverage/
+dist/
+node_modules/
+web/node_modules/
+web/dist/
+web/.angular/
+web/test-results/
+web/playwright-report/
+
+# Editor and OS files
+.DS_Store
+*.swp
+
+# Verification artifacts are generated locally; selected screenshots are copied to docs.
+screenshots/*.png
+output/playwright/

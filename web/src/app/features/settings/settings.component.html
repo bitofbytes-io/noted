@@ -1,0 +1,110 @@
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Local preferences</p>
+    <h1>Settings</h1>
+    <p class="lede">
+      Small defaults for a calmer practice flow. Production identity and deployment remain
+      deliberately outside this local POC.
+    </p>
+  </div>
+</div>
+@if (error()) {
+  <div class="error" role="alert">{{ error() }}</div>
+}
+@if (success()) {
+  <div class="success" role="status">{{ success() }}</div>
+}
+@if (loading()) {
+  <div class="loading">Loading settings…</div>
+} @else {
+  <div class="settings-grid">
+    <section class="card settings-section">
+      <p class="eyebrow">Practice calendar</p>
+      <h2>Week summary</h2>
+      <div class="setting-row">
+        <div>
+          <strong>Week starts on</strong
+          ><span>Dashboard and practice totals use a Monday-first seven-day window.</span>
+        </div>
+        <select [(ngModel)]="preferences.weekStartsOn" disabled aria-label="Week starts on">
+          <option [ngValue]="1">Monday</option>
+        </select>
+      </div>
+      <div class="notice">
+        Monday is fixed for the POC. The data model leaves room for later configurability.
+      </div>
+    </section>
+    <section class="card settings-section">
+      <p class="eyebrow">Metronome</p>
+      <h2>Default pulse</h2>
+      <div class="setting-row">
+        <div>
+          <strong>Default BPM</strong><span>Used when the standalone metronome opens.</span>
+        </div>
+        <input
+          type="number"
+          min="30"
+          max="240"
+          [(ngModel)]="preferences.metronomeBpm"
+          aria-label="Default BPM"
+        />
+      </div>
+      <label class="setting-row checkbox-row"
+        ><div>
+          <strong>Accent beat one</strong><span>Use a higher click every four beats.</span>
+        </div>
+        <input type="checkbox" [(ngModel)]="preferences.metronomeAccent"
+      /></label>
+    </section>
+    <section class="card settings-section">
+      <p class="eyebrow">Account</p>
+      <h2>Development learner</h2>
+      @if (session(); as current) {
+        <div class="identity">
+          <span>{{ current.user.displayName.slice(0, 1) }}</span>
+          <div>
+            <strong>{{ current.user.displayName }}</strong
+            ><small>{{ current.user.email }}</small>
+          </div>
+          <b>Development</b>
+        </div>
+        <div class="notice">
+          Requests still resolve and scope this learner server-side. Development auth is rejected
+          outside development configuration.
+        </div>
+      }
+    </section>
+    <section class="card settings-section about">
+      <p class="eyebrow">About</p>
+      <h2>Noted POC</h2>
+      <p>
+        A private piano-score library and practice companion. Angular frontend, Go API, PostgreSQL
+        metadata, and local filesystem assets behind an authorization boundary.
+      </p>
+      <dl>
+        <div>
+          <dt>Week start</dt>
+          <dd>Monday</dd>
+        </div>
+        <div>
+          <dt>Score formats</dt>
+          <dd>PDF · MusicXML</dd>
+        </div>
+        <div>
+          <dt>Mode</dt>
+          <dd>Play</dd>
+        </div>
+        <div>
+          <dt>Learn</dt>
+          <dd>Coming later</dd>
+        </div>
+      </dl>
+    </section>
+  </div>
+  <div class="save-bar">
+    <span>Changes stay with the seeded learner in local PostgreSQL.</span
+    ><button class="button" (click)="save()" [disabled]="saving()">
+      {{ saving() ? 'Saving…' : 'Save preferences' }}
+    </button>
+  </div>
+}

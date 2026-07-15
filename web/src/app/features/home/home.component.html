@@ -1,0 +1,137 @@
+<section class="home-hero">
+  <div>
+    <p class="eyebrow">Personal piano workspace</p>
+    <h1>Pick up where you left off.</h1>
+    <p class="lede">
+      Scores, focused playback, and practice history—kept together without getting in the way.
+    </p>
+  </div>
+  <form class="dashboard-search" (ngSubmit)="search()" role="search">
+    <label for="dashboard-search">Search your library</label>
+    <div>
+      <span aria-hidden="true">⌕</span>
+      <input
+        id="dashboard-search"
+        name="query"
+        [(ngModel)]="query"
+        placeholder="Title or composer"
+      />
+      <button type="submit">Search</button>
+    </div>
+  </form>
+</section>
+
+@if (error()) {
+  <div class="error" role="alert">
+    {{ error() }} <button class="text-button" (click)="load()">Try again</button>
+  </div>
+} @else if (loading()) {
+  <div class="loading">Loading your practice desk…</div>
+} @else if (dashboard(); as data) {
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Resume</p>
+      <h2>Continue practicing</h2>
+    </div>
+    <a routerLink="/library">View full library →</a>
+  </div>
+
+  <div class="card current-table">
+    @if (data.currentWorks.length) {
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Work</th>
+            <th>Status</th>
+            <th>Last practiced</th>
+            <th>Tempo</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (work of data.currentWorks; track work.id) {
+            <tr>
+              <td>
+                <a class="table-link" [routerLink]="['/works', work.id]">{{ work.title }}</a>
+                <span class="composer">{{ work.composer }}</span>
+              </td>
+              <td>
+                <span class="status-chip">{{ work.status }}</span>
+              </td>
+              <td>{{ work.lastPracticed ? (work.lastPracticed | date: 'MMM d') : 'Not yet' }}</td>
+              <td>{{ work.lastBpm ? work.lastBpm + ' BPM' : '—' }}</td>
+              <td>
+                <div class="capabilities">
+                  <span [class.available]="work.hasPdf">PDF</span
+                  ><span [class.available]="work.hasPlayback">PLAY</span>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    } @else {
+      <div class="empty-state">
+        Your current repertoire will appear here. <a routerLink="/library">Add a work</a>.
+      </div>
+    }
+  </div>
+
+  <div class="dashboard-grid">
+    <section class="card practice-card" aria-labelledby="practice-week-title">
+      <div class="metric-heading">
+        <div>
+          <p class="eyebrow">Monday–Sunday</p>
+          <h2 id="practice-week-title">This week</h2>
+        </div>
+        <div class="metric-total">
+          <strong>{{ duration(data.week.totalSeconds) }}</strong
+          ><span
+            >{{ data.week.sessionCount }}
+            {{ data.week.sessionCount === 1 ? 'session' : 'sessions' }}</span
+          >
+        </div>
+      </div>
+      <div class="week-chart" aria-label="Daily practice duration">
+        @for (day of data.week.days; track day.date) {
+          <div class="day-column" [title]="duration(day.durationSeconds)">
+            <span class="bar-value">{{
+              day.durationSeconds ? duration(day.durationSeconds) : ''
+            }}</span>
+            <div class="bar-track">
+              <span [style.height.%]="barHeight(day.durationSeconds, data)"></span>
+            </div>
+            <strong>{{ dayLabel(day.date) }}</strong>
+          </div>
+        }
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="recent-title">
+      <div class="metric-heading">
+        <div>
+          <p class="eyebrow">Your files</p>
+          <h2 id="recent-title">Recently imported</h2>
+        </div>
+      </div>
+      @if (data.recentImports.length) {
+        <div class="recent-list">
+          @for (asset of data.recentImports; track asset.id) {
+            <div class="recent-row">
+              <span class="file-type">{{ asset.assetType === 'pdf' ? 'PDF' : 'XML' }}</span>
+              <div>
+                <strong>{{ asset.originalFilename }}</strong
+                ><span
+                  >{{ (asset.byteSize / 1024).toFixed(1) }} KB ·
+                  {{ asset.createdAt | date: 'MMM d, h:mm a' }}</span
+                >
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="empty-state">Imported PDF and MusicXML assets appear here.</div>
+      }
+    </section>
+  </div>
+}
