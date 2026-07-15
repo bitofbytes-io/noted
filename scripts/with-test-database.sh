@@ -26,10 +26,12 @@ trap cleanup EXIT INT TERM
 docker compose -p noted -f compose.local.yml up -d --wait postgres
 docker compose -p noted -f compose.local.yml exec -T postgres createdb -U noted "$database"
 
-unset DATABASE_URL_FILE AUTH_GOOGLE_CLIENT_ID_FILE AUTH_GOOGLE_CLIENT_SECRET_FILE
 export APP_ENV=test
 export AUTH_MODE=development
 export DATABASE_URL="postgres://noted:noted@localhost:5434/${database}?sslmode=disable"
+export DATABASE_URL_FILE=
+export AUTH_GOOGLE_CLIENT_ID_FILE=
+export AUTH_GOOGLE_CLIENT_SECRET_FILE=
 export TEST_DATABASE_NAME="$database"
 export ASSET_ROOT="$asset_root"
 export PORT=8080
