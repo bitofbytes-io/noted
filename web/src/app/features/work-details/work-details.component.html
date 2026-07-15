@@ -176,8 +176,8 @@
           <p class="eyebrow">Secure local import</p>
           <h2>Upload score asset</h2>
           <p class="meta">
-            PDF, .musicxml, or .xml up to 25 MB. Files receive opaque storage keys and SHA-256
-            checksums.
+            PDF, .musicxml, .xml, or compressed .mxl up to 25 MB. Files receive opaque storage keys
+            and SHA-256 checksums.
           </p>
         </div>
         <div class="form-grid">
@@ -194,7 +194,7 @@
             ><input
               id="upload-file"
               type="file"
-              accept=".pdf,.musicxml,.xml,application/pdf"
+              accept=".pdf,.musicxml,.xml,.mxl,application/pdf,application/vnd.recordare.musicxml"
               (change)="chooseFile($event)"
             />
           </div>

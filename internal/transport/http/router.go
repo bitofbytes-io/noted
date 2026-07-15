@@ -6,10 +6,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/bitofbytes-io/noted/internal/app"
+	assetstore "github.com/bitofbytes-io/noted/internal/assets"
 	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -140,7 +140,7 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusForbidden, "not_authorized", "the resource belongs to another learner", nil)
 	case errors.Is(err, app.ErrConflict):
 		h.writeError(w, http.StatusConflict, "practice_timer_already_running", "stop the running practice timer first", nil)
-	case strings.Contains(err.Error(), "supported PDF or MusicXML"):
+	case errors.Is(err, assetstore.ErrUnsupportedUpload):
 		h.writeError(w, http.StatusUnsupportedMediaType, "unsupported_asset_type", err.Error(), nil)
 	default:
 		h.Logger.Error("request failed", "error", err)

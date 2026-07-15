@@ -69,5 +69,7 @@ describe('WorkDetailsComponent capability states', () => {
       fixture.nativeElement.querySelectorAll('.asset-row a') as NodeListOf<Element>,
     ).map((node) => node.textContent?.trim());
     expect(assetActions).toEqual(['Read']);
+    const upload = fixture.nativeElement.querySelector('#upload-file') as HTMLInputElement;
+    expect(upload.accept).toContain('.mxl');
   });
 });
