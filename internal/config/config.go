@@ -28,19 +28,31 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	databaseURL, err := secretValue("DATABASE_URL")
+	if err != nil {
+		return Config{}, err
+	}
+	googleClientID, err := secretValue("AUTH_GOOGLE_CLIENT_ID")
+	if err != nil {
+		return Config{}, err
+	}
+	googleSecret, err := secretValue("AUTH_GOOGLE_CLIENT_SECRET")
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		AppEnv:         value("APP_ENV", "development"),
 		Port:           value("PORT", "8080"),
 		LogLevel:       value("LOG_LEVEL", "info"),
-		DatabaseURL:    secretValue("DATABASE_URL"),
+		DatabaseURL:    databaseURL,
 		AssetRoot:      value("ASSET_ROOT", ".local/noted-assets"),
 		MaxUploadBytes: defaultMaxUploadBytes,
 		AuthMode:       value("AUTH_MODE", "development"),
 		DevUserEmail:   strings.ToLower(value("DEV_USER_EMAIL", "learner@noted.local")),
 		FrontendURL:    value("FRONTEND_URL", "http://localhost:4200"),
 		AllowedOrigins: split(value("ALLOWED_ORIGINS", "http://localhost:4200")),
-		GoogleClientID: secretValue("AUTH_GOOGLE_CLIENT_ID"),
-		GoogleSecret:   secretValue("AUTH_GOOGLE_CLIENT_SECRET"),
+		GoogleClientID: googleClientID,
+		GoogleSecret:   googleSecret,
 		GoogleRedirect: os.Getenv("AUTH_GOOGLE_REDIRECT_URL"),
 		AllowedEmails:  split(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS")),
 	}
@@ -90,14 +102,19 @@ func value(key, fallback string) string {
 	return fallback
 }
 
-func secretValue(key string) string {
+func secretValue(key string) (string, error) {
 	if file := os.Getenv(key + "_FILE"); file != "" {
 		contents, err := os.ReadFile(file)
-		if err == nil {
-			return strings.TrimSpace(string(contents))
+		if err != nil {
+			return "", fmt.Errorf("read configured %s: %w", key+"_FILE", err)
 		}
+		secret := strings.TrimSpace(string(contents))
+		if secret == "" {
+			return "", fmt.Errorf("configured %s is empty", key+"_FILE")
+		}
+		return secret, nil
 	}
-	return os.Getenv(key)
+	return os.Getenv(key), nil
 }
 
 func split(value string) []string {

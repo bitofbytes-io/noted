@@ -132,19 +132,48 @@ func (s *Service) OpenAsset(ctx context.Context, userID, assetID string) (assetR
 }
 
 func (s *Service) DeleteAsset(ctx context.Context, userID, assetID string) error {
-	item, err := s.getAssetRecord(ctx, userID, assetID)
+	if err := validateResourceID(assetID); err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	result, err := s.Pool.Exec(ctx, `DELETE FROM score_assets WHERE uploaded_by_user_id=$1 AND id=$2`, userID, assetID)
+	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
+
+	var storageKey string
+	err = tx.QueryRow(ctx, `
+		SELECT a.storage_key
+		FROM score_assets a
+		JOIN editions e ON e.id=a.edition_id
+		JOIN learner_works lw ON lw.work_id=e.work_id
+		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.id=$2
+		FOR UPDATE OF a`, userID, assetID).Scan(&storageKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var referenced bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM practice_sessions WHERE score_asset_id=$1)`, assetID).Scan(&referenced); err != nil {
+		return err
+	}
+	if referenced {
+		return ErrAssetInUse
+	}
+	result, err := tx.Exec(ctx, `DELETE FROM score_assets WHERE uploaded_by_user_id=$1 AND id=$2`, userID, assetID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	if err := s.Store.Delete(context.Background(), item.StorageKey); err != nil {
-		slog.Error("asset metadata deleted but storage cleanup failed", "asset_id", assetID, "storage_key", item.StorageKey, "error", err)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if err := s.Store.Delete(context.Background(), storageKey); err != nil {
+		slog.Error("asset metadata deleted but storage cleanup failed", "asset_id", assetID, "storage_key", storageKey, "error", err)
 	}
 	return nil
 }

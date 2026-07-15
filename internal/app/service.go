@@ -14,6 +14,7 @@ var (
 	ErrNotFound      = errors.New("not found")
 	ErrNotAuthorized = errors.New("not authorized")
 	ErrConflict      = errors.New("conflict")
+	ErrAssetInUse    = errors.New("asset is referenced by practice history")
 )
 
 type Service struct {

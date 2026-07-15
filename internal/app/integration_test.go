@@ -561,6 +561,49 @@ func TestIntegrationDeleteAssetRemovesMetadataBeforeBestEffortStorageCleanup(t *
 	}
 }
 
+func TestIntegrationDeleteAssetPreservesReferencedPracticeHistory(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	if _, err := service.Store.Put(ctx, fixture.StorageKey, bytes.NewBufferString("%PDF-1.4")); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, ScoreAssetID: &fixture.AssetID, DurationSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.DeleteAsset(ctx, fixture.UserID, fixture.AssetID); !errors.Is(err, ErrAssetInUse) {
+		t.Fatalf("referenced asset deletion error = %v, want ErrAssetInUse", err)
+	}
+	if _, err := service.GetAsset(ctx, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatalf("referenced asset metadata was removed: %v", err)
+	}
+	exists, err := service.Store.Exists(ctx, fixture.StorageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatal("referenced asset file was removed")
+	}
+	retained, err := service.GetPracticeSession(ctx, fixture.UserID, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.ScoreAssetID == nil || *retained.ScoreAssetID != fixture.AssetID {
+		t.Fatalf("practice asset context was not retained: %+v", retained)
+	}
+
+	if err := service.DeletePractice(ctx, fixture.UserID, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeleteAsset(ctx, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatalf("unreferenced asset could not be deleted: %v", err)
+	}
+}
+
 func TestIntegrationOwnerCanDiscardRunningPracticeTimer(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)

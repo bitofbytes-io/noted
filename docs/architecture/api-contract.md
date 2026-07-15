@@ -45,7 +45,7 @@ Last updated: 2026-07-13
 - `POST /api/editions/{editionId}/assets` — multipart upload plus source/rights metadata.
 - `GET /api/assets/{assetId}` — asset metadata.
 - `GET /api/assets/{assetId}/content` — authenticated streaming response with range support if required by the selected viewers.
-- `DELETE /api/assets/{assetId}` — delete an owned/eligible asset after relationship checks.
+- `DELETE /api/assets/{assetId}` — delete an owned/eligible asset after relationship checks; returns `409 asset_in_use` while practice history references it.
 
 Upload responses include asset identity, type, size, checksum, PDF/playback capabilities, and content endpoint.
 

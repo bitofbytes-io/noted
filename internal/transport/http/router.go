@@ -138,6 +138,8 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusNotFound, "not_found", "the requested resource was not found", nil)
 	case errors.Is(err, app.ErrNotAuthorized):
 		h.writeError(w, http.StatusForbidden, "not_authorized", "the resource belongs to another learner", nil)
+	case errors.Is(err, app.ErrAssetInUse):
+		h.writeError(w, http.StatusConflict, "asset_in_use", "remove the asset from practice history before deleting it", nil)
 	case errors.Is(err, app.ErrConflict):
 		h.writeError(w, http.StatusConflict, "practice_timer_already_running", "stop the running practice timer first", nil)
 	case errors.Is(err, assetstore.ErrUnsupportedUpload):
