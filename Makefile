@@ -9,7 +9,7 @@ setup:
 	cd web && npm ci
 
 db-up:
-	docker compose -f compose.local.yml up -d postgres
+	docker compose -f compose.local.yml up -d --wait postgres
 
 db-down:
 	docker compose -f compose.local.yml down

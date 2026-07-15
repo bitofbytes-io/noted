@@ -376,3 +376,59 @@ func TestIntegrationOwnerCanDiscardRunningPracticeTimer(t *testing.T) {
 		t.Fatalf("discarded timer remained visible: %v", err)
 	}
 }
+
+func TestIntegrationPracticeCorrectionsRefreshMostRecentBPM(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	olderStart := time.Date(2033, time.February, 6, 9, 0, 0, 0, time.UTC)
+	newerStart := olderStart.Add(time.Hour)
+	olderBPM, newerBPM := 90, 100
+	older, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, StartedAt: &olderStart, DurationSeconds: 600, EndingBPM: &olderBPM,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, StartedAt: &newerStart, DurationSeconds: 600, EndingBPM: &newerBPM,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLastBPM := func(want int) {
+		t.Helper()
+		var got *int
+		if err := service.Pool.QueryRow(ctx, `SELECT last_bpm FROM learner_works WHERE user_id=$1 AND work_id=$2`, fixture.UserID, fixture.WorkID).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || *got != want {
+			t.Fatalf("last BPM = %v, want %d", got, want)
+		}
+	}
+	assertLastBPM(newerBPM)
+
+	correctedOlderBPM := 120
+	var patch PracticePatchInput
+	if err := json.Unmarshal([]byte(`{"endingBpm":120}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdatePractice(ctx, fixture.UserID, older.ID, patch); err != nil {
+		t.Fatal(err)
+	}
+	assertLastBPM(newerBPM)
+
+	patch = PracticePatchInput{}
+	correctedNewerBPM := 110
+	if err := json.Unmarshal([]byte(`{"endingBpm":110}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdatePractice(ctx, fixture.UserID, newer.ID, patch); err != nil {
+		t.Fatal(err)
+	}
+	assertLastBPM(correctedNewerBPM)
+	if err := service.DeletePractice(ctx, fixture.UserID, newer.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertLastBPM(correctedOlderBPM)
+}

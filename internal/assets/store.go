@@ -31,6 +31,7 @@ type AssetStore interface {
 	Open(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error)
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
+	Ready(ctx context.Context) error
 }
 
 type FilesystemStore struct {
@@ -118,6 +119,30 @@ func (s *FilesystemStore) Exists(_ context.Context, key string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+func (s *FilesystemStore) Ready(ctx context.Context) error {
+	for _, relative := range []string{"temporary", "originals/pdf", "originals/musicxml"} {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		directory := filepath.Join(s.root, relative)
+		probe, err := os.CreateTemp(directory, ".noted-ready-*")
+		if err != nil {
+			return fmt.Errorf("probe asset directory %s: %w", relative, err)
+		}
+		name := probe.Name()
+		if err := probe.Close(); err != nil {
+			_ = os.Remove(name)
+			return fmt.Errorf("close asset readiness probe: %w", err)
+		}
+		if err := os.Remove(name); err != nil {
+			return fmt.Errorf("remove asset readiness probe: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *FilesystemStore) path(key string) (string, error) {

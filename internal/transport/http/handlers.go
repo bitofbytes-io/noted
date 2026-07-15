@@ -23,7 +23,7 @@ func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusServiceUnavailable, "not_ready", "database is unavailable", nil)
 		return
 	}
-	if _, err := h.Service.Store.Exists(ctx, "pdf/00000000-0000-4000-8000-000000000000"); err != nil {
+	if err := h.Service.Store.Ready(ctx); err != nil {
 		h.writeError(w, http.StatusServiceUnavailable, "not_ready", "asset storage is unavailable", nil)
 		return
 	}

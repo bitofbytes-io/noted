@@ -3,6 +3,8 @@ package assets
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,6 +19,35 @@ func TestFilesystemStoreRejectsUnsafeKeys(t *testing.T) {
 		if _, err := store.Put(context.Background(), key, strings.NewReader("secret")); err == nil {
 			t.Fatalf("expected key %q to be rejected", key)
 		}
+	}
+}
+
+func TestFilesystemStoreReadinessProbesRequiredDirectories(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFilesystemStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Ready(context.Background()); err != nil {
+		t.Fatalf("new store should be ready: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "originals", "pdf")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Ready(context.Background()); err == nil {
+		t.Fatal("store reported ready after a required asset directory was removed")
+	}
+}
+
+func TestFilesystemStoreReadinessHonorsCancellation(t *testing.T) {
+	store, err := NewFilesystemStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := store.Ready(ctx); err == nil {
+		t.Fatal("store readiness ignored a canceled context")
 	}
 }
 

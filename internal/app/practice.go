@@ -177,8 +177,8 @@ func (s *Service) StopPractice(ctx context.Context, userID, sessionID string, in
 	if result.RowsAffected() == 0 {
 		return PracticeSession{}, ErrNotFound
 	}
-	if input.EndingBPM != nil {
-		_, _ = s.Pool.Exec(ctx, `UPDATE learner_works SET last_bpm=$3,updated_at=now() WHERE user_id=$1 AND work_id=$2`, userID, workID, *input.EndingBPM)
+	if err := s.refreshLastBPM(ctx, userID, workID); err != nil {
+		return PracticeSession{}, err
 	}
 	return s.GetPracticeSession(ctx, userID, sessionID)
 }
@@ -203,12 +203,8 @@ func (s *Service) CreateManualPractice(ctx context.Context, userID string, input
 	if err != nil {
 		return PracticeSession{}, err
 	}
-	bpm := input.EndingBPM
-	if bpm == nil {
-		bpm = input.StartingBPM
-	}
-	if bpm != nil {
-		_, _ = s.Pool.Exec(ctx, `UPDATE learner_works SET last_bpm=$3,updated_at=now() WHERE user_id=$1 AND work_id=$2`, userID, input.WorkID, *bpm)
+	if err := s.refreshLastBPM(ctx, userID, input.WorkID); err != nil {
+		return PracticeSession{}, err
 	}
 	return s.GetPracticeSession(ctx, userID, id)
 }
@@ -301,16 +297,46 @@ func (s *Service) UpdatePractice(ctx context.Context, userID, sessionID string, 
 	if result.RowsAffected() == 0 {
 		return PracticeSession{}, ErrNotFound
 	}
+	if err := s.refreshLastBPM(ctx, userID, existing.WorkID, workID); err != nil {
+		return PracticeSession{}, err
+	}
 	return s.GetPracticeSession(ctx, userID, sessionID)
 }
 
 func (s *Service) DeletePractice(ctx context.Context, userID, sessionID string) error {
+	existing, err := s.GetPracticeSession(ctx, userID, sessionID)
+	if err != nil {
+		return err
+	}
 	result, err := s.Pool.Exec(ctx, `DELETE FROM practice_sessions WHERE id=$1 AND user_id=$2`, sessionID, userID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		return ErrNotFound
+	}
+	return s.refreshLastBPM(ctx, userID, existing.WorkID)
+}
+
+func (s *Service) refreshLastBPM(ctx context.Context, userID string, workIDs ...string) error {
+	seen := make(map[string]struct{}, len(workIDs))
+	for _, workID := range workIDs {
+		if workID == "" {
+			continue
+		}
+		if _, ok := seen[workID]; ok {
+			continue
+		}
+		seen[workID] = struct{}{}
+		if _, err := s.Pool.Exec(ctx, `
+			UPDATE learner_works SET last_bpm=(
+				SELECT COALESCE(ps.ending_bpm,ps.starting_bpm) FROM practice_sessions ps
+				WHERE ps.user_id=$1 AND ps.work_id=$2 AND ps.ended_at IS NOT NULL
+				  AND COALESCE(ps.ending_bpm,ps.starting_bpm) IS NOT NULL
+				ORDER BY ps.started_at DESC,ps.created_at DESC LIMIT 1
+			),updated_at=now() WHERE user_id=$1 AND work_id=$2`, userID, workID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
