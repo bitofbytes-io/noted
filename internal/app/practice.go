@@ -351,7 +351,8 @@ func (s *Service) GetPracticeSession(ctx context.Context, userID, sessionID stri
 }
 
 func (s *Service) ListPractice(ctx context.Context, userID, workID string) ([]PracticeSession, error) {
-	rows, err := s.Pool.Query(ctx, practiceSelect+` WHERE ps.user_id=$1 AND ($2='' OR ps.work_id::text=$2) ORDER BY ps.started_at DESC LIMIT 100`, userID, workID)
+	rows, err := s.Pool.Query(ctx, practiceSelect+` WHERE ps.user_id=$1 AND ($2='' OR ps.work_id::text=$2)
+		ORDER BY (ps.ended_at IS NULL) DESC, ps.started_at DESC LIMIT 100`, userID, workID)
 	if err != nil {
 		return nil, err
 	}

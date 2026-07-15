@@ -2,8 +2,13 @@ package httptransport
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -175,26 +180,120 @@ func (h *Handler) replaceWorkTags(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.Config.MaxUploadBytes+(1<<20))
-	if err := r.ParseMultipartForm(h.Config.MaxUploadBytes + (1 << 20)); err != nil {
-		h.writeError(w, http.StatusRequestEntityTooLarge, "upload_too_large", "upload exceeds the configured limit", nil)
-		return
-	}
-	file, header, err := r.FormFile("file")
+	header, file, metadata, err := h.readMultipartUpload(r)
 	if err != nil {
-		h.writeError(w, http.StatusUnprocessableEntity, "validation_failed", "a file is required", map[string]string{"file": "is required"})
+		var maxBytesError *http.MaxBytesError
+		if errors.Is(err, errUploadTooLarge) || errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "upload_too_large", "upload exceeds the configured limit", nil)
+			return
+		}
+		h.writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error(), map[string]string{"file": "is required"})
 		return
 	}
 	defer file.Close()
-	if header.Size <= 0 || header.Size > h.Config.MaxUploadBytes {
-		h.writeError(w, http.StatusRequestEntityTooLarge, "upload_too_large", "upload exceeds the configured limit", nil)
-		return
-	}
-	value, err := h.Service.UploadAsset(r.Context(), currentUser(r).ID, chi.URLParam(r, "editionId"), header, file, app.UploadMetadata{SourceURL: r.FormValue("sourceUrl"), RightsNote: r.FormValue("rightsNote")})
+	value, err := h.Service.UploadAsset(r.Context(), currentUser(r).ID, chi.URLParam(r, "editionId"), header, file, metadata)
 	if err != nil {
 		h.handleError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusCreated, value)
+}
+
+var errUploadTooLarge = errors.New("upload exceeds the configured limit")
+
+func (h *Handler) readMultipartUpload(r *http.Request) (*multipart.FileHeader, multipart.File, app.UploadMetadata, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, nil, app.UploadMetadata{}, fmt.Errorf("request must use multipart form data: %w", err)
+	}
+
+	var (
+		header   *multipart.FileHeader
+		file     *os.File
+		metadata app.UploadMetadata
+	)
+	cleanup := func() {
+		if file != nil {
+			name := file.Name()
+			_ = file.Close()
+			_ = os.Remove(name)
+		}
+	}
+	fail := func(err error) (*multipart.FileHeader, multipart.File, app.UploadMetadata, error) {
+		cleanup()
+		return nil, nil, app.UploadMetadata{}, err
+	}
+
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return fail(nextErr)
+		}
+		name := part.FormName()
+		switch name {
+		case "file":
+			filename := part.FileName()
+			if file != nil || filename == "" {
+				_ = part.Close()
+				return fail(errors.New("exactly one file is required"))
+			}
+			file, err = os.CreateTemp("", "noted-upload-*")
+			if err != nil {
+				_ = part.Close()
+				return fail(fmt.Errorf("create upload staging file: %w", err))
+			}
+			size, copyErr := io.Copy(file, io.LimitReader(part, h.Config.MaxUploadBytes+1))
+			_ = part.Close()
+			if copyErr != nil {
+				return fail(fmt.Errorf("stream upload: %w", copyErr))
+			}
+			if size <= 0 {
+				return fail(errors.New("file must not be empty"))
+			}
+			if size > h.Config.MaxUploadBytes {
+				return fail(errUploadTooLarge)
+			}
+			if _, err = file.Seek(0, io.SeekStart); err != nil {
+				return fail(fmt.Errorf("rewind upload: %w", err))
+			}
+			header = &multipart.FileHeader{Filename: filename, Size: size}
+		case "sourceUrl", "rightsNote":
+			value, readErr := io.ReadAll(io.LimitReader(part, 64<<10))
+			_ = part.Close()
+			if readErr != nil {
+				return fail(fmt.Errorf("read %s: %w", name, readErr))
+			}
+			if name == "sourceUrl" {
+				metadata.SourceURL = string(value)
+			} else {
+				metadata.RightsNote = string(value)
+			}
+		default:
+			_ = part.Close()
+		}
+	}
+	if file == nil || header == nil {
+		return fail(errors.New("a file is required"))
+	}
+
+	stagedName := file.Name()
+	return header, &stagedUpload{File: file, path: stagedName}, metadata, nil
+}
+
+type stagedUpload struct {
+	*os.File
+	path string
+}
+
+func (f *stagedUpload) Close() error {
+	err := f.File.Close()
+	if removeErr := os.Remove(f.path); err == nil {
+		err = removeErr
+	}
+	return err
 }
 
 func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {

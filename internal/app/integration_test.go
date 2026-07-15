@@ -377,6 +377,36 @@ func TestIntegrationOwnerCanDiscardRunningPracticeTimer(t *testing.T) {
 	}
 }
 
+func TestIntegrationListPracticeKeepsOldRunningTimerAheadOfHistoryLimit(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	running, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{WorkID: fixture.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE practice_sessions SET started_at='2000-01-01T00:00:00Z' WHERE id=$1`, running.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO practice_sessions(user_id,work_id,started_at,ended_at,duration_seconds,entry_method)
+		SELECT $1,$2,now()-(n * interval '1 minute'),now()-(n * interval '1 minute')+interval '30 seconds',30,'manual'
+		FROM generate_series(1,101) AS n`, fixture.UserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := service.ListPractice(ctx, fixture.UserID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 100 {
+		t.Fatalf("practice list returned %d items, want 100", len(items))
+	}
+	if items[0].ID != running.ID || items[0].EndedAt != nil {
+		t.Fatalf("old running timer was not prioritized ahead of bounded history: %+v", items[0])
+	}
+}
+
 func TestIntegrationPracticeCorrectionsRefreshMostRecentBPM(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
