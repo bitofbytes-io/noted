@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -118,6 +119,9 @@ func (s *Service) CreateWork(ctx context.Context, userID string, input CreateWor
 }
 
 func (s *Service) GetWork(ctx context.Context, userID, workID string) (WorkDetail, error) {
+	if err := uuid.Validate(workID); err != nil {
+		return WorkDetail{}, ErrNotFound
+	}
 	var work WorkDetail
 	err := s.Pool.QueryRow(ctx, `
 		SELECT w.id::text,w.title,COALESCE(w.subtitle,''),c.canonical_name,COALESCE(w.catalog_number,''),COALESCE(w.key_signature,''),COALESCE(w.period,''),

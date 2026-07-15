@@ -145,6 +145,34 @@ func TestIntegrationOwnershipScoping(t *testing.T) {
 	}
 }
 
+func TestIntegrationMalformedWorkIDReturnsNotFound(t *testing.T) {
+	service, current, _ := integrationService(t)
+	if _, err := service.GetWork(context.Background(), current.ID, "not-a-uuid"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("malformed work ID error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestIntegrationReplaceWorkTagsReturnsSelectedIDs(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	first, err := service.CreateTag(ctx, fixture.UserID, "Focus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.CreateTag(ctx, fixture.UserID, "Recital")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.ReplaceWorkTags(ctx, fixture.UserID, fixture.WorkID, []string{second.ID, first.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID != first.ID || items[0].Name != first.Name || items[1].ID != second.ID || items[1].Name != second.Name {
+		t.Fatalf("replace tags response lost selected identities: %+v", items)
+	}
+}
+
 func TestIntegrationUploadCleanupOnMetadataFailure(t *testing.T) {
 	service, current, root := integrationService(t)
 	path := filepath.Join(t.TempDir(), "exercise.pdf")

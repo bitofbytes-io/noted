@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -44,6 +45,14 @@ func (s *Service) CreateTag(ctx context.Context, userID, name string) (Tag, erro
 }
 
 func (s *Service) ReplaceWorkTags(ctx context.Context, userID, workID string, tagIDs []string) ([]Tag, error) {
+	if err := uuid.Validate(workID); err != nil {
+		return nil, ErrNotFound
+	}
+	for _, tagID := range tagIDs {
+		if err := uuid.Validate(tagID); err != nil {
+			return nil, ValidationError{Fields: map[string]string{"tagIds": "must contain valid tag IDs"}}
+		}
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -70,16 +79,28 @@ func (s *Service) ReplaceWorkTags(ctx context.Context, userID, workID string, ta
 			return nil, ErrNotAuthorized
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	work, err := s.GetWork(ctx, userID, workID)
+	rows, err := tx.Query(ctx, `
+		SELECT t.id::text,t.name FROM learner_work_tags lwt JOIN tags t ON t.id=lwt.tag_id
+		WHERE lwt.learner_work_id=$1 ORDER BY t.normalized_name`, learnerWorkID)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]Tag, 0, len(work.LearnerState.Tags))
-	for _, name := range work.LearnerState.Tags {
-		items = append(items, Tag{Name: name})
+	items := make([]Tag, 0, len(tagIDs))
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.ID, &tag.Name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, tag)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
