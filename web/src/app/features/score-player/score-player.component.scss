@@ -313,7 +313,8 @@
     left: max(10px, env(safe-area-inset-left));
   }
   .score-header {
-    padding: 0 10px;
+    padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0
+      max(10px, env(safe-area-inset-left));
   }
   .immersive-label {
     display: none;
