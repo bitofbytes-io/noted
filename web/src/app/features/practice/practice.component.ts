@@ -35,6 +35,11 @@ export function toPracticeTimestamp(localValue: string): string {
   return value.toISOString();
 }
 
+export function defaultManualStart(durationMinutes: number, now = new Date()): string {
+  const elapsedMinutes = Math.max(1, Math.round(durationMinutes || 1));
+  return toLocalDateTimeInput(new Date(now.getTime() - elapsedMinutes * 60_000));
+}
+
 export function practiceDraftFromSession(session: PracticeSession): PracticeDraft {
   return {
     workId: session.workId,
@@ -182,6 +187,8 @@ export class PracticeComponent implements OnInit {
 
   async toggleManual(): Promise<void> {
     this.showManual = !this.showManual;
+    if (this.showManual && !this.editingId && !this.draft.startedAtLocal)
+      this.draft.startedAtLocal = defaultManualStart(this.draft.durationMinutes);
     if (this.showManual && this.draft.workId)
       await this.loadPracticeOptions(this.draft.workId, true);
   }
@@ -248,7 +255,7 @@ export class PracticeComponent implements OnInit {
   private emptyDraft(): PracticeDraft {
     return {
       workId: '',
-      startedAtLocal: toLocalDateTimeInput(new Date()),
+      startedAtLocal: '',
       durationMinutes: 30,
       movementId: '',
       scoreAssetId: '',

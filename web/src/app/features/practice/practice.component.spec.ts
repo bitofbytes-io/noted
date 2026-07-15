@@ -1,11 +1,18 @@
 import { PracticeSession } from '../../core/models';
 import {
+  defaultManualStart,
   practiceDraftFromSession,
   toLocalDateTimeInput,
   toPracticeTimestamp,
 } from './practice.component';
 
 describe('practice entry drafts', () => {
+  it('defaults completed practice to an elapsed start instead of a future end', () => {
+    const openedAt = new Date(2031, 4, 6, 14, 35, 12);
+    const startedAt = new Date(toPracticeTimestamp(defaultManualStart(30, openedAt)));
+    expect(startedAt.getTime() + 30 * 60_000).toBe(openedAt.getTime());
+  });
+
   it('round-trips the local date/time input without moving the instant', () => {
     const instant = new Date(2031, 4, 6, 14, 35, 12);
     expect(toPracticeTimestamp(toLocalDateTimeInput(instant))).toBe(instant.toISOString());
