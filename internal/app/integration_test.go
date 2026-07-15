@@ -145,6 +145,39 @@ func TestIntegrationOwnershipScoping(t *testing.T) {
 	}
 }
 
+func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
+	service, current, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	if _, err := service.Pool.Exec(ctx, `UPDATE works SET catalog_number='Shared 1' WHERE id=$1`, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := service.CreateWork(ctx, current.ID, CreateWorkInput{
+		Title: "Integration work", Composer: "Integration Composer", CatalogNumber: "Shared 1",
+		EditionName: "Current learner edition", RightsNote: "Current learner copy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID != fixture.WorkID {
+		t.Fatalf("create work made duplicate shared identity %s, want %s", created.ID, fixture.WorkID)
+	}
+	var workCount, learnerCount, editionCount int
+	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM works WHERE composer_id=(SELECT composer_id FROM works WHERE id=$1) AND title='Integration work' AND catalog_number='Shared 1'`, fixture.WorkID).Scan(&workCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM learner_works WHERE user_id=$1 AND work_id=$2`, current.ID, fixture.WorkID).Scan(&learnerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM editions WHERE work_id=$1 AND created_by_user_id=$2 AND name='Current learner edition'`, fixture.WorkID, current.ID).Scan(&editionCount); err != nil {
+		t.Fatal(err)
+	}
+	if workCount != 1 || learnerCount != 1 || editionCount != 1 {
+		t.Fatalf("shared work reuse counts = work:%d learner:%d edition:%d", workCount, learnerCount, editionCount)
+	}
+}
+
 func TestIntegrationMalformedResourceIDsReturnClientErrors(t *testing.T) {
 	service, current, _ := integrationService(t)
 	ctx := context.Background()
@@ -324,6 +357,29 @@ func TestIntegrationStopPracticePreservesTimerContext(t *testing.T) {
 	}
 	if stopped.HandPart != "Right hand" || stopped.Notes != "finished cleanly" {
 		t.Fatalf("timer details were not merged: %+v", stopped)
+	}
+}
+
+func TestIntegrationStopPracticeCapsAndClosesStaleTimer(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	session, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{WorkID: fixture.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE practice_sessions SET started_at=now()-interval '25 hours' WHERE id=$1`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	stopped, err := service.StopPractice(ctx, fixture.UserID, session.ID, StopPracticeInput{Notes: "Recovered stale timer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.EndedAt == nil || stopped.DurationSeconds != 86400 {
+		t.Fatalf("stale timer was not capped and closed: %+v", stopped)
+	}
+	if _, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{WorkID: fixture.WorkID}); err != nil {
+		t.Fatalf("closed stale timer still blocked a new timer: %v", err)
 	}
 }
 

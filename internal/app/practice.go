@@ -159,6 +159,9 @@ func (s *Service) StopPractice(ctx context.Context, userID, sessionID string, in
 	if duration < 1 {
 		duration = 1
 	}
+	if duration > 86400 {
+		duration = 86400
+	}
 	if input.MovementID != nil {
 		movementID = input.MovementID
 	}

@@ -97,14 +97,25 @@ func (s *Service) CreateWork(ctx context.Context, userID string, input CreateWor
 	}
 	var workID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO works(composer_id,title,catalog_number,key_signature,period,created_by_user_id)
-		VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6) RETURNING id::text`,
-		composerID, input.Title, input.CatalogNumber, input.KeySignature, input.Period, userID).Scan(&workID)
+		SELECT id::text FROM works
+		WHERE composer_id=$1 AND title=$2 AND catalog_number IS NOT DISTINCT FROM NULLIF($3,'')
+		LIMIT 1`, composerID, input.Title, input.CatalogNumber).Scan(&workID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO works(composer_id,title,catalog_number,key_signature,period,created_by_user_id)
+			VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6)
+			ON CONFLICT(composer_id,title,catalog_number) DO UPDATE SET title=EXCLUDED.title
+			RETURNING id::text`, composerID, input.Title, input.CatalogNumber, input.KeySignature, input.Period, userID).Scan(&workID)
+	}
 	if err != nil {
 		return WorkDetail{}, fmt.Errorf("create work: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO learner_works(user_id,work_id,status) VALUES($1,$2,'Interested')`, userID, workID); err != nil {
+	result, err := tx.Exec(ctx, `INSERT INTO learner_works(user_id,work_id,status) VALUES($1,$2,'Interested') ON CONFLICT(user_id,work_id) DO NOTHING`, userID, workID)
+	if err != nil {
 		return WorkDetail{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return WorkDetail{}, ValidationError{Fields: map[string]string{"title": "is already in your library"}}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO editions(work_id,name,source_url,rights_note,created_by_user_id)
