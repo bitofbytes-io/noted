@@ -99,3 +99,11 @@ This correction was accepted as a good first-version direction on 2026-07-13.
 3. Annotate scores.
 
 Annotation entry should remain visible as a future-capable affordance, but it should not dominate the initial score-player design.
+
+## Immersive structured-score behavior
+
+The structured score player is a full-viewport `100dvh` reading surface rather than a page inside the normal application frame. Only `/player/:assetId` hides the global Noted header and bottom navigation. The player keeps an explicit safe-area-aware back action, and the normal shell returns immediately after navigation away from the route.
+
+The score is the primary interaction surface. A tap/click on notation or keyboard activity reveals the compact controls; they fade after three seconds without activity. Controls remain visible while notation is loading, an error needs attention, focus is within the controls, or the measure-range editor is open. Interacting with a control restarts the inactivity period rather than dismissing the controls.
+
+Playback position is always legible: a cobalt vertical beat cursor is paired with current-beat/note highlighting. The cursor freezes on pause, returns to the applied range start on restart, and follows range/loop changes. Reduced-motion mode retains this information with stepped cursor movement and no cursor animation. The persistent `Measures #-#` label always reflects the applied range; unvalidated draft edits never replace it.

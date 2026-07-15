@@ -80,14 +80,14 @@ Teacher accounts are not initially required.
 - FR-044: Playback can isolate available hands or parts.
 - FR-045: A learner can review and correct automatically recognized notation before treating playback as trusted.
 - FR-046: The original source file remains preserved alongside recognized notation.
-- FR-047: Tapping in reading mode can reveal a compact floating playback bar.
+- FR-047: Tapping/clicking the structured reading surface or using the keyboard reveals a compact floating playback bar; it auto-hides after inactivity while remaining available during active interaction.
 - FR-048: Structured playback can turn pages automatically.
-- FR-049: Playback-position indicators and note highlighting are optional behaviors that can be disabled to reduce distraction.
+- FR-049: Structured playback always provides a cobalt vertical beat cursor and current-beat/note highlighting. Reduced-motion mode uses stepped cursor updates without animation.
 - FR-049a: Structured scores display measure numbers or otherwise expose a reliable measure identity.
 - FR-049b: Tapping the displayed measure range opens a minimal popover for editing the numeric start and end measures.
 - FR-049c: Measure-range editing stays hidden when not in use so the score player remains uncluttered.
 
-Automatic performance listening, note highlighting, instrument-sound selection, and Bluetooth pedals are not initially required.
+Automatic performance listening, instrument-sound selection, and Bluetooth pedals are not initially required.
 
 ### Repertoire and assignments
 

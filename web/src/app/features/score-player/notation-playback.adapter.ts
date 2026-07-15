@@ -15,16 +15,29 @@ export function validateMeasureRange(start: number, end: number, measureCount: n
   return '';
 }
 
+export function playerCursorSettings(reducedMotion: boolean) {
+  return {
+    enableCursor: true,
+    enableAnimatedBeatCursor: !reducedMotion,
+    enableElementHighlighting: true,
+    scrollMode: alphaTab.ScrollMode.OffScreen,
+    nativeBrowserSmoothScroll: false,
+    scrollSpeed: reducedMotion ? 0 : 300,
+  };
+}
+
 export class NotationPlaybackAdapter {
   private api?: alphaTab.AlphaTabApi;
   private score?: alphaTab.model.Score;
   private originalBpm = 96;
+  private rangeStartTick = 0;
 
   async load(
     url: string,
     container: HTMLElement,
     scrollElement: HTMLElement,
     callbacks: PlayerCallbacks,
+    reducedMotion = false,
   ): Promise<void> {
     this.dispose();
     this.api = new alphaTab.AlphaTabApi(container, {
@@ -41,6 +54,7 @@ export class NotationPlaybackAdapter {
         soundFont: '/alphatab/soundfont/sonivox.sf2',
         outputMode: alphaTab.PlayerOutputMode.WebAudioScriptProcessor,
         scrollElement,
+        ...playerCursorSettings(reducedMotion),
       },
     });
     this.api.scoreLoaded.on((score) => {
@@ -78,6 +92,7 @@ export class NotationPlaybackAdapter {
       startTick: startBar.start,
       endTick: endBar.start + endBar.calculateDuration(),
     };
+    this.rangeStartTick = startBar.start;
   }
 
   setLooping(looping: boolean): void {
@@ -89,12 +104,15 @@ export class NotationPlaybackAdapter {
   }
 
   restart(): void {
-    this.api?.stop();
+    if (!this.api) return;
+    this.api.stop();
+    this.api.tickPosition = this.rangeStartTick;
   }
 
   dispose(): void {
     this.api?.destroy();
     this.api = undefined;
     this.score = undefined;
+    this.rangeStartTick = 0;
   }
 }

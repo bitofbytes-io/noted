@@ -2,6 +2,7 @@ import {
   AfterViewInit,
   Component,
   ElementRef,
+  HostListener,
   inject,
   OnDestroy,
   signal,
@@ -23,6 +24,7 @@ import { NotationPlaybackAdapter, validateMeasureRange } from './notation-playba
 })
 export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
+  @ViewChild('shell', { static: true }) private shell!: ElementRef<HTMLElement>;
   @ViewChild('notation', { static: true }) private notation!: ElementRef<HTMLElement>;
   @ViewChild('viewport', { static: true }) private viewport!: ElementRef<HTMLElement>;
   protected readonly asset = signal<Asset | null>(null);
@@ -36,11 +38,18 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   protected bpm = 96;
   protected rangeStart = 1;
   protected rangeEnd = this.measureCount;
+  protected draftRangeStart = this.rangeStart;
+  protected draftRangeEnd = this.rangeEnd;
   protected rangeOpen = false;
   protected rangeError = '';
   protected looping = true;
-  protected controlsHidden = false;
+  protected readonly controlsVisible = signal(true);
+  protected readonly reducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
   private readonly adapter = new NotationPlaybackAdapter();
+  private controlsFocused = false;
+  private controlsTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly api: ApiService,
@@ -53,7 +62,36 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.clearControlsTimer();
     this.adapter.dispose();
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleKeyboardActivity(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.rangeOpen) this.closeRangeEditor();
+    this.revealControls();
+  }
+
+  handlePointerActivity(): void {
+    this.revealControls();
+  }
+
+  handleFocusIn(): void {
+    this.controlsFocused = true;
+    this.controlsVisible.set(true);
+    this.clearControlsTimer();
+  }
+
+  handleFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && this.shell.nativeElement.contains(next)) return;
+    this.controlsFocused = false;
+    this.scheduleControlsHide();
+  }
+
+  revealControls(): void {
+    this.controlsVisible.set(true);
+    this.scheduleControlsHide();
   }
 
   async load(): Promise<void> {
@@ -74,20 +112,28 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
           onScoreLoaded: (measureCount, originalBpm) => {
             this.measureCount = measureCount;
             this.rangeEnd = measureCount;
+            this.draftRangeStart = 1;
+            this.draftRangeEnd = measureCount;
             this.bpm = Math.round(originalBpm);
             this.adapter.setRange(1, measureCount);
             this.adapter.setLooping(this.looping);
             this.scoreReady.set(true);
+            this.scheduleControlsHide();
           },
-          onPlaybackReady: () => this.playbackReady.set(true),
+          onPlaybackReady: () => {
+            this.playbackReady.set(true);
+            this.scheduleControlsHide();
+          },
           onPlayingChanged: (playing) => this.playing.set(playing),
-          onError: (error) => this.error.set(errorMessage(error)),
+          onError: (error) => this.setPlayerError(error),
         },
+        this.reducedMotion,
       );
     } catch (error) {
-      this.error.set(errorMessage(error));
+      this.setPlayerError(error);
     } finally {
       this.loading.set(false);
+      this.scheduleControlsHide();
     }
   }
 
@@ -97,10 +143,48 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   applyRange(): void {
-    this.rangeError = validateMeasureRange(this.rangeStart, this.rangeEnd, this.measureCount);
+    this.rangeError = validateMeasureRange(
+      this.draftRangeStart,
+      this.draftRangeEnd,
+      this.measureCount,
+    );
     if (this.rangeError) return;
+    this.rangeStart = this.draftRangeStart;
+    this.rangeEnd = this.draftRangeEnd;
     this.adapter.setRange(this.rangeStart, this.rangeEnd);
     this.rangeOpen = false;
+    this.scheduleControlsHide();
+  }
+
+  toggleRangeEditor(): void {
+    if (this.rangeOpen) {
+      this.closeRangeEditor();
+      return;
+    }
+    this.draftRangeStart = this.rangeStart;
+    this.draftRangeEnd = this.rangeEnd;
+    this.rangeError = '';
+    this.rangeOpen = true;
+    this.controlsVisible.set(true);
+    this.clearControlsTimer();
+  }
+
+  closeRangeEditor(): void {
+    this.rangeOpen = false;
+    this.rangeError = '';
+    this.draftRangeStart = this.rangeStart;
+    this.draftRangeEnd = this.rangeEnd;
+    this.scheduleControlsHide();
+  }
+
+  selectMeasure(number: number): void {
+    this.rangeStart = number;
+    this.rangeEnd = number;
+    this.draftRangeStart = number;
+    this.draftRangeEnd = number;
+    this.rangeError = '';
+    this.adapter.setRange(number, number);
+    this.scheduleControlsHide();
   }
 
   toggleLoop(): void {
@@ -133,5 +217,38 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     } catch (error) {
       this.error.set(errorMessage(error));
     }
+  }
+
+  private setPlayerError(error: unknown): void {
+    this.error.set(errorMessage(error));
+    this.controlsVisible.set(true);
+    this.clearControlsTimer();
+  }
+
+  private scheduleControlsHide(): void {
+    this.clearControlsTimer();
+    if (this.controlsMustStayVisible()) {
+      this.controlsVisible.set(true);
+      return;
+    }
+    this.controlsTimer = setTimeout(() => {
+      if (!this.controlsMustStayVisible()) this.controlsVisible.set(false);
+    }, 3000);
+  }
+
+  private controlsMustStayVisible(): boolean {
+    return (
+      this.loading() ||
+      !this.scoreReady() ||
+      !this.playbackReady() ||
+      Boolean(this.error()) ||
+      this.controlsFocused ||
+      this.rangeOpen
+    );
+  }
+
+  private clearControlsTimer(): void {
+    if (this.controlsTimer) clearTimeout(this.controlsTimer);
+    this.controlsTimer = undefined;
   }
 }

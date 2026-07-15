@@ -1,46 +1,50 @@
-<div class="app-shell">
-  @if (apiOffline()) {
+<div class="app-shell" [class.immersive]="immersive()">
+  @if (apiOffline() && !immersive()) {
     <div class="offline-banner" role="alert">
       The Noted API is offline. Start it with <code>make api-run</code>.
     </div>
   }
-  <header class="topbar">
-    <a class="wordmark" routerLink="/home" aria-label="Noted home">
-      <span class="wordmark-mark" aria-hidden="true">N</span>
-      <span>noted</span>
-    </a>
-    <div class="mode-switch" aria-label="Application mode">
-      <span class="active">Play</span>
-      <span aria-disabled="true" title="Learn mode comes later">Learn</span>
-    </div>
-    <div class="profile" [title]="session()?.user?.email ?? 'Development learner'">
-      <span class="profile-dot" aria-hidden="true"></span>
-      <span class="profile-name">{{ session()?.user?.displayName ?? 'Local learner' }}</span>
-      @if (session()?.development) {
-        <span class="dev-badge">DEV</span>
-      }
-    </div>
-  </header>
+  @if (!immersive()) {
+    <header class="topbar">
+      <a class="wordmark" routerLink="/home" aria-label="Noted home">
+        <span class="wordmark-mark" aria-hidden="true">N</span>
+        <span>noted</span>
+      </a>
+      <div class="mode-switch" aria-label="Application mode">
+        <span class="active">Play</span>
+        <span aria-disabled="true" title="Learn mode comes later">Learn</span>
+      </div>
+      <div class="profile" [title]="session()?.user?.email ?? 'Development learner'">
+        <span class="profile-dot" aria-hidden="true"></span>
+        <span class="profile-name">{{ session()?.user?.displayName ?? 'Local learner' }}</span>
+        @if (session()?.development) {
+          <span class="dev-badge">DEV</span>
+        }
+      </div>
+    </header>
+  }
 
-  <main class="page-frame">
+  <main class="page-frame" [class.immersive-frame]="immersive()">
     <router-outlet />
   </main>
 
-  <nav class="bottom-nav" aria-label="Primary navigation">
-    <a routerLink="/home" routerLinkActive="active" aria-label="Home">
-      <span aria-hidden="true">⌂</span><small>Home</small>
-    </a>
-    <a routerLink="/library" routerLinkActive="active" aria-label="Library">
-      <span aria-hidden="true">▤</span><small>Library</small>
-    </a>
-    <a routerLink="/metronome" routerLinkActive="active" aria-label="Metronome">
-      <span aria-hidden="true">♩</span><small>Metronome</small>
-    </a>
-    <a routerLink="/practice" routerLinkActive="active" aria-label="Practice">
-      <span aria-hidden="true">◷</span><small>Practice</small>
-    </a>
-    <a routerLink="/settings" routerLinkActive="active" aria-label="Settings">
-      <span aria-hidden="true">⚙</span><small>Settings</small>
-    </a>
-  </nav>
+  @if (!immersive()) {
+    <nav class="bottom-nav" aria-label="Primary navigation">
+      <a routerLink="/home" routerLinkActive="active" aria-label="Home">
+        <span aria-hidden="true">⌂</span><small>Home</small>
+      </a>
+      <a routerLink="/library" routerLinkActive="active" aria-label="Library">
+        <span aria-hidden="true">▤</span><small>Library</small>
+      </a>
+      <a routerLink="/metronome" routerLinkActive="active" aria-label="Metronome">
+        <span aria-hidden="true">♩</span><small>Metronome</small>
+      </a>
+      <a routerLink="/practice" routerLinkActive="active" aria-label="Practice">
+        <span aria-hidden="true">◷</span><small>Practice</small>
+      </a>
+      <a routerLink="/settings" routerLinkActive="active" aria-label="Settings">
+        <span aria-hidden="true">⚙</span><small>Settings</small>
+      </a>
+    </nav>
+  }
 </div>

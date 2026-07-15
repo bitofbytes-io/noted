@@ -1,50 +1,69 @@
 :host {
   display: block;
-  margin: calc(-1 * clamp(24px, 4vw, 60px)) calc(-1 * clamp(18px, 5vw, 72px)) -110px;
+  height: 100%;
 }
 .player-shell {
   background: #efefec;
-  height: calc(100vh - 68px);
+  height: 100dvh;
   overflow: hidden;
   position: relative;
+  width: 100%;
 }
 .score-header {
   align-items: center;
   background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid #c8c8c3;
   display: grid;
-  grid-template-columns: 50px 1fr auto;
-  height: 58px;
-  padding: 0 20px;
+  column-gap: 18px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  height: calc(58px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(20px, env(safe-area-inset-right)) 0
+    max(20px, env(safe-area-inset-left));
   position: absolute;
   inset: 0 0 auto;
   z-index: 6;
 }
-.score-header a {
+.score-header > div {
+  min-width: 0;
+}
+.score-header .back-action {
+  align-items: center;
   color: var(--ink);
-  font-size: 25px;
+  display: inline-flex;
+  font-size: 20px;
+  font-weight: 750;
+  gap: 7px;
   text-decoration: none;
 }
-.score-header strong,
-.score-header span {
+.back-action span {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.score-header > div strong,
+.score-header > div span {
   display: block;
 }
-.score-header span {
+.score-header > div span {
   color: var(--muted);
   font-size: 9px;
   letter-spacing: 0.06em;
   margin-top: 3px;
   text-transform: uppercase;
 }
-.score-header button {
-  background: white;
-  border: 1px solid var(--line-strong);
-  padding: 8px 11px;
+.immersive-label {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .notation-viewport {
   height: 100%;
   overflow: auto;
-  padding: 74px 20px 125px;
+  padding: calc(74px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    calc(105px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  touch-action: pan-x pan-y;
 }
 .notation-canvas {
   background: white;
@@ -84,7 +103,7 @@
 .floating-player {
   align-items: center;
   background: #101217;
-  bottom: 88px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
   box-shadow: 0 10px 35px rgba(0, 0, 0, 0.35);
   color: white;
   display: flex;
@@ -177,6 +196,10 @@
   background: var(--blue);
   color: white;
 }
+.range-popover .cancel-range {
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
 .range-error {
   color: var(--danger);
   font-size: 10px;
@@ -196,14 +219,14 @@
   align-items: center;
   background: white;
   border: 1px solid #a8a8a3;
-  bottom: 90px;
+  bottom: calc(23px + env(safe-area-inset-bottom));
   color: var(--ink);
   display: flex;
   flex-direction: column;
   font-size: 21px;
   height: 52px;
   justify-content: center;
-  left: 24px;
+  left: max(24px, env(safe-area-inset-left));
   opacity: 0.7;
   position: absolute;
   width: 52px;
@@ -213,17 +236,6 @@
   font-size: 8px;
   text-transform: uppercase;
 }
-.reveal-controls {
-  background: #101217;
-  border: 0;
-  color: white;
-  display: none;
-  padding: 12px 17px;
-  position: absolute;
-  right: 18px;
-  top: 18px;
-  z-index: 10;
-}
 .controls-hidden .score-header,
 .controls-hidden .floating-player,
 .controls-hidden .pencil-button,
@@ -231,8 +243,11 @@
   opacity: 0;
   pointer-events: none;
 }
-.controls-hidden .reveal-controls {
-  display: block;
+.score-header,
+.floating-player,
+.pencil-button,
+.measure-legend {
+  transition: opacity 180ms ease;
 }
 .score-loading {
   left: 50%;
@@ -259,28 +274,49 @@
   color: #7c1e16;
   font-size: 12px;
 }
-@media (max-width: 900px) {
-  :host {
-    margin: -24px -18px -110px;
-  }
-  .player-shell {
-    height: calc(100vh - 58px);
-  }
+.reduced-motion .score-header,
+.reduced-motion .floating-player,
+.reduced-motion .pencil-button,
+.reduced-motion .measure-legend {
+  transition: none;
+}
+:host ::ng-deep .notation-canvas .at-cursors {
+  pointer-events: none;
+}
+:host ::ng-deep .notation-canvas .at-cursor-bar {
+  background: rgba(30, 92, 224, 0.1);
+  border-left: 1px solid rgba(30, 92, 224, 0.45);
+}
+:host ::ng-deep .notation-canvas .at-cursor-beat {
+  background: var(--blue);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 0 9px rgba(30, 92, 224, 0.55);
+  min-width: 3px;
+}
+:host ::ng-deep .notation-canvas .at-highlight {
+  color: var(--blue) !important;
+  fill: var(--blue) !important;
+  stroke: var(--blue) !important;
+}
+:host ::ng-deep .reduced-motion .notation-canvas .at-cursor-beat {
+  transition: none !important;
 }
 @media (max-width: 720px) {
   .floating-player {
-    bottom: 78px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     max-width: calc(100% - 20px);
     overflow-x: auto;
   }
   .pencil-button {
-    bottom: 134px;
-    left: 10px;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
   }
   .score-header {
-    padding: 0 10px;
+    padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0
+      max(10px, env(safe-area-inset-left));
   }
-  .score-header button {
-    font-size: 9px;
+  .immersive-label {
+    display: none;
   }
 }
