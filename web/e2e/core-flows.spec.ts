@@ -66,7 +66,7 @@ test.describe.serial('Noted core POC flows', () => {
       'aria-pressed',
       'true',
     );
-    if (testInfo.project.name === 'desktop-chrome') {
+    {
       const beatCursor = page.locator('.at-cursor-beat');
       await page.getByRole('button', { name: 'Play', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
@@ -105,6 +105,8 @@ test.describe.serial('Noted core POC flows', () => {
         );
       });
       expect(wrapped).toBe(true);
+      await page.locator('.notation-viewport').click({ position: { x: 20, y: 180 } });
+      await expect(playerShell).not.toHaveClass(/controls-hidden/);
       await page.getByRole('button', { name: 'Pause', exact: true }).click();
     }
     await page.screenshot({ path: testInfo.outputPath('score-player.png') });

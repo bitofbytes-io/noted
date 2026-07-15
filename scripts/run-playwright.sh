@@ -2,4 +2,4 @@
 set -eu
 
 cd web
-exec npm run e2e
+exec npm run e2e -- "$@"
