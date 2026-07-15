@@ -36,6 +36,25 @@ describe('practice entry drafts', () => {
     }
   });
 
+  it('keeps an automatic start aligned to duration edits without replacing an explicit start', async () => {
+    vi.useFakeTimers();
+    try {
+      const component = new PracticeComponent({} as ApiService, {} as PracticeTimerService) as any;
+      vi.setSystemTime(new Date(2031, 4, 6, 14, 35, 12));
+      await component.toggleManual();
+
+      component.onManualDurationChange(60);
+      expect(component.draft.startedAtLocal).toBe(defaultManualStart(60, new Date()));
+
+      const explicitStart = '2031-05-05T08:15:00';
+      component.onManualStartChange(explicitStart);
+      component.onManualDurationChange(90);
+      expect(component.draft.startedAtLocal).toBe(explicitStart);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('round-trips the local date/time input without moving the instant', () => {
     const instant = new Date(2031, 4, 6, 14, 35, 12);
     expect(toPracticeTimestamp(toLocalDateTimeInput(instant))).toBe(instant.toISOString());

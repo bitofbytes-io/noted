@@ -115,7 +115,8 @@
           name="startedAt"
           type="datetime-local"
           step="1"
-          [(ngModel)]="draft.startedAtLocal"
+          [ngModel]="draft.startedAtLocal"
+          (ngModelChange)="onManualStartChange($event)"
           required
         />
       </div>
@@ -157,7 +158,8 @@
           type="number"
           min="1"
           max="1440"
-          [(ngModel)]="draft.durationMinutes"
+          [ngModel]="draft.durationMinutes"
+          (ngModelChange)="onManualDurationChange($event)"
           required
         />
       </div>

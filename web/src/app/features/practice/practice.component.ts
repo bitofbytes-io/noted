@@ -75,6 +75,7 @@ export class PracticeComponent implements OnInit {
   protected selectedTimerWork = '';
   protected editingId = '';
   protected draft: PracticeDraft = this.emptyDraft();
+  protected manualStartEdited = false;
   protected stopDraft = {
     startMeasure: null as number | null,
     endMeasure: null as number | null,
@@ -143,6 +144,9 @@ export class PracticeComponent implements OnInit {
   async saveManual(): Promise<void> {
     this.saving.set(true);
     try {
+      if (!this.editingId && !this.manualStartEdited) {
+        this.draft.startedAtLocal = defaultManualStart(this.draft.durationMinutes);
+      }
       const input: PracticeInput = {
         workId: this.draft.workId,
         startedAt: toPracticeTimestamp(this.draft.startedAtLocal),
@@ -173,6 +177,7 @@ export class PracticeComponent implements OnInit {
   async edit(session: PracticeSession): Promise<void> {
     this.editingId = session.id;
     this.showManual = true;
+    this.manualStartEdited = true;
     this.draft = practiceDraftFromSession(session);
     await this.loadPracticeOptions(session.workId, true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -185,6 +190,18 @@ export class PracticeComponent implements OnInit {
     await this.loadPracticeOptions(workId, false);
   }
 
+  protected onManualStartChange(startedAtLocal: string): void {
+    this.draft.startedAtLocal = startedAtLocal;
+    this.manualStartEdited = true;
+  }
+
+  protected onManualDurationChange(durationMinutes: number): void {
+    this.draft.durationMinutes = durationMinutes;
+    if (!this.editingId && !this.manualStartEdited) {
+      this.draft.startedAtLocal = defaultManualStart(durationMinutes);
+    }
+  }
+
   async toggleManual(): Promise<void> {
     const opening = !this.showManual;
     this.showManual = opening;
@@ -193,10 +210,14 @@ export class PracticeComponent implements OnInit {
         const workId = this.draft.workId;
         this.draft = this.emptyDraft();
         this.draft.workId = workId;
+        this.manualStartEdited = false;
       }
       return;
     }
-    if (!this.editingId) this.draft.startedAtLocal = defaultManualStart(this.draft.durationMinutes);
+    if (!this.editingId) {
+      this.manualStartEdited = false;
+      this.draft.startedAtLocal = defaultManualStart(this.draft.durationMinutes);
+    }
     if (this.draft.workId) await this.loadPracticeOptions(this.draft.workId, true);
   }
 
@@ -249,6 +270,7 @@ export class PracticeComponent implements OnInit {
   cancelEdit(): void {
     this.editingId = '';
     this.showManual = false;
+    this.manualStartEdited = false;
     this.draft = this.emptyDraft();
     this.draft.workId = this.works()[0]?.id ?? '';
     if (this.draft.workId) void this.loadPracticeOptions(this.draft.workId, true);
