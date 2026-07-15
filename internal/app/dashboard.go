@@ -34,7 +34,7 @@ func (s *Service) recentImports(ctx context.Context, userID string) ([]Asset, er
 	rows, err := s.Pool.Query(ctx, `
 		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.created_at
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
-		WHERE lw.user_id=$1 ORDER BY a.created_at DESC LIMIT 6`, userID)
+		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 ORDER BY a.created_at DESC LIMIT 6`, userID)
 	if err != nil {
 		return nil, err
 	}

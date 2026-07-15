@@ -38,8 +38,8 @@ func (s *Service) ListWorks(ctx context.Context, userID string, filters WorkFilt
 		       COALESCE(ARRAY(SELECT t.name FROM learner_work_tags lwt JOIN tags t ON t.id=lwt.tag_id WHERE lwt.learner_work_id=lw.id ORDER BY t.name), ARRAY[]::text[]),
 		       (SELECT max(ps.started_at) FROM practice_sessions ps WHERE ps.user_id=lw.user_id AND ps.work_id=w.id AND ps.ended_at IS NOT NULL),
 		       lw.last_bpm,
-		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND a.asset_type='pdf'),
-		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND a.playback_capable),
+		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND a.uploaded_by_user_id=lw.user_id AND a.asset_type='pdf'),
+		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND a.uploaded_by_user_id=lw.user_id AND a.playback_capable),
 		       lw.updated_at
 		FROM learner_works lw
 		JOIN works w ON w.id=lw.work_id

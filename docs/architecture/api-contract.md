@@ -55,7 +55,7 @@ Upload responses include asset identity, type, size, checksum, PDF/playback capa
 - `POST /api/practice-sessions/start` — start explicit timer for a work and optional passage context.
 - `POST /api/practice-sessions/{sessionId}/stop` — stop timer and add final fields.
 - `POST /api/practice-sessions` — create manual session.
-- `PATCH /api/practice-sessions/{sessionId}` — correct learner-owned entry.
+- `PATCH /api/practice-sessions/{sessionId}` — correct a learner-owned entry; omitted fields are preserved and explicit `null` clears nullable fields.
 - `DELETE /api/practice-sessions/{sessionId}` — delete learner-owned entry.
 - `GET /api/practice-summary?week=<date>` — Monday-first daily totals and current-work summary.
 

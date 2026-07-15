@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime/multipart"
 	"strings"
 
@@ -67,7 +68,7 @@ func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID strin
 	rows, err := s.Pool.Query(ctx, `
 		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.created_at
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
-		WHERE lw.user_id=$1 AND a.edition_id=$2 ORDER BY a.created_at`, userID, editionID)
+		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.edition_id=$2 ORDER BY a.created_at`, userID, editionID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +90,7 @@ func (s *Service) getAssetRecord(ctx context.Context, userID, assetID string) (a
 	err := s.Pool.QueryRow(ctx, `
 		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.created_at,a.storage_key
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
-		WHERE lw.user_id=$1 AND a.id=$2`, userID, assetID).Scan(
+		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.id=$2`, userID, assetID).Scan(
 		&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.MediaType, &item.ByteSize,
 		&item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.CreatedAt, &item.StorageKey)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -126,15 +127,15 @@ func (s *Service) DeleteAsset(ctx context.Context, userID, assetID string) error
 	if err != nil {
 		return err
 	}
-	if err := s.Store.Delete(ctx, item.StorageKey); err != nil {
-		return err
-	}
-	result, err := s.Pool.Exec(ctx, `DELETE FROM score_assets a USING editions e, learner_works lw WHERE a.edition_id=e.id AND lw.work_id=e.work_id AND lw.user_id=$1 AND a.id=$2`, userID, assetID)
+	result, err := s.Pool.Exec(ctx, `DELETE FROM score_assets WHERE uploaded_by_user_id=$1 AND id=$2`, userID, assetID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		return ErrNotFound
+	}
+	if err := s.Store.Delete(context.Background(), item.StorageKey); err != nil {
+		slog.Error("asset metadata deleted but storage cleanup failed", "asset_id", assetID, "storage_key", item.StorageKey, "error", err)
 	}
 	return nil
 }

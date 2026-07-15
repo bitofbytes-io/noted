@@ -290,7 +290,7 @@ func (h *Handler) createManualPractice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updatePractice(w http.ResponseWriter, r *http.Request) {
-	var input app.PracticeInput
+	var input app.PracticePatchInput
 	if !h.decodeJSON(w, r, &input) {
 		return
 	}

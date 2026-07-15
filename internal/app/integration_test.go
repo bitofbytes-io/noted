@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"mime/multipart"
 	"os"
@@ -15,6 +17,60 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+type integrationFixture struct {
+	UserID     string
+	WorkID     string
+	MovementID string
+	EditionID  string
+	AssetID    string
+	StorageKey string
+}
+
+func createIntegrationFixture(t *testing.T, service *Service) integrationFixture {
+	t.Helper()
+	ctx := context.Background()
+	fixture := integrationFixture{
+		UserID:     uuid.NewString(),
+		WorkID:     uuid.NewString(),
+		MovementID: uuid.NewString(),
+		EditionID:  uuid.NewString(),
+		AssetID:    uuid.NewString(),
+		StorageKey: "pdf/" + uuid.NewString(),
+	}
+	composerID := uuid.NewString()
+	statements := []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO users(id,email,display_name) VALUES($1,$2,'Integration learner')`, []any{fixture.UserID, fixture.UserID + "@example.test"}},
+		{`INSERT INTO composers(id,canonical_name,sort_name) VALUES($1,'Integration Composer','Integration Composer')`, []any{composerID}},
+		{`INSERT INTO works(id,composer_id,title,created_by_user_id) VALUES($1,$2,'Integration work',$3)`, []any{fixture.WorkID, composerID, fixture.UserID}},
+		{`INSERT INTO movements(id,work_id,sequence_number,title,measure_count) VALUES($1,$2,1,'Integration movement',8)`, []any{fixture.MovementID, fixture.WorkID}},
+		{`INSERT INTO editions(id,work_id,name,created_by_user_id) VALUES($1,$2,'Integration edition',$3)`, []any{fixture.EditionID, fixture.WorkID, fixture.UserID}},
+		{`INSERT INTO learner_works(user_id,work_id) VALUES($1,$2)`, []any{fixture.UserID, fixture.WorkID}},
+		{`INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,rights_note,uploaded_by_user_id) VALUES($1,$2,'pdf',$3,'integration.pdf','application/pdf',8,$4,'CC0',$5)`, []any{fixture.AssetID, fixture.EditionID, fixture.StorageKey, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", fixture.UserID}},
+	}
+	for _, statement := range statements {
+		if _, err := service.Pool.Exec(ctx, statement.sql, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = service.Pool.Exec(ctx, `DELETE FROM works WHERE id=$1`, fixture.WorkID)
+		_, _ = service.Pool.Exec(ctx, `DELETE FROM composers WHERE id=$1`, composerID)
+		_, _ = service.Pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, fixture.UserID)
+	})
+	return fixture
+}
+
+type failingDeleteStore struct {
+	assets.AssetStore
+}
+
+func (failingDeleteStore) Delete(context.Context, string) error {
+	return errors.New("simulated storage cleanup failure")
+}
 
 func integrationService(t *testing.T) (*Service, User, string) {
 	t.Helper()
@@ -150,5 +206,154 @@ func TestIntegrationPracticeWeekAggregatesByUTCDate(t *testing.T) {
 	if len(summary.Days) != 7 || summary.Days[0].DurationSeconds != 600 || summary.Days[0].SessionCount != 1 ||
 		summary.Days[1].DurationSeconds != 900 || summary.Days[1].SessionCount != 1 {
 		t.Fatalf("unexpected daily aggregation: %+v", summary.Days)
+	}
+}
+
+func TestIntegrationStopPracticePreservesTimerContext(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	startMeasure, endMeasure, startingBPM := 2, 6, 84
+	session, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID, ScoreAssetID: &fixture.AssetID,
+		StartMeasure: &startMeasure, EndMeasure: &endMeasure, HandPart: "Right hand", StartingBPM: &startingBPM,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE practice_sessions SET started_at=now()-interval '2 minutes' WHERE id=$1`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	stopped, err := service.StopPractice(ctx, fixture.UserID, session.ID, StopPracticeInput{Notes: "finished cleanly"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.MovementID == nil || *stopped.MovementID != fixture.MovementID || stopped.ScoreAssetID == nil || *stopped.ScoreAssetID != fixture.AssetID {
+		t.Fatalf("timer associations were not preserved: %+v", stopped)
+	}
+	if stopped.StartMeasure == nil || *stopped.StartMeasure != startMeasure || stopped.EndMeasure == nil || *stopped.EndMeasure != endMeasure || stopped.StartingBPM == nil || *stopped.StartingBPM != startingBPM {
+		t.Fatalf("timer range or tempo was not preserved: %+v", stopped)
+	}
+	if stopped.HandPart != "Right hand" || stopped.Notes != "finished cleanly" {
+		t.Fatalf("timer details were not merged: %+v", stopped)
+	}
+}
+
+func TestIntegrationPracticePatchPreservesOmittedFieldsAndClearsNulls(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	started := time.Date(2032, time.January, 12, 14, 30, 0, 0, time.UTC)
+	startMeasure, endMeasure, startingBPM := 1, 8, 72
+	session, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID, ScoreAssetID: &fixture.AssetID, StartedAt: &started,
+		DurationSeconds: 600, StartMeasure: &startMeasure, EndMeasure: &endMeasure, HandPart: "Both", StartingBPM: &startingBPM,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var patch PracticePatchInput
+	if err := json.Unmarshal([]byte(`{"durationSeconds":900,"notes":"corrected notes"}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.UpdatePractice(ctx, fixture.UserID, session.ID, patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.StartedAt.Equal(started) || updated.DurationSeconds != 900 || updated.EndedAt == nil || !updated.EndedAt.Equal(started.Add(15*time.Minute)) {
+		t.Fatalf("patch changed historical timing incorrectly: %+v", updated)
+	}
+	if updated.MovementID == nil || *updated.MovementID != fixture.MovementID || updated.ScoreAssetID == nil || *updated.ScoreAssetID != fixture.AssetID || updated.Notes != "corrected notes" {
+		t.Fatalf("patch did not preserve omitted context: %+v", updated)
+	}
+
+	patch = PracticePatchInput{}
+	if err := json.Unmarshal([]byte(`{"startMeasure":null,"endMeasure":null,"startingBpm":null}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := service.UpdatePractice(ctx, fixture.UserID, session.ID, patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.StartMeasure != nil || cleared.EndMeasure != nil || cleared.StartingBPM != nil {
+		t.Fatalf("explicit null did not clear nullable fields: %+v", cleared)
+	}
+}
+
+func TestIntegrationSharedWorkDoesNotShareUploadedAssets(t *testing.T) {
+	service, current, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO learner_works(user_id,work_id) VALUES($1,$2)`, current.ID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.GetAsset(ctx, current.ID, fixture.AssetID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("shared work exposed another uploader's asset metadata: %v", err)
+	}
+	if err := service.DeleteAsset(ctx, current.ID, fixture.AssetID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("shared work allowed another uploader's asset deletion: %v", err)
+	}
+	assets, err := service.ListEditionAssets(ctx, current.ID, fixture.EditionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 0 {
+		t.Fatalf("shared work listed another uploader's assets: %+v", assets)
+	}
+	detail, err := service.GetWork(ctx, current.ID, fixture.WorkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Editions) != 1 || len(detail.Editions[0].Assets) != 0 {
+		t.Fatalf("work details exposed another uploader's assets: %+v", detail.Editions)
+	}
+	works, err := service.ListWorks(ctx, current.ID, WorkFilters{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, work := range works {
+		if work.ID == fixture.WorkID && (work.HasPDF || work.HasPlayback) {
+			t.Fatalf("private assets leaked into work capabilities: %+v", work)
+		}
+	}
+	recent, err := service.recentImports(ctx, current.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, asset := range recent {
+		if asset.ID == fixture.AssetID {
+			t.Fatalf("private asset leaked into recent imports: %+v", asset)
+		}
+	}
+	if _, err := service.CreateManualPractice(ctx, current.ID, PracticeInput{WorkID: fixture.WorkID, ScoreAssetID: &fixture.AssetID, DurationSeconds: 60}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("private asset could be associated with another learner's practice: %v", err)
+	}
+}
+
+func TestIntegrationDeleteAssetRemovesMetadataBeforeBestEffortStorageCleanup(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	store := service.Store
+	if _, err := store.Put(ctx, fixture.StorageKey, bytes.NewBufferString("%PDF-1.4")); err != nil {
+		t.Fatal(err)
+	}
+	service.Store = failingDeleteStore{AssetStore: store}
+
+	if err := service.DeleteAsset(ctx, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatalf("best-effort storage cleanup must not undo metadata deletion: %v", err)
+	}
+	if _, err := service.GetAsset(ctx, fixture.UserID, fixture.AssetID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("asset metadata remained visible after deletion: %v", err)
+	}
+	exists, err := store.Exists(ctx, fixture.StorageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatal("simulated storage cleanup failure did not preserve the orphan for recovery")
 	}
 }
