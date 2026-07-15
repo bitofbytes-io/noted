@@ -18,6 +18,15 @@ interface PracticeDraft {
   notes: string;
 }
 
+export function correctionAssociationPatch(
+  originalWorkId: string,
+  selectedWorkId: string,
+): Pick<PracticeInput, 'movementId' | 'scoreAssetId'> | Record<string, never> {
+  return originalWorkId && originalWorkId !== selectedWorkId
+    ? { movementId: null, scoreAssetId: null }
+    : {};
+}
+
 @Component({
   selector: 'app-practice',
   imports: [FormsModule, RouterLink, DatePipe],
@@ -34,6 +43,7 @@ export class PracticeComponent implements OnInit {
   protected showManual = false;
   protected selectedTimerWork = '';
   protected editingId = '';
+  protected editingWorkId = '';
   protected draft: PracticeDraft = this.emptyDraft();
   protected stopDraft = {
     startMeasure: null as number | null,
@@ -110,6 +120,7 @@ export class PracticeComponent implements OnInit {
         startingBpm: this.draft.startingBpm,
         endingBpm: this.draft.endingBpm,
         notes: this.draft.notes,
+        ...correctionAssociationPatch(this.editingWorkId, this.draft.workId),
       };
       if (this.editingId) await firstValueFrom(this.api.updatePractice(this.editingId, input));
       else await firstValueFrom(this.api.createPractice(input));
@@ -127,6 +138,7 @@ export class PracticeComponent implements OnInit {
 
   edit(session: PracticeSession): void {
     this.editingId = session.id;
+    this.editingWorkId = session.workId;
     this.showManual = true;
     this.draft = {
       workId: session.workId,
@@ -157,8 +169,21 @@ export class PracticeComponent implements OnInit {
     }
   }
 
+  async discardTimer(): Promise<void> {
+    const running = this.timer.running();
+    if (!running || !window.confirm(`Discard the running timer for ${running.workTitle}?`)) return;
+    try {
+      await this.timer.discard();
+      this.success.set('Running timer discarded.');
+      await this.load();
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
   cancelEdit(): void {
     this.editingId = '';
+    this.editingWorkId = '';
     this.showManual = false;
     this.draft = this.emptyDraft();
     this.draft.workId = this.works()[0]?.id ?? '';

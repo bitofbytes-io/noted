@@ -25,6 +25,14 @@
       <h2>{{ running.workTitle }}</h2>
       <strong>{{ timer.formatElapsed() }}</strong
       ><span>Started {{ running.startedAt | date: 'h:mm a' }}</span>
+      <button
+        class="discard-timer"
+        type="button"
+        (click)="discardTimer()"
+        [disabled]="timer.busy()"
+      >
+        Discard timer
+      </button>
     </div>
     <div class="stop-fields">
       <div class="field">

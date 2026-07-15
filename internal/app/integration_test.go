@@ -357,3 +357,22 @@ func TestIntegrationDeleteAssetRemovesMetadataBeforeBestEffortStorageCleanup(t *
 		t.Fatal("simulated storage cleanup failure did not preserve the orphan for recovery")
 	}
 }
+
+func TestIntegrationOwnerCanDiscardRunningPracticeTimer(t *testing.T) {
+	service, current, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	session, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{WorkID: fixture.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeletePractice(ctx, current.ID, session.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another learner could discard the running timer: %v", err)
+	}
+	if err := service.DeletePractice(ctx, fixture.UserID, session.ID); err != nil {
+		t.Fatalf("owner could not discard the running timer: %v", err)
+	}
+	if _, err := service.GetPracticeSession(ctx, fixture.UserID, session.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("discarded timer remained visible: %v", err)
+	}
+}

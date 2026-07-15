@@ -48,6 +48,19 @@ export class PracticeTimerService {
     }
   }
 
+  async discard(): Promise<void> {
+    const current = this.running();
+    if (!current) throw new Error('No practice timer is running');
+    this.busy.set(true);
+    try {
+      await firstValueFrom(this.api.deletePractice(current.id));
+      this.running.set(null);
+      this.clearClock();
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   formatElapsed(): string {
     const total = this.elapsedSeconds();
     const hours = Math.floor(total / 3600)
