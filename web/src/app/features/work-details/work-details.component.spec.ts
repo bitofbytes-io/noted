@@ -38,12 +38,16 @@ describe('WorkDetailsComponent capability states', () => {
       ],
       practiceSummary: { totalSeconds: 0, sessionCount: 0 },
     };
+    let timerStartInput: { workId?: string; movementId?: string | null } | undefined;
     const timer = {
       running: signal(null),
       busy: signal(false),
       initialize: async () => undefined,
       formatElapsed: () => '00:00:00',
-      start: async () => undefined,
+      start: async (input: { workId?: string; movementId?: string | null }) => {
+        timerStartInput = input;
+        return undefined;
+      },
       stop: async () => undefined,
     };
     await TestBed.configureTestingModule({
@@ -71,5 +75,8 @@ describe('WorkDetailsComponent capability states', () => {
     expect(assetActions).toEqual(['Read']);
     const upload = fixture.nativeElement.querySelector('#upload-file') as HTMLInputElement;
     expect(upload.accept).toContain('.mxl');
+    await fixture.componentInstance.startPractice();
+    expect(Object.keys(timerStartInput ?? {})).toEqual(['workId']);
+    expect(timerStartInput?.movementId).toBeUndefined();
   });
 });

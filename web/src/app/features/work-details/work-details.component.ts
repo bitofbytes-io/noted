@@ -182,8 +182,7 @@ export class WorkDetailsComponent implements OnInit {
 
   async startPractice(): Promise<void> {
     try {
-      const movement = this.work()?.movements[0];
-      await this.timer.start({ workId: this.workId, movementId: movement?.id ?? null });
+      await this.timer.start({ workId: this.workId });
     } catch (error) {
       this.error.set(errorMessage(error));
     }

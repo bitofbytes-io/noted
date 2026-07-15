@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { ApiService } from './api.service';
 import { PracticeTimerService } from './practice-timer.service';
 
@@ -90,5 +90,31 @@ describe('PracticeTimerService', () => {
     await service.initialize();
     expect(attempts).toBe(2);
     expect(service.running()?.id).toBe(active.id);
+  });
+
+  it('does not let a stale initialization response overwrite a newer timer action', async () => {
+    const history = new Subject<{ items: [] }>();
+    const started = {
+      id: 'new-session',
+      workId: 'work-1',
+      workTitle: 'Exercise',
+      startedAt: new Date().toISOString(),
+      durationSeconds: 0,
+      entryMethod: 'timer' as const,
+    };
+    const api = {
+      practiceSessions: () => history,
+      startPractice: () => of(started),
+    };
+    TestBed.configureTestingModule({
+      providers: [PracticeTimerService, { provide: ApiService, useValue: api }],
+    });
+    const service = TestBed.inject(PracticeTimerService);
+
+    const initialization = service.initialize();
+    await service.start({ workId: 'work-1' });
+    history.next({ items: [] });
+    await initialization;
+    expect(service.running()?.id).toBe(started.id);
   });
 });

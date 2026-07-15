@@ -11,17 +11,21 @@ export class PracticeTimerService {
   private tick?: ReturnType<typeof setInterval>;
   private initialized = false;
   private initialization?: Promise<void>;
+  private stateVersion = 0;
 
   constructor(private readonly api: ApiService) {}
 
   initialize(): Promise<void> {
     if (this.initialized) return Promise.resolve();
     if (!this.initialization) {
+      const stateVersion = this.stateVersion;
       this.initialization = firstValueFrom(this.api.practiceSessions())
         .then((response) => {
-          const active = response.items.find((session) => !session.endedAt) ?? null;
-          this.running.set(active);
-          if (active) this.startClock(active.startedAt);
+          if (stateVersion === this.stateVersion) {
+            const active = response.items.find((session) => !session.endedAt) ?? null;
+            this.running.set(active);
+            if (active) this.startClock(active.startedAt);
+          }
           this.initialized = true;
         })
         .finally(() => {
@@ -35,6 +39,7 @@ export class PracticeTimerService {
     this.busy.set(true);
     try {
       const session = await firstValueFrom(this.api.startPractice(input));
+      this.stateVersion += 1;
       this.running.set(session);
       this.startClock(session.startedAt);
       return session;
@@ -49,6 +54,7 @@ export class PracticeTimerService {
     this.busy.set(true);
     try {
       const session = await firstValueFrom(this.api.stopPractice(current.id, input));
+      this.stateVersion += 1;
       this.running.set(null);
       this.clearClock();
       return session;
@@ -63,6 +69,7 @@ export class PracticeTimerService {
     this.busy.set(true);
     try {
       await firstValueFrom(this.api.deletePractice(current.id));
+      this.stateVersion += 1;
       this.running.set(null);
       this.clearClock();
     } finally {
