@@ -71,7 +71,7 @@ type PracticePatchInput struct {
 	Notes           PatchField[string]    `json:"notes"`
 }
 
-func (s *Service) validatePracticeContext(ctx context.Context, userID, workID string, movementID, assetID *string) error {
+func (s *Service) validatePracticeContext(ctx context.Context, userID, workID string, movementID, assetID *string, startMeasure, endMeasure *int) error {
 	if err := validateResourceID(workID); err != nil {
 		return err
 	}
@@ -93,11 +93,25 @@ func (s *Service) validatePracticeContext(ctx context.Context, userID, workID st
 		return ErrNotFound
 	}
 	if movementID != nil {
-		if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM movements WHERE id=$1 AND work_id=$2)`, *movementID, workID).Scan(&exists); err != nil {
+		var measureCount int
+		err := s.Pool.QueryRow(ctx, `SELECT COALESCE(measure_count,0) FROM movements WHERE id=$1 AND work_id=$2`, *movementID, workID).Scan(&measureCount)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ValidationError{Fields: map[string]string{"movementId": "must belong to the selected work"}}
+		}
+		if err != nil {
 			return err
 		}
-		if !exists {
-			return ValidationError{Fields: map[string]string{"movementId": "must belong to the selected work"}}
+		if measureCount > 0 && startMeasure != nil {
+			if endMeasure == nil && *startMeasure > measureCount {
+				return ValidationError{Fields: map[string]string{"startMeasure": fmt.Sprintf("must be at most %d", measureCount)}}
+			}
+			end := *startMeasure
+			if endMeasure != nil {
+				end = *endMeasure
+			}
+			if err := ValidateMeasureRange(*startMeasure, end, measureCount); err != nil {
+				return err
+			}
 		}
 	}
 	if assetID != nil {
@@ -118,7 +132,7 @@ func (s *Service) StartPractice(ctx context.Context, userID string, input Practi
 	if err := ValidatePractice(1, input.StartMeasure, input.EndMeasure, input.StartingBPM, nil); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID, input.StartMeasure, input.EndMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	var id string
@@ -186,7 +200,7 @@ func (s *Service) StopPractice(ctx context.Context, userID, sessionID string, in
 	if err := ValidatePractice(duration, startMeasure, endMeasure, startingBPM, input.EndingBPM); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID, startMeasure, endMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	result, err := s.Pool.Exec(ctx, `
@@ -209,7 +223,7 @@ func (s *Service) CreateManualPractice(ctx context.Context, userID string, input
 	if err := ValidatePractice(input.DurationSeconds, input.StartMeasure, input.EndMeasure, input.StartingBPM, input.EndingBPM); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID, input.StartMeasure, input.EndMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	started := time.Now().UTC().Add(-time.Duration(input.DurationSeconds) * time.Second)
@@ -304,7 +318,7 @@ func (s *Service) UpdatePractice(ctx context.Context, userID, sessionID string, 
 	if err := ValidatePractice(duration, startMeasure, endMeasure, startingBPM, endingBPM); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID, startMeasure, endMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	ended := started.Add(time.Duration(duration) * time.Second)

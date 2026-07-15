@@ -485,6 +485,81 @@ func TestIntegrationPracticePatchPreservesOmittedFieldsAndClearsNulls(t *testing
 	}
 }
 
+func TestIntegrationPracticeRangesRespectMovementLength(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	start, validEnd, invalidEnd := 1, 8, 9
+	assertRangeError := func(label string, err error) {
+		t.Helper()
+		var validation ValidationError
+		if !errors.As(err, &validation) || validation.Fields["endMeasure"] == "" {
+			t.Fatalf("%s error = %v, want movement-length endMeasure validation", label, err)
+		}
+	}
+
+	_, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID, DurationSeconds: 60,
+		StartMeasure: &start, EndMeasure: &invalidEnd,
+	})
+	assertRangeError("manual entry", err)
+	_, err = service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID, DurationSeconds: 60,
+		StartMeasure: &invalidEnd,
+	})
+	var validation ValidationError
+	if !errors.As(err, &validation) || validation.Fields["startMeasure"] == "" {
+		t.Fatalf("start-only range error = %v, want movement-length startMeasure validation", err)
+	}
+
+	_, err = service.StartPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID,
+		StartMeasure: &start, EndMeasure: &invalidEnd,
+	})
+	assertRangeError("timer start", err)
+
+	running, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID,
+		StartMeasure: &start, EndMeasure: &validEnd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.StopPractice(ctx, fixture.UserID, running.ID, StopPracticeInput{EndMeasure: &invalidEnd})
+	assertRangeError("timer stop", err)
+	retained, err := service.GetPracticeSession(ctx, fixture.UserID, running.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.EndedAt != nil || retained.EndMeasure == nil || *retained.EndMeasure != validEnd {
+		t.Fatalf("rejected timer stop changed the running session: %+v", retained)
+	}
+	if err := service.DeletePractice(ctx, fixture.UserID, running.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	completed, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, MovementID: &fixture.MovementID, DurationSeconds: 60,
+		StartMeasure: &start, EndMeasure: &validEnd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var patch PracticePatchInput
+	if err := json.Unmarshal([]byte(`{"endMeasure":9}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.UpdatePractice(ctx, fixture.UserID, completed.ID, patch)
+	assertRangeError("practice correction", err)
+	retained, err = service.GetPracticeSession(ctx, fixture.UserID, completed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.EndMeasure == nil || *retained.EndMeasure != validEnd {
+		t.Fatalf("rejected correction changed the saved range: %+v", retained)
+	}
+}
+
 func TestIntegrationSharedWorkDoesNotShareUploadedAssets(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)

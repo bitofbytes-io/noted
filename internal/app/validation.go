@@ -22,6 +22,9 @@ func ValidateMeasureRange(start, end, measureCount int) error {
 	if start < 1 {
 		fields["startMeasure"] = "must be at least 1"
 	}
+	if start > measureCount {
+		fields["startMeasure"] = fmt.Sprintf("must be at most %d", measureCount)
+	}
 	if end < start {
 		fields["endMeasure"] = "must not precede the start measure"
 	}
