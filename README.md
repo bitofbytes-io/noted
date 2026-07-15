@@ -52,8 +52,14 @@ Copy-safe defaults live in `.env.example`. Important values are:
 make test       # PostgreSQL-backed Go tests plus Angular unit tests
 make lint       # gofmt, go vet, Prettier check, and TypeScript check
 make build      # Go and production Angular builds
-make test-e2e   # all three core flows in desktop Chrome and iPad-sized WebKit
+make test-e2e   # isolated core flows in desktop Chrome and iPad-sized WebKit
 ```
+
+`make test-e2e` creates a dedicated temporary PostgreSQL database and asset root, then removes
+both when Playwright exits. It never writes to the regular development learner data. Migration
+apply/rollback/reapply coverage is included in `make test` and can be run alone with
+`make test-migrations`. To repeat the browser suite visibly, run
+`./scripts/with-test-database.sh headed-e2e ./scripts/run-playwright-headed.sh`.
 
 Playwright installs its browser engines separately. If this machine has not run the E2E suite before, install the required WebKit engine once with `cd web && npx playwright install webkit`; desktop coverage uses the installed Chrome channel.
 
@@ -63,8 +69,8 @@ The [verification record](docs/implementation/verification.md) maps requirements
 
 - Home dashboard, Library search/filtering, work/edition/asset management, Metronome, Practice, and Settings.
 - Authenticated PDF/MusicXML upload and streaming through opaque filesystem keys with content validation, checksums, provenance, and cleanup.
-- PDF.js score reading plus alphaTab MusicXML notation, synthesized playback, BPM control, validated measure ranges, and looping.
-- A durable one-at-a-time practice timer, manual entries, correction/deletion, and Monday-first summaries.
+- PDF.js score reading plus an immersive alphaTab MusicXML player with a beat cursor, note highlighting, synthesized playback, BPM control, validated measure ranges, and looping.
+- A durable one-at-a-time practice timer with confirmed discard recovery, complete manual entries/corrections, deletion, and Monday-first summaries.
 - Responsive cobalt/white interface exercised at a 1024×1366 portrait viewport.
 
 Audiveris-based OMR is specified as a gated post-POC increment; built-in notation correction remains later work. Annotations, lessons, sharing, offline support, performance assessment, production OAuth, NAS/NFS provisioning, and deployment also remain deferred.

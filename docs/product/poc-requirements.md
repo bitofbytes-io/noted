@@ -90,8 +90,11 @@ Before the application is deployed outside a trusted local environment, Google O
 - POC-056: Invalid ranges are rejected with clear feedback; start must be at least 1, end cannot precede start, and both must exist in the score.
 - POC-057: The score player has a compact floating control bar and a separate lower-left pencil affordance that is disabled or labeled for a later annotation phase.
 - POC-058: A PDF-only work is still readable and practiceable but is clearly marked as not currently playable.
+- POC-059: The structured-score route is an immersive `100dvh` reading surface. It hides Noted's global header and bottom navigation while active, provides an explicit back action, respects safe-area insets, and restores the application shell after exit.
+- POC-059a: Player controls appear after a score tap/click or keyboard activity, auto-hide after three seconds of inactivity, and remain visible while notation is loading, an error is shown, a control has focus, or the measure-range editor is open.
+- POC-059b: Playback always shows a high-contrast cobalt vertical beat cursor plus current-beat/note highlighting. Reduced-motion mode keeps a stepped cursor and disables cursor animation rather than removing position feedback.
 
-Count-in, part isolation, automatic page turning, playback highlighting, and hand isolation are desirable experiments but are not required for POC acceptance.
+Count-in, part isolation, automatic page turning, and hand isolation are desirable experiments but are not required for POC acceptance.
 
 ### Metronome
 

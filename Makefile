@@ -1,6 +1,7 @@
 SHELL := /bin/sh
+COMPOSE := docker compose -p noted -f compose.local.yml
 
-.PHONY: setup db-up db-down migrate seed api-run web-start local test test-api test-web test-e2e lint build clean
+.PHONY: setup db-up db-down migrate seed api-run web-start local test test-api test-web test-migrations test-e2e lint build clean
 
 setup:
 	mkdir -p .local/noted-assets/temporary .local/noted-assets/originals/pdf .local/noted-assets/originals/musicxml
@@ -9,10 +10,10 @@ setup:
 	cd web && npm ci
 
 db-up:
-	docker compose -f compose.local.yml up -d --wait postgres
+	$(COMPOSE) up -d --wait postgres
 
 db-down:
-	docker compose -f compose.local.yml down
+	$(COMPOSE) down
 
 migrate:
 	go run ./cmd/migrate
@@ -32,7 +33,7 @@ local: db-up migrate seed
 		trap 'kill "$$api_pid" 2>/dev/null || true' EXIT INT TERM; \
 		cd web && npm start
 
-test: db-up migrate seed test-api test-web
+test: db-up migrate seed test-api test-web test-migrations
 
 test-api:
 	NOTED_INTEGRATION=1 go test ./...
@@ -40,8 +41,11 @@ test-api:
 test-web:
 	cd web && npm test -- --watch=false
 
+test-migrations:
+	./scripts/with-test-database.sh migrations ./scripts/verify-migrations.sh
+
 test-e2e:
-	cd web && npm run e2e
+	./scripts/with-test-database.sh e2e ./scripts/run-playwright.sh
 
 lint:
 	test -z "$$(gofmt -l cmd internal)"

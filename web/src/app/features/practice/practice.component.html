@@ -7,7 +7,7 @@
       entry.
     </p>
   </div>
-  <button class="button secondary" (click)="showManual = !showManual">
+  <button class="button secondary" (click)="toggleManual()">
     {{ showManual ? 'Close entry' : '+ Manual entry' }}
   </button>
 </div>
@@ -96,9 +96,56 @@
     <form class="form-grid" (ngSubmit)="saveManual()">
       <div class="field">
         <label for="manual-work">Work</label
-        ><select id="manual-work" name="work" [(ngModel)]="draft.workId" required>
+        ><select
+          id="manual-work"
+          name="work"
+          [(ngModel)]="draft.workId"
+          (ngModelChange)="onManualWorkChange($event)"
+          required
+        >
           @for (work of works(); track work.id) {
             <option [value]="work.id">{{ work.title }}</option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="manual-started-at">Start date & time</label
+        ><input
+          id="manual-started-at"
+          name="startedAt"
+          type="datetime-local"
+          step="1"
+          [(ngModel)]="draft.startedAtLocal"
+          required
+        />
+      </div>
+      <div class="field">
+        <label for="manual-movement">Movement</label
+        ><select
+          id="manual-movement"
+          name="movementId"
+          [(ngModel)]="draft.movementId"
+          [disabled]="optionsLoading()"
+        >
+          <option value="">Entire work</option>
+          @for (movement of selectedWork()?.movements ?? []; track movement.id) {
+            <option [value]="movement.id">
+              {{ movement.sequenceNumber }}. {{ movement.title }}
+            </option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="manual-asset">Score asset</label
+        ><select
+          id="manual-asset"
+          name="scoreAssetId"
+          [(ngModel)]="draft.scoreAssetId"
+          [disabled]="optionsLoading()"
+        >
+          <option value="">No specific asset</option>
+          @for (asset of scoreOptions(); track asset.id) {
+            <option [value]="asset.id">{{ asset.label }}</option>
           }
         </select>
       </div>
@@ -121,6 +168,7 @@
           name="startMeasure"
           type="number"
           min="1"
+          [max]="movementMeasureCount()"
           [(ngModel)]="draft.startMeasure"
         />
       </div>
@@ -131,6 +179,7 @@
           name="endMeasure"
           type="number"
           min="1"
+          [max]="movementMeasureCount()"
           [(ngModel)]="draft.endMeasure"
         />
       </div>

@@ -4,12 +4,15 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { PracticeInput, PracticeSession, WorkSummary } from '../../core/models';
+import { PracticeInput, PracticeSession, WorkDetail, WorkSummary } from '../../core/models';
 import { PracticeTimerService } from '../../core/practice-timer.service';
 
-interface PracticeDraft {
+export interface PracticeDraft {
   workId: string;
+  startedAtLocal: string;
   durationMinutes: number;
+  movementId: string;
+  scoreAssetId: string;
   startMeasure: number | null;
   endMeasure: number | null;
   handPart: string;
@@ -18,13 +21,34 @@ interface PracticeDraft {
   notes: string;
 }
 
-export function correctionAssociationPatch(
-  originalWorkId: string,
-  selectedWorkId: string,
-): Pick<PracticeInput, 'movementId' | 'scoreAssetId'> | Record<string, never> {
-  return originalWorkId && originalWorkId !== selectedWorkId
-    ? { movementId: null, scoreAssetId: null }
-    : {};
+export function toLocalDateTimeInput(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+export function toPracticeTimestamp(localValue: string): string {
+  const value = new Date(localValue);
+  if (Number.isNaN(value.getTime()))
+    throw new Error('Choose a valid practice start date and time.');
+  return value.toISOString();
+}
+
+export function practiceDraftFromSession(session: PracticeSession): PracticeDraft {
+  return {
+    workId: session.workId,
+    startedAtLocal: toLocalDateTimeInput(session.startedAt),
+    durationMinutes: Math.max(1, Math.round(session.durationSeconds / 60)),
+    movementId: session.movementId ?? '',
+    scoreAssetId: session.scoreAssetId ?? '',
+    startMeasure: session.startMeasure ?? null,
+    endMeasure: session.endMeasure ?? null,
+    handPart: session.handPart ?? '',
+    startingBpm: session.startingBpm ?? null,
+    endingBpm: session.endingBpm ?? null,
+    notes: session.notes ?? '',
+  };
 }
 
 @Component({
@@ -36,6 +60,8 @@ export function correctionAssociationPatch(
 export class PracticeComponent implements OnInit {
   protected readonly sessions = signal<PracticeSession[]>([]);
   protected readonly works = signal<WorkSummary[]>([]);
+  protected readonly selectedWork = signal<WorkDetail | null>(null);
+  protected readonly optionsLoading = signal(false);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly error = signal('');
@@ -43,7 +69,6 @@ export class PracticeComponent implements OnInit {
   protected showManual = false;
   protected selectedTimerWork = '';
   protected editingId = '';
-  protected editingWorkId = '';
   protected draft: PracticeDraft = this.emptyDraft();
   protected stopDraft = {
     startMeasure: null as number | null,
@@ -52,6 +77,7 @@ export class PracticeComponent implements OnInit {
     handPart: '',
     notes: '',
   };
+  private optionsRequest = 0;
 
   constructor(
     private readonly api: ApiService,
@@ -64,6 +90,7 @@ export class PracticeComponent implements OnInit {
 
   async load(): Promise<void> {
     this.loading.set(true);
+    this.error.set('');
     try {
       await this.timer.initialize();
       const [works, sessions] = await Promise.all([
@@ -74,7 +101,7 @@ export class PracticeComponent implements OnInit {
       this.sessions.set(sessions.items.filter((session) => Boolean(session.endedAt)));
       this.selectedTimerWork ||= works.items[0]?.id ?? '';
       this.draft.workId ||= works.items[0]?.id ?? '';
-      this.error.set('');
+      if (this.draft.workId) await this.loadPracticeOptions(this.draft.workId, true);
     } catch (error) {
       this.error.set(errorMessage(error));
     } finally {
@@ -113,14 +140,16 @@ export class PracticeComponent implements OnInit {
     try {
       const input: PracticeInput = {
         workId: this.draft.workId,
+        startedAt: toPracticeTimestamp(this.draft.startedAtLocal),
         durationSeconds: Math.round(this.draft.durationMinutes * 60),
+        movementId: this.draft.movementId || null,
+        scoreAssetId: this.draft.scoreAssetId || null,
         startMeasure: this.draft.startMeasure,
         endMeasure: this.draft.endMeasure,
         handPart: this.draft.handPart,
         startingBpm: this.draft.startingBpm,
         endingBpm: this.draft.endingBpm,
         notes: this.draft.notes,
-        ...correctionAssociationPatch(this.editingWorkId, this.draft.workId),
       };
       if (this.editingId) await firstValueFrom(this.api.updatePractice(this.editingId, input));
       else await firstValueFrom(this.api.createPractice(input));
@@ -136,21 +165,43 @@ export class PracticeComponent implements OnInit {
     }
   }
 
-  edit(session: PracticeSession): void {
+  async edit(session: PracticeSession): Promise<void> {
     this.editingId = session.id;
-    this.editingWorkId = session.workId;
     this.showManual = true;
-    this.draft = {
-      workId: session.workId,
-      durationMinutes: Math.max(1, Math.round(session.durationSeconds / 60)),
-      startMeasure: session.startMeasure ?? null,
-      endMeasure: session.endMeasure ?? null,
-      handPart: session.handPart ?? '',
-      startingBpm: session.startingBpm ?? null,
-      endingBpm: session.endingBpm ?? null,
-      notes: session.notes ?? '',
-    };
+    this.draft = practiceDraftFromSession(session);
+    await this.loadPracticeOptions(session.workId, true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async onManualWorkChange(workId: string): Promise<void> {
+    this.draft.workId = workId;
+    this.draft.movementId = '';
+    this.draft.scoreAssetId = '';
+    await this.loadPracticeOptions(workId, false);
+  }
+
+  async toggleManual(): Promise<void> {
+    this.showManual = !this.showManual;
+    if (this.showManual && this.draft.workId)
+      await this.loadPracticeOptions(this.draft.workId, true);
+  }
+
+  protected scoreOptions(): { id: string; label: string }[] {
+    return (
+      this.selectedWork()?.editions.flatMap((edition) =>
+        edition.assets.map((asset) => ({
+          id: asset.id,
+          label: `${edition.name} — ${asset.originalFilename}`,
+        })),
+      ) ?? []
+    );
+  }
+
+  protected movementMeasureCount(): number | null {
+    return (
+      this.selectedWork()?.movements.find((movement) => movement.id === this.draft.movementId)
+        ?.measureCount ?? null
+    );
   }
 
   async remove(session: PracticeSession): Promise<void> {
@@ -183,10 +234,10 @@ export class PracticeComponent implements OnInit {
 
   cancelEdit(): void {
     this.editingId = '';
-    this.editingWorkId = '';
     this.showManual = false;
     this.draft = this.emptyDraft();
     this.draft.workId = this.works()[0]?.id ?? '';
+    if (this.draft.workId) void this.loadPracticeOptions(this.draft.workId, true);
   }
 
   duration(seconds: number): string {
@@ -197,7 +248,10 @@ export class PracticeComponent implements OnInit {
   private emptyDraft(): PracticeDraft {
     return {
       workId: '',
+      startedAtLocal: toLocalDateTimeInput(new Date()),
       durationMinutes: 30,
+      movementId: '',
+      scoreAssetId: '',
       startMeasure: null,
       endMeasure: null,
       handPart: '',
@@ -205,5 +259,27 @@ export class PracticeComponent implements OnInit {
       endingBpm: null,
       notes: '',
     };
+  }
+
+  private async loadPracticeOptions(workId: string, preserveAssociations: boolean): Promise<void> {
+    const request = ++this.optionsRequest;
+    if (!workId) {
+      this.selectedWork.set(null);
+      return;
+    }
+    this.optionsLoading.set(true);
+    try {
+      const detail = await firstValueFrom(this.api.work(workId));
+      if (request !== this.optionsRequest) return;
+      this.selectedWork.set(detail);
+      if (!preserveAssociations) {
+        this.draft.movementId = '';
+        this.draft.scoreAssetId = '';
+      }
+    } catch (error) {
+      if (request === this.optionsRequest) this.error.set(errorMessage(error));
+    } finally {
+      if (request === this.optionsRequest) this.optionsLoading.set(false);
+    }
   }
 }

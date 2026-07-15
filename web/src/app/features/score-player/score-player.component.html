@@ -1,11 +1,24 @@
-<section class="player-shell" [class.controls-hidden]="controlsHidden">
+<section
+  #shell
+  class="player-shell"
+  [class.controls-hidden]="!controlsVisible()"
+  [class.reduced-motion]="reducedMotion"
+  (pointerdown)="handlePointerActivity()"
+  (focusin)="handleFocusIn()"
+  (focusout)="handleFocusOut($event)"
+>
   <header class="score-header">
-    <a [routerLink]="workId ? ['/works', workId] : ['/library']" aria-label="Back to work">←</a>
+    <a
+      class="back-action"
+      [routerLink]="workId ? ['/works', workId] : ['/library']"
+      aria-label="Back to work"
+      >← <span>Back</span></a
+    >
     <div>
       <strong>{{ asset()?.originalFilename || 'Structured score' }}</strong
       ><span>MusicXML · rendered notation + synthesized playback</span>
     </div>
-    <button (click)="controlsHidden = true">Hide controls</button>
+    <span class="immersive-label">Immersive player</span>
   </header>
 
   @if (error()) {
@@ -26,7 +39,7 @@
       @for (number of measureNumbers(); track number) {
         <button
           [class.in-range]="number >= rangeStart && number <= rangeEnd"
-          (click)="rangeStart = number; rangeEnd = number; applyRange()"
+          (click)="selectMeasure(number)"
         >
           {{ number }}
         </button>
@@ -35,13 +48,6 @@
     <div #notation class="notation-canvas"></div>
   </section>
 
-  <button
-    class="reveal-controls"
-    (click)="controlsHidden = false"
-    aria-label="Show player controls"
-  >
-    •••
-  </button>
   <button
     class="pencil-button"
     disabled
@@ -80,7 +86,7 @@
       />
     </div>
     <div class="range-wrap">
-      <button class="range-control" (click)="rangeOpen = !rangeOpen">
+      <button class="range-control" (click)="toggleRangeEditor()">
         Measures {{ rangeStart }}–{{ rangeEnd }} <span>⌄</span>
       </button>
       @if (rangeOpen) {
@@ -94,7 +100,7 @@
               type="number"
               min="1"
               [max]="measureCount"
-              [(ngModel)]="rangeStart"
+              [(ngModel)]="draftRangeStart"
             />
           </div>
           <div>
@@ -105,13 +111,14 @@
               type="number"
               min="1"
               [max]="measureCount"
-              [(ngModel)]="rangeEnd"
+              [(ngModel)]="draftRangeEnd"
             />
           </div>
           @if (rangeError) {
             <span class="range-error">{{ rangeError }}</span>
           }
           <button class="apply-range" type="submit">Apply</button>
+          <button class="cancel-range" type="button" (click)="closeRangeEditor()">Cancel</button>
         </form>
       }
     </div>

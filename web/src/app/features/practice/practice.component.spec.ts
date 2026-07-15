@@ -1,14 +1,47 @@
-import { correctionAssociationPatch } from './practice.component';
+import { PracticeSession } from '../../core/models';
+import {
+  practiceDraftFromSession,
+  toLocalDateTimeInput,
+  toPracticeTimestamp,
+} from './practice.component';
 
-describe('practice correction associations', () => {
-  it('preserves omitted associations while the work is unchanged', () => {
-    expect(correctionAssociationPatch('work-1', 'work-1')).toEqual({});
+describe('practice entry drafts', () => {
+  it('round-trips the local date/time input without moving the instant', () => {
+    const instant = new Date(2031, 4, 6, 14, 35, 12);
+    expect(toPracticeTimestamp(toLocalDateTimeInput(instant))).toBe(instant.toISOString());
   });
 
-  it('clears old movement and asset associations when the work changes', () => {
-    expect(correctionAssociationPatch('work-1', 'work-2')).toEqual({
-      movementId: null,
-      scoreAssetId: null,
+  it('preserves every optional field while preparing a correction', () => {
+    const session: PracticeSession = {
+      id: 'session-1',
+      workId: 'work-1',
+      workTitle: 'Work',
+      movementId: 'movement-1',
+      scoreAssetId: 'asset-1',
+      startedAt: '2031-05-06T18:35:12.000Z',
+      endedAt: '2031-05-06T18:55:12.000Z',
+      durationSeconds: 1200,
+      entryMethod: 'manual',
+      startMeasure: 2,
+      endMeasure: 7,
+      handPart: 'RH',
+      startingBpm: 72,
+      endingBpm: 88,
+      notes: 'Focused correction',
+    };
+    const draft = practiceDraftFromSession(session);
+    expect(draft).toMatchObject({
+      workId: 'work-1',
+      movementId: 'movement-1',
+      scoreAssetId: 'asset-1',
+      durationMinutes: 20,
+      startMeasure: 2,
+      endMeasure: 7,
+      handPart: 'RH',
+      startingBpm: 72,
+      endingBpm: 88,
+      notes: 'Focused correction',
     });
+    expect(toPracticeTimestamp(draft.startedAtLocal)).toBe(session.startedAt);
   });
 });

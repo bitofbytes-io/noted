@@ -36,6 +36,7 @@ export const routes: Routes = [
         (module) => module.ScorePlayerComponent,
       ),
     title: 'Score player · Noted',
+    data: { immersive: true },
   },
   {
     path: 'metronome',
