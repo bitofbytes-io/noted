@@ -145,10 +145,69 @@ func TestIntegrationOwnershipScoping(t *testing.T) {
 	}
 }
 
-func TestIntegrationMalformedWorkIDReturnsNotFound(t *testing.T) {
+func TestIntegrationMalformedResourceIDsReturnClientErrors(t *testing.T) {
 	service, current, _ := integrationService(t)
-	if _, err := service.GetWork(context.Background(), current.ID, "not-a-uuid"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("malformed work ID error = %v, want ErrNotFound", err)
+	ctx := context.Background()
+	malformed := "not-a-uuid"
+	checks := map[string]func() error{
+		"get work": func() error {
+			_, err := service.GetWork(ctx, current.ID, malformed)
+			return err
+		},
+		"update learner state": func() error {
+			_, err := service.UpdateLearnerState(ctx, current.ID, malformed, LearnerStateInput{Status: "Learning"})
+			return err
+		},
+		"add edition": func() error {
+			_, err := service.AddEdition(ctx, current.ID, malformed, EditionInput{Name: "Edition"})
+			return err
+		},
+		"add movement": func() error {
+			_, err := service.AddMovement(ctx, current.ID, malformed, MovementInput{SequenceNumber: 1, Title: "Movement"})
+			return err
+		},
+		"upload asset": func() error {
+			_, err := service.UploadAsset(ctx, current.ID, malformed, nil, nil, UploadMetadata{RightsNote: "CC0"})
+			return err
+		},
+		"list edition assets": func() error {
+			_, err := service.ListEditionAssets(ctx, current.ID, malformed)
+			return err
+		},
+		"get asset": func() error {
+			_, err := service.GetAsset(ctx, current.ID, malformed)
+			return err
+		},
+		"start practice": func() error {
+			_, err := service.StartPractice(ctx, current.ID, PracticeInput{WorkID: malformed})
+			return err
+		},
+		"create practice": func() error {
+			_, err := service.CreateManualPractice(ctx, current.ID, PracticeInput{WorkID: malformed, DurationSeconds: 60})
+			return err
+		},
+		"stop practice": func() error {
+			_, err := service.StopPractice(ctx, current.ID, malformed, StopPracticeInput{})
+			return err
+		},
+		"get practice": func() error {
+			_, err := service.GetPracticeSession(ctx, current.ID, malformed)
+			return err
+		},
+		"delete practice": func() error {
+			return service.DeletePractice(ctx, current.ID, malformed)
+		},
+		"replace tags": func() error {
+			_, err := service.ReplaceWorkTags(ctx, current.ID, malformed, nil)
+			return err
+		},
+	}
+	for name, check := range checks {
+		t.Run(name, func(t *testing.T) {
+			if err := check(); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("malformed resource ID error = %v, want ErrNotFound", err)
+			}
+		})
 	}
 }
 

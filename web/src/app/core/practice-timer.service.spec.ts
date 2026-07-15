@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ApiService } from './api.service';
 import { PracticeTimerService } from './practice-timer.service';
 
@@ -61,5 +61,34 @@ describe('PracticeTimerService', () => {
     expect(deleted).toBe(active.id);
     expect(service.running()).toBeNull();
     expect(service.elapsedSeconds()).toBe(0);
+  });
+
+  it('retries initialization after a transient practice history failure', async () => {
+    const active = {
+      id: 'recovered-session',
+      workId: 'work-1',
+      workTitle: 'Exercise',
+      startedAt: new Date().toISOString(),
+      durationSeconds: 0,
+      entryMethod: 'timer' as const,
+    };
+    let attempts = 0;
+    const api = {
+      practiceSessions: () => {
+        attempts += 1;
+        return attempts === 1
+          ? throwError(() => new Error('API starting'))
+          : of({ items: [active] });
+      },
+    };
+    TestBed.configureTestingModule({
+      providers: [PracticeTimerService, { provide: ApiService, useValue: api }],
+    });
+    const service = TestBed.inject(PracticeTimerService);
+
+    await expect(service.initialize()).rejects.toThrow('API starting');
+    await service.initialize();
+    expect(attempts).toBe(2);
+    expect(service.running()?.id).toBe(active.id);
   });
 });

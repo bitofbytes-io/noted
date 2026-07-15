@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -119,7 +118,7 @@ func (s *Service) CreateWork(ctx context.Context, userID string, input CreateWor
 }
 
 func (s *Service) GetWork(ctx context.Context, userID, workID string) (WorkDetail, error) {
-	if err := uuid.Validate(workID); err != nil {
+	if err := validateResourceID(workID); err != nil {
 		return WorkDetail{}, ErrNotFound
 	}
 	var work WorkDetail
@@ -196,6 +195,9 @@ type LearnerStateInput struct {
 }
 
 func (s *Service) UpdateLearnerState(ctx context.Context, userID, workID string, input LearnerStateInput) (WorkDetail, error) {
+	if err := validateResourceID(workID); err != nil {
+		return WorkDetail{}, err
+	}
 	if err := ValidateStatus(input.Status); err != nil {
 		return WorkDetail{}, err
 	}
@@ -221,6 +223,9 @@ type EditionInput struct {
 }
 
 func (s *Service) AddEdition(ctx context.Context, userID, workID string, input EditionInput) (Edition, error) {
+	if err := validateResourceID(workID); err != nil {
+		return Edition{}, err
+	}
 	if strings.TrimSpace(input.Name) == "" {
 		return Edition{}, ValidationError{Fields: map[string]string{"name": "is required"}}
 	}
@@ -247,6 +252,9 @@ type MovementInput struct {
 }
 
 func (s *Service) AddMovement(ctx context.Context, userID, workID string, input MovementInput) (Movement, error) {
+	if err := validateResourceID(workID); err != nil {
+		return Movement{}, err
+	}
 	if input.SequenceNumber < 1 || strings.TrimSpace(input.Title) == "" {
 		return Movement{}, ValidationError{Fields: map[string]string{"movement": "sequence number and title are required"}}
 	}

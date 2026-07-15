@@ -45,8 +45,8 @@ func (s *Service) CreateTag(ctx context.Context, userID, name string) (Tag, erro
 }
 
 func (s *Service) ReplaceWorkTags(ctx context.Context, userID, workID string, tagIDs []string) ([]Tag, error) {
-	if err := uuid.Validate(workID); err != nil {
-		return nil, ErrNotFound
+	if err := validateResourceID(workID); err != nil {
+		return nil, err
 	}
 	for _, tagID := range tagIDs {
 		if err := uuid.Validate(tagID); err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,6 +23,13 @@ type Service struct {
 
 func NewService(pool *pgxpool.Pool, store assets.AssetStore) *Service {
 	return &Service{Pool: pool, Store: store}
+}
+
+func validateResourceID(value string) error {
+	if err := uuid.Validate(value); err != nil {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Service) CurrentUser(ctx context.Context, email string) (User, error) {

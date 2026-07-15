@@ -10,16 +10,25 @@ export class PracticeTimerService {
   readonly busy = signal(false);
   private tick?: ReturnType<typeof setInterval>;
   private initialized = false;
+  private initialization?: Promise<void>;
 
   constructor(private readonly api: ApiService) {}
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
-    const response = await firstValueFrom(this.api.practiceSessions());
-    const active = response.items.find((session) => !session.endedAt) ?? null;
-    this.running.set(active);
-    if (active) this.startClock(active.startedAt);
+  initialize(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
+    if (!this.initialization) {
+      this.initialization = firstValueFrom(this.api.practiceSessions())
+        .then((response) => {
+          const active = response.items.find((session) => !session.endedAt) ?? null;
+          this.running.set(active);
+          if (active) this.startClock(active.startedAt);
+          this.initialized = true;
+        })
+        .finally(() => {
+          this.initialization = undefined;
+        });
+    }
+    return this.initialization;
   }
 
   async start(input: PracticeInput): Promise<PracticeSession> {

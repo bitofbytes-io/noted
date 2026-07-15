@@ -24,6 +24,9 @@ type assetRecord struct {
 }
 
 func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, header *multipart.FileHeader, file multipart.File, metadata UploadMetadata) (Asset, error) {
+	if err := validateResourceID(editionID); err != nil {
+		return Asset{}, err
+	}
 	if strings.TrimSpace(metadata.RightsNote) == "" {
 		return Asset{}, ValidationError{Fields: map[string]string{"rightsNote": "is required"}}
 	}
@@ -65,6 +68,9 @@ func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, hea
 }
 
 func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID string) ([]Asset, error) {
+	if err := validateResourceID(editionID); err != nil {
+		return nil, err
+	}
 	rows, err := s.Pool.Query(ctx, `
 		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.created_at
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
@@ -86,6 +92,9 @@ func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID strin
 }
 
 func (s *Service) getAssetRecord(ctx context.Context, userID, assetID string) (assetRecord, error) {
+	if err := validateResourceID(assetID); err != nil {
+		return assetRecord{}, err
+	}
 	var item assetRecord
 	err := s.Pool.QueryRow(ctx, `
 		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.created_at,a.storage_key

@@ -72,6 +72,19 @@ type PracticePatchInput struct {
 }
 
 func (s *Service) validatePracticeContext(ctx context.Context, userID, workID string, movementID, assetID *string) error {
+	if err := validateResourceID(workID); err != nil {
+		return err
+	}
+	if movementID != nil {
+		if err := validateResourceID(*movementID); err != nil {
+			return ValidationError{Fields: map[string]string{"movementId": "must be a valid movement ID"}}
+		}
+	}
+	if assetID != nil {
+		if err := validateResourceID(*assetID); err != nil {
+			return ErrNotFound
+		}
+	}
 	var exists bool
 	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM learner_works WHERE user_id=$1 AND work_id=$2)`, userID, workID).Scan(&exists); err != nil {
 		return err
@@ -124,6 +137,9 @@ func (s *Service) StartPractice(ctx context.Context, userID string, input Practi
 }
 
 func (s *Service) StopPractice(ctx context.Context, userID, sessionID string, input StopPracticeInput) (PracticeSession, error) {
+	if err := validateResourceID(sessionID); err != nil {
+		return PracticeSession{}, err
+	}
 	var workID string
 	var started time.Time
 	var movementID, scoreAssetID *string
@@ -345,6 +361,9 @@ func (s *Service) refreshLastBPM(ctx context.Context, userID string, workIDs ...
 }
 
 func (s *Service) GetPracticeSession(ctx context.Context, userID, sessionID string) (PracticeSession, error) {
+	if err := validateResourceID(sessionID); err != nil {
+		return PracticeSession{}, err
+	}
 	row := s.Pool.QueryRow(ctx, practiceSelect+` WHERE ps.user_id=$1 AND ps.id=$2`, userID, sessionID)
 	item, err := scanPractice(row)
 	if errors.Is(err, pgx.ErrNoRows) {
