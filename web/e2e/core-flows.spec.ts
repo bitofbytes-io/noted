@@ -76,6 +76,8 @@ test.describe.serial('Noted core POC flows', () => {
       await page.waitForTimeout(650);
       const advanced = await beatCursor.boundingBox();
       expect(advanced?.x !== before?.x || advanced?.y !== before?.y).toBe(true);
+      await page.locator('.notation-viewport').click({ position: { x: 20, y: 180 } });
+      await expect(playerShell).not.toHaveClass(/controls-hidden/);
       await page.getByRole('button', { name: 'Pause', exact: true }).click();
       await page.waitForTimeout(150);
       const paused = await beatCursor.boundingBox();
@@ -83,6 +85,8 @@ test.describe.serial('Noted core POC flows', () => {
       const stillPaused = await beatCursor.boundingBox();
       expect(Math.abs((stillPaused?.x ?? 0) - (paused?.x ?? 0))).toBeLessThan(1);
       expect(Math.abs((stillPaused?.y ?? 0) - (paused?.y ?? 0))).toBeLessThan(1);
+      await page.locator('.notation-viewport').click({ position: { x: 20, y: 180 } });
+      await expect(playerShell).not.toHaveClass(/controls-hidden/);
       await page.getByRole('button', { name: 'Restart' }).click();
 
       await page.getByRole('button', { name: /Measures 2–4/ }).click();
