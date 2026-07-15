@@ -102,6 +102,9 @@ func (s *Service) StartPractice(ctx context.Context, userID string, input Practi
 	if input.WorkID == "" {
 		return PracticeSession{}, ValidationError{Fields: map[string]string{"workId": "is required"}}
 	}
+	if err := ValidatePractice(1, input.StartMeasure, input.EndMeasure, input.StartingBPM, nil); err != nil {
+		return PracticeSession{}, err
+	}
 	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID); err != nil {
 		return PracticeSession{}, err
 	}

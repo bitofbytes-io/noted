@@ -240,6 +240,30 @@ func TestIntegrationStopPracticePreservesTimerContext(t *testing.T) {
 	}
 }
 
+func TestIntegrationStartPracticeRejectsInvalidOptionalContext(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	startMeasure, endMeasure, startingBPM := 4, 2, 20
+	_, err := service.StartPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, StartMeasure: &startMeasure, EndMeasure: &endMeasure, StartingBPM: &startingBPM,
+	})
+	var validation ValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("invalid timer context error = %v, want ValidationError", err)
+	}
+	if validation.Fields["endMeasure"] == "" || validation.Fields["startingBpm"] == "" {
+		t.Fatalf("timer validation did not report range and BPM fields: %+v", validation.Fields)
+	}
+	var running int
+	if err := service.Pool.QueryRow(ctx, `SELECT count(*) FROM practice_sessions WHERE user_id=$1 AND ended_at IS NULL`, fixture.UserID).Scan(&running); err != nil {
+		t.Fatal(err)
+	}
+	if running != 0 {
+		t.Fatalf("invalid timer context created %d running sessions", running)
+	}
+}
+
 func TestIntegrationPracticePatchPreservesOmittedFieldsAndClearsNulls(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
