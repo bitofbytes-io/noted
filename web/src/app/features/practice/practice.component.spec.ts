@@ -1,6 +1,9 @@
 import { PracticeSession } from '../../core/models';
+import { ApiService } from '../../core/api.service';
+import { PracticeTimerService } from '../../core/practice-timer.service';
 import {
   defaultManualStart,
+  PracticeComponent,
   practiceDraftFromSession,
   toLocalDateTimeInput,
   toPracticeTimestamp,
@@ -11,6 +14,26 @@ describe('practice entry drafts', () => {
     const openedAt = new Date(2031, 4, 6, 14, 35, 12);
     const startedAt = new Date(toPracticeTimestamp(defaultManualStart(30, openedAt)));
     expect(startedAt.getTime() + 30 * 60_000).toBe(openedAt.getTime());
+  });
+
+  it('refreshes the elapsed default after an unsaved new entry is closed and reopened', async () => {
+    vi.useFakeTimers();
+    try {
+      const component = new PracticeComponent({} as ApiService, {} as PracticeTimerService) as any;
+      vi.setSystemTime(new Date(2031, 4, 6, 14, 35, 12));
+      await component.toggleManual();
+      const firstStart = component.draft.startedAtLocal;
+      await component.toggleManual();
+
+      vi.setSystemTime(new Date(2031, 4, 6, 16, 5, 12));
+      await component.toggleManual();
+      expect(component.draft.startedAtLocal).not.toBe(firstStart);
+      expect(component.draft.startedAtLocal).toBe(
+        defaultManualStart(component.draft.durationMinutes, new Date()),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('round-trips the local date/time input without moving the instant', () => {

@@ -1,5 +1,5 @@
 #!/bin/sh
 set -eu
 
-cd web
-exec npx playwright test --headed
+script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+exec "$script_dir/run-playwright.sh" --headed "$@"

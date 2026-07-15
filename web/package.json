@@ -9,7 +9,7 @@
     "test": "ng test",
     "lint": "prettier --check \"src/**/*.{ts,html,scss}\" \"e2e/**/*.ts\" \"playwright.config.ts\" && tsc --noEmit -p tsconfig.app.json",
     "format": "prettier --write \"src/**/*.{ts,html,scss}\" \"e2e/**/*.ts\" \"playwright.config.ts\"",
-    "e2e": "playwright test"
+    "e2e": "../scripts/run-playwright.sh"
   },
   "prettier": {
     "printWidth": 100,

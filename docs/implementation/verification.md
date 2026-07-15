@@ -25,7 +25,7 @@ Final commands were run from the repository root:
 
 | Command | Result |
 |---|---|
-| `make test` | Passed: all Go packages including PostgreSQL integration tests and migration rollback/reapply; 9 Angular test files / 20 tests |
+| `make test` | Passed: all Go packages including PostgreSQL integration tests and migration rollback/reapply; 9 Angular test files / 21 tests |
 | `make lint` | Passed: gofmt check, `go vet ./...`, Prettier check, TypeScript no-emit check |
 | `make build` | Passed: all Go packages and Angular production build; initial UI bundle 274.66 kB raw / 76.84 kB estimated transfer, score engines lazy-loaded |
 | `make test-e2e` | Passed: 6/6 tests in dedicated database/asset storage, covering Flows A–C in installed desktop Chrome and WebKit at 1024×1366 portrait |

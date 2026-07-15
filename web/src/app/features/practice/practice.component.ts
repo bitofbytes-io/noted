@@ -186,11 +186,18 @@ export class PracticeComponent implements OnInit {
   }
 
   async toggleManual(): Promise<void> {
-    this.showManual = !this.showManual;
-    if (this.showManual && !this.editingId && !this.draft.startedAtLocal)
-      this.draft.startedAtLocal = defaultManualStart(this.draft.durationMinutes);
-    if (this.showManual && this.draft.workId)
-      await this.loadPracticeOptions(this.draft.workId, true);
+    const opening = !this.showManual;
+    this.showManual = opening;
+    if (!opening) {
+      if (!this.editingId) {
+        const workId = this.draft.workId;
+        this.draft = this.emptyDraft();
+        this.draft.workId = workId;
+      }
+      return;
+    }
+    if (!this.editingId) this.draft.startedAtLocal = defaultManualStart(this.draft.durationMinutes);
+    if (this.draft.workId) await this.loadPracticeOptions(this.draft.workId, true);
   }
 
   protected scoreOptions(): { id: string; label: string }[] {
