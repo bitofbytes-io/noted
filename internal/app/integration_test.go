@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+type fixtureRecognizer struct{}
+
+func (fixtureRecognizer) Recognize(_ context.Context, _ string, outputDirectory string) (RecognitionOutput, error) {
+	source, err := os.Open("../../testdata/fixtures/noted-exercise.musicxml")
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	defer source.Close()
+	path := filepath.Join(outputDirectory, "converted.musicxml")
+	output, err := os.Create(path)
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	if _, err := io.Copy(output, source); err != nil {
+		_ = output.Close()
+		return RecognitionOutput{}, err
+	}
+	if err := output.Close(); err != nil {
+		return RecognitionOutput{}, err
+	}
+	return RecognitionOutput{Path: path, EngineVersion: "test"}, nil
+}
 
 type integrationFixture struct {
 	UserID     string
@@ -150,9 +175,13 @@ func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
 	ctx := context.Background()
+	composerName := "Shared Composer " + uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `UPDATE composers SET canonical_name=$2,sort_name=$2 WHERE id=(SELECT composer_id FROM works WHERE id=$1)`, fixture.WorkID, composerName); err != nil {
+		t.Fatal(err)
+	}
 
 	created, err := service.CreateWork(ctx, current.ID, CreateWorkInput{
-		Title: "Integration work", Composer: "Integration Composer",
+		Title: "Integration work", Composer: composerName,
 		EditionName: "Current learner edition", RightsNote: "Current learner copy",
 	})
 	if err != nil {
@@ -485,6 +514,38 @@ func TestIntegrationPracticePatchPreservesOmittedFieldsAndClearsNulls(t *testing
 	}
 }
 
+func TestIntegrationArchivedScoresCannotEnterNewPracticeHistory(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	session, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, ScoreAssetID: &fixture.AssetID, DurationSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := true
+	if _, err := service.UpdateAsset(ctx, fixture.UserID, fixture.AssetID, AssetPatchInput{Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, ScoreAssetID: &fixture.AssetID, DurationSeconds: 60,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("new practice with archived score error = %v, want ErrNotFound", err)
+	}
+	var patch PracticePatchInput
+	if err := json.Unmarshal([]byte(`{"notes":"historical correction"}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.UpdatePractice(ctx, fixture.UserID, session.ID, patch)
+	if err != nil {
+		t.Fatalf("historical practice correction with archived score: %v", err)
+	}
+	if updated.ScoreAssetID == nil || *updated.ScoreAssetID != fixture.AssetID {
+		t.Fatalf("historical score context was not retained: %+v", updated)
+	}
+}
+
 func TestIntegrationPracticeRangesRespectMovementLength(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
@@ -676,6 +737,242 @@ func TestIntegrationDeleteAssetPreservesReferencedPracticeHistory(t *testing.T) 
 	}
 	if err := service.DeleteAsset(ctx, fixture.UserID, fixture.AssetID); err != nil {
 		t.Fatalf("unreferenced asset could not be deleted: %v", err)
+	}
+}
+
+func TestIntegrationLibraryManagementUpdatesArchivesAndDeletes(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+
+	name := "My clean score"
+	rights := "Personal licensed copy"
+	archived := true
+	asset, err := service.UpdateAsset(ctx, fixture.UserID, fixture.AssetID, AssetPatchInput{
+		DisplayName: &name, RightsNote: &rights, Archived: &archived,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.DisplayName != name || asset.RightsNote != rights || asset.ArchivedAt == nil {
+		t.Fatalf("asset update = %+v", asset)
+	}
+
+	work, err := service.UpdateWork(ctx, fixture.UserID, fixture.WorkID, WorkPatchInput{
+		Title: "Updated integration work", Composer: "Integration Composer", Subtitle: "Revised",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if work.Title != "Updated integration work" || work.Subtitle != "Revised" {
+		t.Fatalf("work update = %+v", work)
+	}
+	if err := service.DeleteWork(ctx, fixture.UserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.GetWork(ctx, fixture.UserID, fixture.WorkID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted work lookup = %v", err)
+	}
+}
+
+func TestIntegrationWorkUpdateRejectsDuplicateIdentity(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	secondID := uuid.NewString()
+	var composerName string
+	if err := service.Pool.QueryRow(ctx, `SELECT c.canonical_name FROM works w JOIN composers c ON c.id=w.composer_id WHERE w.id=$1`, fixture.WorkID).Scan(&composerName); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO works(id,composer_id,title,created_by_user_id)
+		SELECT $1,composer_id,'Second integration work',$2 FROM works WHERE id=$3`, secondID, fixture.UserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO learner_works(user_id,work_id) VALUES($1,$2)`, fixture.UserID, secondID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = service.Pool.Exec(ctx, `DELETE FROM works WHERE id=$1`, secondID) })
+
+	_, err := service.UpdateWork(ctx, fixture.UserID, secondID, WorkPatchInput{
+		Title: "Integration work", Composer: composerName,
+	})
+	var validation ValidationError
+	if !errors.As(err, &validation) || validation.Fields["title"] != "is already in your library" {
+		t.Fatalf("duplicate work update error = %v, want title validation", err)
+	}
+	unchanged, err := service.GetWork(ctx, fixture.UserID, secondID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Title != "Second integration work" {
+		t.Fatalf("duplicate update changed title to %q", unchanged.Title)
+	}
+}
+
+func TestIntegrationDeletionPreservesOtherLearnersLibraryData(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	otherUserID := uuid.NewString()
+	otherAssetID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO users(id,email,display_name) VALUES($1,$2,'Other learner')`, otherUserID, otherUserID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = service.Pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, otherUserID) })
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO learner_works(user_id,work_id) VALUES($1,$2)`, otherUserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,rights_note,uploaded_by_user_id)
+		VALUES($1,$2,'pdf',$3,'other.pdf','application/pdf',8,$4,'CC0',$5)`, otherAssetID, fixture.EditionID, "pdf/"+uuid.NewString(), strings.Repeat("b", 64), otherUserID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.DeleteEdition(ctx, fixture.UserID, fixture.EditionID); !errors.Is(err, ErrEditionInUse) {
+		t.Fatalf("shared edition deletion error = %v, want ErrEditionInUse", err)
+	}
+	if err := service.DeleteWork(ctx, fixture.UserID, fixture.WorkID); !errors.Is(err, ErrWorkInUse) {
+		t.Fatalf("shared work deletion error = %v, want ErrWorkInUse", err)
+	}
+	var assetExists, workExists bool
+	if err := service.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM score_assets WHERE id=$1),EXISTS(SELECT 1 FROM learner_works WHERE user_id=$2 AND work_id=$3)`, otherAssetID, otherUserID, fixture.WorkID).Scan(&assetExists, &workExists); err != nil {
+		t.Fatal(err)
+	}
+	if !assetExists || !workExists {
+		t.Fatalf("shared data was removed: asset=%v work=%v", assetExists, workExists)
+	}
+}
+
+func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	ctx := context.Background()
+	pdf, err := os.Open("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.Store.Put(ctx, fixture.StorageKey, pdf)
+	_ = pdf.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE score_assets SET byte_size=$2,sha256=$3 WHERE id=$1`, fixture.AssetID, stored.Size, stored.Checksum); err != nil {
+		t.Fatal(err)
+	}
+
+	job, err := service.CreateRecognitionJob(ctx, fixture.UserID, fixture.AssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for job.Status == "queued" || job.Status == "processing" {
+		if time.Now().After(deadline) {
+			t.Fatal("recognition did not complete")
+		}
+		time.Sleep(20 * time.Millisecond)
+		job, err = service.GetRecognitionJob(ctx, fixture.UserID, job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if job.Status != "succeeded" || job.OutputAssetID == nil {
+		t.Fatalf("recognition job = %+v", job)
+	}
+	asset, err := service.GetAsset(ctx, fixture.UserID, *job.OutputAssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.AssetType != "musicxml" || asset.VerificationState != "unverified_ocr" || asset.DerivedFromAssetID == nil || *asset.DerivedFromAssetID != fixture.AssetID {
+		t.Fatalf("derived asset = %+v", asset)
+	}
+}
+
+func TestIntegrationRecognitionRecoveryResumesInterruptedJob(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	ctx := context.Background()
+	pdf, err := os.Open("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.Store.Put(ctx, fixture.StorageKey, pdf)
+	_ = pdf.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE score_assets SET byte_size=$2,sha256=$3 WHERE id=$1`, fixture.AssetID, stored.Size, stored.Checksum); err != nil {
+		t.Fatal(err)
+	}
+	jobID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO recognition_jobs(id,user_id,source_asset_id,status,started_at)
+		VALUES($1,$2,$3,'processing',now())`, jobID, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RecoverRecognitionJobs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		job, err := service.GetRecognitionJob(ctx, fixture.UserID, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status == "succeeded" {
+			if job.OutputAssetID == nil {
+				t.Fatal("recovered recognition did not retain its output asset")
+			}
+			break
+		}
+		if job.Status == "failed" || job.Status == "cancelled" {
+			t.Fatalf("recovered recognition job = %+v", job)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recognition recovery did not complete: %+v", job)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestIntegrationRecognitionRejectsArchivedEdition(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	archived := true
+	if _, err := service.UpdateEdition(context.Background(), fixture.UserID, fixture.EditionID, EditionInput{Name: "Integration edition", Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateRecognitionJob(context.Background(), fixture.UserID, fixture.AssetID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("archived edition recognition error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestIntegrationCancelledRecognitionDiscardsLateOutput(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	jobID := uuid.NewString()
+	assetID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO recognition_jobs(id,user_id,source_asset_id,status,finished_at) VALUES($1,$2,$3,'cancelled',now())`, jobID, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,rights_note,playback_capable,uploaded_by_user_id,derived_from_asset_id,verification_state)
+		VALUES($1,$2,'musicxml',$3,'late.musicxml','application/vnd.recordare.musicxml+xml',8,$4,'Generated OCR',true,$5,$6,'unverified_ocr')`, assetID, fixture.EditionID, "musicxml/"+uuid.NewString(), strings.Repeat("c", 64), fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var exists bool
+	if err := service.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM score_assets WHERE id=$1)`, assetID).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("late output asset survived recognition cancellation")
 	}
 }
 

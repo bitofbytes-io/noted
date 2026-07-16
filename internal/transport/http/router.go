@@ -36,16 +36,27 @@ func NewRouter(service *app.Service, cfg config.Config, logger *slog.Logger) htt
 		r.Get("/api/works", h.listWorks)
 		r.Post("/api/works", h.createWork)
 		r.Get("/api/works/{workId}", h.getWork)
+		r.Patch("/api/works/{workId}", h.updateWork)
+		r.Delete("/api/works/{workId}", h.deleteWork)
 		r.Put("/api/works/{workId}/learner-state", h.updateLearnerState)
 		r.Post("/api/works/{workId}/movements", h.addMovement)
 		r.Post("/api/works/{workId}/editions", h.addEdition)
+		r.Patch("/api/editions/{editionId}", h.updateEdition)
+		r.Delete("/api/editions/{editionId}", h.deleteEdition)
 		r.Get("/api/tags", h.listTags)
 		r.Post("/api/tags", h.createTag)
 		r.Put("/api/works/{workId}/tags", h.replaceWorkTags)
 		r.Post("/api/editions/{editionId}/assets", h.uploadAsset)
 		r.Get("/api/assets/{assetId}", h.getAsset)
+		r.Patch("/api/assets/{assetId}", h.updateAsset)
+		r.Post("/api/assets/{assetId}/replacement", h.replaceAsset)
 		r.Get("/api/assets/{assetId}/content", h.assetContent)
 		r.Delete("/api/assets/{assetId}", h.deleteAsset)
+		r.Post("/api/assets/{assetId}/recognition-jobs", h.createRecognitionJob)
+		r.Get("/api/assets/{assetId}/recognition-jobs", h.listRecognitionJobs)
+		r.Get("/api/recognition-jobs/{jobId}", h.getRecognitionJob)
+		r.Post("/api/recognition-jobs/{jobId}/retry", h.retryRecognitionJob)
+		r.Delete("/api/recognition-jobs/{jobId}", h.cancelRecognitionJob)
 		r.Get("/api/practice-sessions", h.listPractice)
 		r.Post("/api/practice-sessions/start", h.startPractice)
 		r.Post("/api/practice-sessions/{sessionId}/stop", h.stopPractice)
@@ -139,7 +150,13 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	case errors.Is(err, app.ErrNotAuthorized):
 		h.writeError(w, http.StatusForbidden, "not_authorized", "the resource belongs to another learner", nil)
 	case errors.Is(err, app.ErrAssetInUse):
-		h.writeError(w, http.StatusConflict, "asset_in_use", "remove the asset from practice history before deleting it", nil)
+		h.writeError(w, http.StatusConflict, "asset_in_use", "this score is used by practice history; archive it instead", nil)
+	case errors.Is(err, app.ErrEditionInUse):
+		h.writeError(w, http.StatusConflict, "edition_in_use", "this edition contains a score used by practice history; archive it instead", nil)
+	case errors.Is(err, app.ErrWorkInUse):
+		h.writeError(w, http.StatusConflict, "work_in_use", "this work has practice history; archive it instead", nil)
+	case errors.Is(err, app.ErrRecognitionUnavailable):
+		h.writeError(w, http.StatusServiceUnavailable, "recognition_unavailable", "PDF conversion is not configured", nil)
 	case errors.Is(err, app.ErrConflict):
 		h.writeError(w, http.StatusConflict, "practice_timer_already_running", "stop the running practice timer first", nil)
 	case errors.Is(err, assetstore.ErrUnsupportedUpload):

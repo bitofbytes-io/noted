@@ -85,6 +85,11 @@
         (change)="updateBpm()"
       />
     </div>
+    <div class="zoom-control" aria-label="Score zoom">
+      <button (click)="changeZoom(-25)" [disabled]="zoom <= 75" aria-label="Zoom out">−</button>
+      <span>{{ zoom }}%</span>
+      <button (click)="changeZoom(25)" [disabled]="zoom >= 200" aria-label="Zoom in">+</button>
+    </div>
     <div class="range-wrap">
       <button class="range-control" (click)="toggleRangeEditor()">
         Measures {{ rangeStart }}–{{ rangeEnd }} <span>⌄</span>

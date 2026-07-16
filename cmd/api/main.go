@@ -46,10 +46,18 @@ func main() {
 		logger.Error("configure asset storage", "error", err)
 		os.Exit(1)
 	}
+	service := app.NewService(pool, store)
+	if cfg.AudiverisCommand != "" {
+		service.WithRecognizer(app.CommandRecognizer{Command: cfg.AudiverisCommand, Version: "5.10.2"})
+		if err := service.RecoverRecognitionJobs(ctx); err != nil {
+			logger.Error("recover score recognition jobs", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httptransport.NewRouter(app.NewService(pool, store), cfg, logger),
+		Handler:           httptransport.NewRouter(service, cfg, logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

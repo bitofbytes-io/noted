@@ -1,10 +1,10 @@
 :host {
   display: block;
-  margin: calc(-1 * clamp(24px, 4vw, 60px)) calc(-1 * clamp(18px, 5vw, 72px)) -110px;
+  height: 100%;
 }
 .reader-shell {
   background: #33363c;
-  height: calc(100vh - 68px);
+  height: 100dvh;
   overflow: hidden;
   position: relative;
 }
@@ -47,7 +47,8 @@
   height: 100%;
   justify-content: center;
   overflow: auto;
-  padding: 76px 18px 100px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 .pdf-stage canvas {
   background: white;
@@ -56,7 +57,7 @@
 .reader-controls {
   align-items: center;
   background: #101217;
-  bottom: 88px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
   color: white;
   display: flex;
@@ -105,7 +106,7 @@
   align-items: center;
   background: #101217;
   border: 1px solid #555;
-  bottom: 90px;
+  bottom: calc(23px + env(safe-area-inset-bottom));
   color: white;
   display: flex;
   flex-direction: column;
@@ -160,20 +161,17 @@
 }
 @media (max-width: 900px) {
   :host {
-    margin: -24px -18px -110px;
-  }
-  .reader-shell {
-    height: calc(100vh - 58px);
+    height: 100%;
   }
 }
 @media (max-width: 650px) {
   .reader-controls {
-    bottom: 78px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     max-width: calc(100% - 24px);
     overflow-x: auto;
   }
   .pencil-button {
-    bottom: 134px;
+    bottom: calc(76px + env(safe-area-inset-bottom));
     left: 12px;
   }
   .reader-header {

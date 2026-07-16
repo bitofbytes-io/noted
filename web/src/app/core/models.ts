@@ -39,12 +39,17 @@ export interface Asset {
   editionId: string;
   assetType: 'pdf' | 'musicxml';
   originalFilename: string;
+  displayName?: string;
   mediaType: string;
   byteSize: number;
   sha256: string;
   sourceUrl?: string;
   rightsNote: string;
   playbackCapable: boolean;
+  archivedAt?: string;
+  replacesAssetId?: string;
+  derivedFromAssetId?: string;
+  verificationState?: 'original' | 'unverified_ocr' | 'verified';
   createdAt: string;
   contentUrl: string;
 }
@@ -57,7 +62,22 @@ export interface Edition {
   publicationYear?: number;
   sourceUrl?: string;
   rightsNote?: string;
+  archivedAt?: string;
   assets: Asset[];
+}
+
+export interface RecognitionJob {
+  id: string;
+  sourceAssetId: string;
+  outputAssetId?: string;
+  status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
+  engine: string;
+  engineVersion: string;
+  failureMessage?: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  updatedAt: string;
 }
 
 export interface Movement {

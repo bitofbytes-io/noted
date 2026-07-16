@@ -57,3 +57,25 @@ func TestConfiguredSecretFileOverridesPlainValue(t *testing.T) {
 		t.Fatalf("database URL = %q, want file value", cfg.DatabaseURL)
 	}
 }
+
+func TestRecognitionRequiresExplicitCommand(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_MODE", "development")
+	t.Setenv("AUDIVERIS_COMMAND", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AudiverisCommand != "" {
+		t.Fatalf("default Audiveris command = %q, want disabled", cfg.AudiverisCommand)
+	}
+
+	t.Setenv("AUDIVERIS_COMMAND", " scripts/run-audiveris-docker.sh ")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AudiverisCommand != "scripts/run-audiveris-docker.sh" {
+		t.Fatalf("configured Audiveris command = %q", cfg.AudiverisCommand)
+	}
+}

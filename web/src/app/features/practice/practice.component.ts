@@ -224,10 +224,16 @@ export class PracticeComponent implements OnInit {
   protected scoreOptions(): { id: string; label: string }[] {
     return (
       this.selectedWork()?.editions.flatMap((edition) =>
-        edition.assets.map((asset) => ({
-          id: asset.id,
-          label: `${edition.name} — ${asset.originalFilename}`,
-        })),
+        edition.assets
+          .filter(
+            (asset) =>
+              (!edition.archivedAt && !asset.archivedAt) ||
+              (Boolean(this.editingId) && asset.id === this.draft.scoreAssetId),
+          )
+          .map((asset) => ({
+            id: asset.id,
+            label: `${edition.name} — ${asset.originalFilename}`,
+          })),
       ) ?? []
     );
   }

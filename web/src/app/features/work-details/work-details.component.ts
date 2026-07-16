@@ -1,9 +1,17 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { learnerStatuses, Tag, WorkDetail } from '../../core/models';
+import {
+  Asset,
+  Edition,
+  learnerStatuses,
+  RecognitionJob,
+  Tag,
+  WorkDetail,
+} from '../../core/models';
 import { PracticeTimerService } from '../../core/practice-timer.service';
 
 @Component({
@@ -21,6 +29,18 @@ export class WorkDetailsComponent implements OnInit {
   protected readonly error = signal('');
   protected readonly success = signal('');
   protected readonly statuses = learnerStatuses;
+  protected readonly recognitionJobs = signal<Record<string, RecognitionJob>>({});
+  protected showWorkEdit = false;
+  protected workEditDraft = {
+    title: '',
+    subtitle: '',
+    composer: '',
+    catalogNumber: '',
+    keySignature: '',
+    period: '',
+    publishedDifficultyLabel: '',
+    notes: '',
+  };
   protected learnerDraft = {
     status: 'Interested',
     isFavorite: false,
@@ -32,6 +52,16 @@ export class WorkDetailsComponent implements OnInit {
   protected newTag = '';
   protected showEdition = false;
   protected editionDraft = { name: '', editor: '', publisher: '', sourceUrl: '', rightsNote: '' };
+  protected editingEditionId = '';
+  protected editionEditDraft = {
+    name: '',
+    editor: '',
+    publisher: '',
+    sourceUrl: '',
+    rightsNote: '',
+  };
+  protected editingAssetId = '';
+  protected assetEditDraft = { displayName: '', sourceUrl: '', rightsNote: '' };
   protected selectedEditionId = '';
   protected uploadFile: File | null = null;
   protected uploadSource = '';
@@ -47,6 +77,7 @@ export class WorkDetailsComponent implements OnInit {
 
   constructor(
     private readonly api: ApiService,
+    private readonly router: Router,
     protected readonly timer: PracticeTimerService,
   ) {}
 
@@ -61,6 +92,16 @@ export class WorkDetailsComponent implements OnInit {
     try {
       const work = await firstValueFrom(this.api.work(this.workId));
       this.work.set(work);
+      this.workEditDraft = {
+        title: work.title,
+        subtitle: work.subtitle ?? '',
+        composer: work.composer,
+        catalogNumber: work.catalogNumber ?? '',
+        keySignature: work.keySignature ?? '',
+        period: work.period ?? '',
+        publishedDifficultyLabel: work.publishedDifficultyLabel ?? '',
+        notes: work.notes ?? '',
+      };
       this.learnerDraft = {
         status: work.learnerState.status,
         isFavorite: work.learnerState.isFavorite,
@@ -70,11 +111,82 @@ export class WorkDetailsComponent implements OnInit {
       };
       this.selectedEditionId ||= work.editions[0]?.id ?? '';
       this.syncSelectedTags();
+      void this.loadRecognitionJobs(work);
       this.error.set('');
     } catch (error) {
       this.error.set(errorMessage(error));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  private async loadRecognitionJobs(work: WorkDetail): Promise<void> {
+    const pdfs = work.editions
+      .flatMap((edition) => edition.assets)
+      .filter((asset) => asset.assetType === 'pdf');
+    const entries = await Promise.all(
+      pdfs.map(async (asset) => {
+        try {
+          const jobs = (await firstValueFrom(this.api.recognitionJobs(asset.id))).items;
+          return [asset.id, jobs[0]] as const;
+        } catch {
+          return [asset.id, undefined] as const;
+        }
+      }),
+    );
+    this.recognitionJobs.set(
+      Object.fromEntries(
+        entries.filter((entry): entry is readonly [string, RecognitionJob] => Boolean(entry[1])),
+      ),
+    );
+  }
+
+  async saveWork(): Promise<void> {
+    this.saving.set(true);
+    try {
+      this.work.set(await firstValueFrom(this.api.updateWork(this.workId, this.workEditDraft)));
+      this.showWorkEdit = false;
+      this.success.set('Work details updated.');
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  async archiveWork(): Promise<void> {
+    if (
+      !window.confirm(
+        'Archive this work? It will leave the main Library but keep practice history.',
+      )
+    )
+      return;
+    try {
+      await firstValueFrom(
+        this.api.updateLearnerState(this.workId, {
+          ...this.learnerDraft,
+          status: 'Archived',
+        }),
+      );
+      await this.router.navigate(['/library']);
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async deleteWork(): Promise<void> {
+    const work = this.work();
+    if (!work) return;
+    if (work.practiceSummary.sessionCount > 0) {
+      await this.archiveWork();
+      return;
+    }
+    if (!window.confirm('Permanently delete this work, its editions, and all score files?')) return;
+    try {
+      await firstValueFrom(this.api.deleteWork(this.workId));
+      await this.router.navigate(['/library']);
+    } catch (error) {
+      this.error.set(errorMessage(error));
     }
   }
 
@@ -152,6 +264,173 @@ export class WorkDetailsComponent implements OnInit {
     }
   }
 
+  editEdition(edition: Edition): void {
+    this.editingEditionId = edition.id;
+    this.editionEditDraft = {
+      name: edition.name,
+      editor: edition.editor ?? '',
+      publisher: edition.publisher ?? '',
+      sourceUrl: edition.sourceUrl ?? '',
+      rightsNote: edition.rightsNote ?? '',
+    };
+  }
+
+  async saveEdition(edition: Edition, archived = Boolean(edition.archivedAt)): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.api.updateEdition(edition.id, { ...this.editionEditDraft, archived }),
+      );
+      this.editingEditionId = '';
+      await this.load();
+      this.success.set('Edition updated.');
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async setEditionArchived(edition: Edition, archived: boolean): Promise<void> {
+    this.editEdition(edition);
+    await this.saveEdition(edition, archived);
+  }
+
+  async deleteEdition(edition: Edition): Promise<void> {
+    if (!window.confirm(`Delete the edition “${edition.name}” and its unreferenced files?`)) return;
+    try {
+      await firstValueFrom(this.api.deleteEdition(edition.id));
+      await this.load();
+      this.success.set('Edition deleted.');
+    } catch (error) {
+      if (!hasApiErrorCode(error, 'edition_in_use')) {
+        this.error.set(errorMessage(error));
+        return;
+      }
+      try {
+        await firstValueFrom(
+          this.api.updateEdition(edition.id, { name: edition.name, archived: true }),
+        );
+        await this.load();
+        this.success.set('The edition is used by practice history, so it was archived instead.');
+      } catch (archiveError) {
+        this.error.set(errorMessage(archiveError));
+      }
+    }
+  }
+
+  editAsset(asset: Asset): void {
+    this.editingAssetId = asset.id;
+    this.assetEditDraft = {
+      displayName: asset.displayName || asset.originalFilename,
+      sourceUrl: asset.sourceUrl ?? '',
+      rightsNote: asset.rightsNote,
+    };
+  }
+
+  async saveAsset(asset: Asset): Promise<void> {
+    try {
+      await firstValueFrom(this.api.updateAsset(asset.id, this.assetEditDraft));
+      this.editingAssetId = '';
+      await this.load();
+      this.success.set('Score details updated.');
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async setAssetArchived(asset: Asset, archived: boolean): Promise<void> {
+    try {
+      await firstValueFrom(this.api.updateAsset(asset.id, { archived }));
+      await this.load();
+      this.success.set(archived ? 'Score archived.' : 'Score restored.');
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async deleteAsset(asset: Asset): Promise<void> {
+    if (!window.confirm(`Permanently delete “${asset.displayName || asset.originalFilename}”?`))
+      return;
+    try {
+      await firstValueFrom(this.api.deleteAsset(asset.id));
+      await this.load();
+      this.success.set('Score deleted.');
+    } catch (error) {
+      if (!hasApiErrorCode(error, 'asset_in_use')) {
+        this.error.set(errorMessage(error));
+        return;
+      }
+      try {
+        await firstValueFrom(this.api.updateAsset(asset.id, { archived: true }));
+        await this.load();
+        this.success.set('The score is used by practice history, so it was archived instead.');
+      } catch (archiveError) {
+        this.error.set(errorMessage(archiveError));
+      }
+    }
+  }
+
+  async replaceAsset(asset: Asset, event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      await firstValueFrom(
+        this.api.replaceAsset(asset.id, file, asset.sourceUrl ?? '', asset.rightsNote),
+      );
+      input.value = '';
+      await this.load();
+      this.success.set('Replacement uploaded; the previous version is archived.');
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async convertAsset(asset: Asset): Promise<void> {
+    try {
+      const job = await firstValueFrom(this.api.createRecognitionJob(asset.id));
+      this.recognitionJobs.update((jobs) => ({ ...jobs, [asset.id]: job }));
+      this.pollRecognition(asset.id, job.id);
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async retryRecognition(asset: Asset, job: RecognitionJob): Promise<void> {
+    try {
+      const next = await firstValueFrom(this.api.retryRecognitionJob(job.id));
+      this.recognitionJobs.update((jobs) => ({ ...jobs, [asset.id]: next }));
+      this.pollRecognition(asset.id, next.id);
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async cancelRecognition(asset: Asset, job: RecognitionJob): Promise<void> {
+    await firstValueFrom(this.api.cancelRecognitionJob(job.id));
+    this.recognitionJobs.update((jobs) => ({
+      ...jobs,
+      [asset.id]: { ...job, status: 'cancelled' },
+    }));
+  }
+
+  private pollRecognition(assetId: string, jobId: string): void {
+    setTimeout(async () => {
+      try {
+        const job = await firstValueFrom(this.api.recognitionJob(jobId));
+        this.recognitionJobs.update((jobs) => ({ ...jobs, [assetId]: job }));
+        if (job.status === 'queued' || job.status === 'processing')
+          this.pollRecognition(assetId, jobId);
+        else if (job.status === 'succeeded') {
+          await this.load();
+          this.success.set(
+            'PDF converted. Review the new Unverified OCR score before relying on it.',
+          );
+        }
+      } catch (error) {
+        this.error.set(errorMessage(error));
+      }
+    }, 1500);
+  }
+
   chooseFile(event: Event): void {
     this.uploadFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   }
@@ -210,4 +489,8 @@ export class WorkDetailsComponent implements OnInit {
       ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`
       : `${Math.round(seconds / 60)}m`;
   }
+}
+
+export function hasApiErrorCode(error: unknown, code: string): boolean {
+  return error instanceof HttpErrorResponse && error.error?.error?.code === code;
 }

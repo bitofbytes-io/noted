@@ -48,6 +48,10 @@ export class NotationPlaybackAdapter {
       display: {
         layoutMode: alphaTab.LayoutMode.Page,
         staveProfile: 'Default',
+        resources: {
+          mainGlyphColor: '#000000',
+          secondaryGlyphColor: '#000000',
+        },
       },
       player: {
         enablePlayer: true,
@@ -82,6 +86,13 @@ export class NotationPlaybackAdapter {
   setBpm(bpm: number): void {
     if (!this.api) return;
     this.api.playbackSpeed = bpm / this.originalBpm;
+  }
+
+  setZoom(percent: number): void {
+    if (!this.api) return;
+    this.api.settings.display.scale = Math.min(2, Math.max(0.75, percent / 100));
+    this.api.updateSettings();
+    this.api.render();
   }
 
   setRange(start: number, end: number): void {

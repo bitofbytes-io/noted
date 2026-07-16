@@ -30,6 +30,7 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
   protected page = 1;
   protected pageCount = 0;
   protected fit: PdfFitMode = 'width';
+  protected zoom = 100;
   protected controlsHidden = false;
   protected readonly workId = this.route.snapshot.queryParamMap.get('workId') ?? '';
   private readonly adapter = new PdfScoreAdapter();
@@ -77,6 +78,7 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
         this.fit,
         rect.width,
         rect.height,
+        this.zoom / 100,
       );
     } catch (error) {
       if (!(error instanceof Error) || error.name !== 'RenderingCancelledException')
@@ -92,6 +94,11 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
 
   setFit(mode: PdfFitMode): void {
     this.fit = mode;
+    void this.render();
+  }
+
+  changeZoom(delta: number): void {
+    this.zoom = Math.min(200, Math.max(75, this.zoom + delta));
     void this.render();
   }
 

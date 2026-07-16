@@ -36,6 +36,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   protected readonly workId = this.route.snapshot.queryParamMap.get('workId') ?? '';
   protected measureCount = Number(this.route.snapshot.queryParamMap.get('measures')) || 1;
   protected bpm = 96;
+  protected zoom = 100;
   protected rangeStart = 1;
   protected rangeEnd = this.measureCount;
   protected draftRangeStart = this.rangeStart;
@@ -140,6 +141,11 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   updateBpm(): void {
     this.bpm = Math.min(240, Math.max(30, Math.round(this.bpm || 96)));
     this.adapter.setBpm(this.bpm);
+  }
+
+  changeZoom(delta: number): void {
+    this.zoom = Math.min(200, Math.max(75, this.zoom + delta));
+    this.adapter.setZoom(this.zoom);
   }
 
   applyRange(): void {

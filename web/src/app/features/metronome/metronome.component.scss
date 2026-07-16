@@ -51,19 +51,21 @@
   bottom: 32px;
   height: 175px;
   position: absolute;
-  transform: rotate(-22deg);
+  transform: rotate(0deg);
   transform-origin: bottom;
+  transition: transform calc(60s / var(--tempo, 96)) cubic-bezier(0.45, 0, 0.55, 1);
   width: 3px;
 }
-.running .arm span {
-  animation: swing calc(120s / var(--tempo, 96)) ease-in-out infinite alternate;
+.running.pendulum-left .arm span {
+  transform: rotate(-26deg);
 }
-@keyframes swing {
-  from {
-    transform: rotate(-26deg);
-  }
-  to {
-    transform: rotate(26deg);
+.running.pendulum-right .arm span {
+  transform: rotate(26deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .arm span {
+    transition: none;
+    transform: rotate(0deg) !important;
   }
 }
 .tempo-readout {

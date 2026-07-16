@@ -20,7 +20,16 @@ make setup
 make local
 ```
 
-`make setup` creates the gitignored asset directories, copies `.env.example` to `.env` when needed, and installs pinned dependencies. `make local` starts PostgreSQL, applies the idempotent migration and seed, then runs the API and Angular development server together. Open <http://localhost:4200>. Stop the foreground command with Ctrl-C; PostgreSQL remains available so local data persists. Use `make db-down` when you want to stop it.
+`make setup` creates the gitignored asset directories, copies `.env.example` to `.env` when needed, and installs pinned dependencies. `make local` starts PostgreSQL, applies migrations, inserts the rights-safe sample only on the first initialization, then runs the API and Angular development server together. Open <http://localhost:4200>. Stop the foreground command with Ctrl-C; PostgreSQL remains available so local data persists. Use `make db-down` when you want to stop it.
+
+PDF-to-MusicXML conversion is an optional, heavyweight post-POC increment. To enable it locally, install the pinned Audiveris worker once before starting the app:
+
+```sh
+make omr-build
+AUDIVERIS_COMMAND=scripts/run-audiveris-docker.sh make local
+```
+
+On Apple-silicon Macs this installs the native release under ignored `.local/tools`; elsewhere it builds the isolated container. The normal `make local` path deliberately does not download or distribute Audiveris.
 
 For separate terminals instead:
 
@@ -32,7 +41,7 @@ make api-run
 make web-start
 ```
 
-The API is at <http://localhost:8080>; readiness is at <http://localhost:8080/api/ready>. The UI development server proxies `/api` to the API. Re-running `make seed` restores the rights-safe fixture metadata and files without duplicating it.
+The API is at <http://localhost:8080>; readiness is at <http://localhost:8080/api/ready>. The UI development server proxies `/api` to the API. Re-running `make seed` ensures the development learner exists; the sample is deliberately not recreated after it has been deleted.
 
 ## Configuration and local data
 
@@ -43,6 +52,13 @@ Copy-safe defaults live in `.env.example`. Important values are:
 - `MAX_UPLOAD_BYTES`: maximum accepted PDF or MusicXML size, default 25 MiB.
 - `AUTH_MODE=development` and `DEV_USER_EMAIL`: local identity only.
 - `ALLOWED_ORIGINS`: allowed browser origins for the API.
+- `AUDIVERIS_COMMAND`: optional conversion runner. It is empty by default so recognition is inactive in the normal POC runtime. Set it to `scripts/run-audiveris-docker.sh` after `make omr-build` to enable the explicitly requested local OCR increment.
+
+Local catalog data, practice history, asset metadata, and recognition jobs live in the persistent
+PostgreSQL Docker volume. Uploaded and generated score binaries live under `.local/noted-assets`.
+Neither is in memory. Backups must include a PostgreSQL dump and the asset directory together. A
+full local reset requires removing both the Compose volume and `.local/noted-assets` while the app
+is stopped.
 
 `.env`, PostgreSQL volume data, browser state, generated output, and `.local/` assets are ignored. The committed PDF and MusicXML under `testdata/fixtures/` are original project fixtures dedicated to CC0-1.0; see [testdata/README.md](testdata/README.md).
 
@@ -67,13 +83,15 @@ The [verification record](docs/implementation/verification.md) maps requirements
 
 ## POC capabilities
 
-- Home dashboard, Library search/filtering, work/edition/asset management, Metronome, Practice, and Settings.
+- Home dashboard, Library search/filtering, work/edition/asset edit/replace/archive/delete management, Metronome, Practice, and Settings.
 - Authenticated PDF/MusicXML upload and streaming through opaque filesystem keys with content validation, checksums, provenance, and cleanup.
-- PDF.js score reading plus an immersive alphaTab MusicXML player with a beat cursor, note highlighting, synthesized playback, BPM control, validated measure ranges, and looping.
+- Immersive PDF.js reading and alphaTab MusicXML playback with score zoom, a beat cursor, both-staff note highlighting, synthesized playback, BPM control, validated measure ranges, and looping.
+- Explicit PDF-to-MusicXML conversion through a pinned Audiveris 5.10.2 worker. Results are separate assets labeled `Unverified OCR`; conversion never changes or removes the source PDF.
+- A Web Audio-clock metronome whose audible beat, beat dots, accent pattern, and pendulum share one scheduler.
 - A durable one-at-a-time practice timer with confirmed discard recovery, complete manual entries/corrections, deletion, and Monday-first summaries.
 - Responsive cobalt/white interface exercised at a 1024×1366 portrait viewport.
 
-Audiveris-based OMR is specified as a gated post-POC increment; built-in notation correction remains later work. Annotations, lessons, sharing, offline support, performance assessment, production OAuth, NAS/NFS provisioning, and deployment also remain deferred.
+Built-in notation correction remains later work. Annotations, lessons, sharing, offline support, performance assessment, production OAuth, NAS/NFS provisioning, and deployment also remain deferred.
 
 ## Design and architecture
 

@@ -43,6 +43,10 @@
     <span class="control-separator"></span>
     <button [class.active]="fit === 'width'" (click)="setFit('width')">Fit width</button>
     <button [class.active]="fit === 'page'" (click)="setFit('page')">Fit page</button>
+    <span class="control-separator"></span>
+    <button (click)="changeZoom(-25)" [disabled]="zoom <= 75" aria-label="Zoom out">−</button>
+    <span>{{ zoom }}%</span>
+    <button (click)="changeZoom(25)" [disabled]="zoom >= 200" aria-label="Zoom in">+</button>
     @if (workId && !timer.running()) {
       <button class="practice-control" (click)="startPractice()">Start Practice</button>
     }

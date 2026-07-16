@@ -77,7 +77,7 @@ type PracticeFilters struct {
 	To     *time.Time
 }
 
-func (s *Service) validatePracticeContext(ctx context.Context, userID, workID string, movementID, assetID *string, startMeasure, endMeasure *int) error {
+func (s *Service) validatePracticeContext(ctx context.Context, userID, workID string, movementID, assetID, allowedArchivedAssetID *string, startMeasure, endMeasure *int) error {
 	if err := validateResourceID(workID); err != nil {
 		return err
 	}
@@ -121,7 +121,12 @@ func (s *Service) validatePracticeContext(ctx context.Context, userID, workID st
 		}
 	}
 	if assetID != nil {
-		if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM score_assets a JOIN editions e ON e.id=a.edition_id WHERE a.id=$1 AND e.work_id=$2 AND a.uploaded_by_user_id=$3)`, *assetID, workID, userID).Scan(&exists); err != nil {
+		if err := s.Pool.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM score_assets a JOIN editions e ON e.id=a.edition_id
+				WHERE a.id=$1 AND e.work_id=$2 AND a.uploaded_by_user_id=$3
+				  AND ((a.archived_at IS NULL AND e.archived_at IS NULL) OR a.id=$4)
+			)`, *assetID, workID, userID, allowedArchivedAssetID).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {
@@ -138,7 +143,7 @@ func (s *Service) StartPractice(ctx context.Context, userID string, input Practi
 	if err := ValidatePractice(1, input.StartMeasure, input.EndMeasure, input.StartingBPM, nil); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID, input.StartMeasure, input.EndMeasure); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID, nil, input.StartMeasure, input.EndMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	var id string
@@ -175,6 +180,7 @@ func (s *Service) StopPractice(ctx context.Context, userID, sessionID string, in
 	if err != nil {
 		return PracticeSession{}, err
 	}
+	allowedArchivedAssetID := scoreAssetID
 	duration := int(time.Since(started).Seconds())
 	if duration < 1 {
 		duration = 1
@@ -206,7 +212,7 @@ func (s *Service) StopPractice(ctx context.Context, userID, sessionID string, in
 	if err := ValidatePractice(duration, startMeasure, endMeasure, startingBPM, input.EndingBPM); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID, startMeasure, endMeasure); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID, allowedArchivedAssetID, startMeasure, endMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	result, err := s.Pool.Exec(ctx, `
@@ -229,7 +235,7 @@ func (s *Service) CreateManualPractice(ctx context.Context, userID string, input
 	if err := ValidatePractice(input.DurationSeconds, input.StartMeasure, input.EndMeasure, input.StartingBPM, input.EndingBPM); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID, input.StartMeasure, input.EndMeasure); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, input.WorkID, input.MovementID, input.ScoreAssetID, nil, input.StartMeasure, input.EndMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	started := time.Now().UTC().Add(-time.Duration(input.DurationSeconds) * time.Second)
@@ -324,7 +330,7 @@ func (s *Service) UpdatePractice(ctx context.Context, userID, sessionID string, 
 	if err := ValidatePractice(duration, startMeasure, endMeasure, startingBPM, endingBPM); err != nil {
 		return PracticeSession{}, err
 	}
-	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID, startMeasure, endMeasure); err != nil {
+	if err := s.validatePracticeContext(ctx, userID, workID, movementID, scoreAssetID, existing.ScoreAssetID, startMeasure, endMeasure); err != nil {
 		return PracticeSession{}, err
 	}
 	ended := started.Add(time.Duration(duration) * time.Second)

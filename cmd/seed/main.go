@@ -46,12 +46,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if _, err := conn.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Daniel — Development Learner','development') ON CONFLICT(id) DO UPDATE SET email=EXCLUDED.email`, userID, cfg.DevUserEmail); err != nil {
+		log.Fatal(err)
+	}
+	var seeded bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM development_seed_state WHERE name='rights-safe-sample-v1')`).Scan(&seeded); err != nil {
+		log.Fatal(err)
+	}
+	if seeded {
+		log.Print("development learner is ready; sample seed was already applied")
+		return
+	}
 
 	statements := []struct {
 		sql  string
 		args []any
 	}{
-		{`INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Daniel — Development Learner','development') ON CONFLICT(id) DO UPDATE SET email=EXCLUDED.email`, []any{userID, cfg.DevUserEmail}},
 		{`INSERT INTO composers(id,canonical_name,sort_name) VALUES($1,'Noted Project','Noted Project') ON CONFLICT(id) DO NOTHING`, []any{composerID}},
 		{`INSERT INTO works(id,composer_id,title,subtitle,catalog_number,key_signature,form,period,published_difficulty_label,notes,created_by_user_id) VALUES($1,$2,'Noted POC Exercise in C','Eight-measure hands-together study','NPE 1','C major','Exercise','Contemporary','Early intermediate','Original rights-safe demonstration work',$3) ON CONFLICT(id) DO NOTHING`, []any{workID, composerID, userID}},
 		{`INSERT INTO movements(id,work_id,sequence_number,title,tempo_marking,measure_count) VALUES($1,$2,1,'Complete exercise','Moderato',8) ON CONFLICT(id) DO NOTHING`, []any{movementID, workID}},
@@ -76,6 +86,9 @@ func main() {
 	}
 	_, err = conn.Exec(ctx, `INSERT INTO practice_sessions(id,user_id,work_id,movement_id,score_asset_id,started_at,ended_at,duration_seconds,entry_method,start_measure,end_measure,starting_bpm,ending_bpm,notes) VALUES($1,$2,$3,$4,$5,$6,$7,1200,'manual',1,8,88,96,'Seeded full-piece practice') ON CONFLICT(id) DO UPDATE SET started_at=EXCLUDED.started_at,ended_at=EXCLUDED.ended_at`, practiceID, userID, workID, movementID, xmlAssetID, started, started.Add(20*time.Minute))
 	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO development_seed_state(name) VALUES('rights-safe-sample-v1') ON CONFLICT DO NOTHING`); err != nil {
 		log.Fatal(err)
 	}
 	log.Print("development learner and CC0 score fixtures are seeded")

@@ -100,6 +100,27 @@ func (h *Handler) getWork(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, value)
 }
 
+func (h *Handler) updateWork(w http.ResponseWriter, r *http.Request) {
+	var input app.WorkPatchInput
+	if !h.decodeJSON(w, r, &input) {
+		return
+	}
+	value, err := h.Service.UpdateWork(r.Context(), currentUser(r).ID, chi.URLParam(r, "workId"), input)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, value)
+}
+
+func (h *Handler) deleteWork(w http.ResponseWriter, r *http.Request) {
+	if err := h.Service.DeleteWork(r.Context(), currentUser(r).ID, chi.URLParam(r, "workId")); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) updateLearnerState(w http.ResponseWriter, r *http.Request) {
 	var input app.LearnerStateInput
 	if !h.decodeJSON(w, r, &input) {
@@ -137,6 +158,27 @@ func (h *Handler) addEdition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusCreated, value)
+}
+
+func (h *Handler) updateEdition(w http.ResponseWriter, r *http.Request) {
+	var input app.EditionInput
+	if !h.decodeJSON(w, r, &input) {
+		return
+	}
+	value, err := h.Service.UpdateEdition(r.Context(), currentUser(r).ID, chi.URLParam(r, "editionId"), input)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, value)
+}
+
+func (h *Handler) deleteEdition(w http.ResponseWriter, r *http.Request) {
+	if err := h.Service.DeleteEdition(r.Context(), currentUser(r).ID, chi.URLParam(r, "editionId")); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) listTags(w http.ResponseWriter, r *http.Request) {
@@ -182,12 +224,7 @@ func (h *Handler) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.Config.MaxUploadBytes+(1<<20))
 	header, file, metadata, err := h.readMultipartUpload(r)
 	if err != nil {
-		var maxBytesError *http.MaxBytesError
-		if errors.Is(err, errUploadTooLarge) || errors.As(err, &maxBytesError) {
-			h.writeError(w, http.StatusRequestEntityTooLarge, "upload_too_large", "upload exceeds the configured limit", nil)
-			return
-		}
-		h.writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error(), map[string]string{"file": "is required"})
+		h.handleUploadReadError(w, err)
 		return
 	}
 	defer file.Close()
@@ -197,6 +234,15 @@ func (h *Handler) uploadAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusCreated, value)
+}
+
+func (h *Handler) handleUploadReadError(w http.ResponseWriter, err error) {
+	var maxBytesError *http.MaxBytesError
+	if errors.Is(err, errUploadTooLarge) || errors.As(err, &maxBytesError) {
+		h.writeError(w, http.StatusRequestEntityTooLarge, "upload_too_large", "upload exceeds the configured limit", nil)
+		return
+	}
+	h.writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error(), map[string]string{"file": "is required"})
 }
 
 var errUploadTooLarge = errors.New("upload exceeds the configured limit")
@@ -305,6 +351,42 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, value)
 }
 
+func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
+	var input app.AssetPatchInput
+	if !h.decodeJSON(w, r, &input) {
+		return
+	}
+	value, err := h.Service.UpdateAsset(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"), input)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, value)
+}
+
+func (h *Handler) replaceAsset(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, h.Config.MaxUploadBytes+(1<<20))
+	header, file, metadata, err := h.readMultipartUpload(r)
+	if err != nil {
+		h.handleUploadReadError(w, err)
+		return
+	}
+	defer file.Close()
+	assetID := chi.URLParam(r, "assetId")
+	old, err := h.Service.GetAsset(r.Context(), currentUser(r).ID, assetID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	metadata.ReplacesAssetID = assetID
+	value, err := h.Service.UploadAsset(r.Context(), currentUser(r).ID, old.EditionID, header, file, metadata)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusCreated, value)
+}
+
 func (h *Handler) assetContent(w http.ResponseWriter, r *http.Request) {
 	item, file, err := h.Service.OpenAsset(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"))
 	if err != nil {
@@ -334,6 +416,50 @@ func safeFilename(value string) string {
 
 func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	if err := h.Service.DeleteAsset(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId")); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) createRecognitionJob(w http.ResponseWriter, r *http.Request) {
+	value, err := h.Service.CreateRecognitionJob(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"))
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusAccepted, value)
+}
+
+func (h *Handler) listRecognitionJobs(w http.ResponseWriter, r *http.Request) {
+	items, err := h.Service.ListRecognitionJobs(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"))
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) getRecognitionJob(w http.ResponseWriter, r *http.Request) {
+	value, err := h.Service.GetRecognitionJob(r.Context(), currentUser(r).ID, chi.URLParam(r, "jobId"))
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, value)
+}
+
+func (h *Handler) retryRecognitionJob(w http.ResponseWriter, r *http.Request) {
+	value, err := h.Service.RetryRecognitionJob(r.Context(), currentUser(r).ID, chi.URLParam(r, "jobId"))
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusAccepted, value)
+}
+
+func (h *Handler) cancelRecognitionJob(w http.ResponseWriter, r *http.Request) {
+	if err := h.Service.CancelRecognitionJob(r.Context(), currentUser(r).ID, chi.URLParam(r, "jobId")); err != nil {
 		h.handleError(w, err)
 		return
 	}

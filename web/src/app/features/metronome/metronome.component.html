@@ -12,13 +12,19 @@
   <div class="error" role="alert">{{ error() }}</div>
 }
 <div class="metronome-layout">
-  <section class="metronome-body" [class.running]="metronome.running()">
+  <section
+    class="metronome-body"
+    [class.running]="metronome.running()"
+    [class.pendulum-left]="metronome.side() === 'left'"
+    [class.pendulum-right]="metronome.side() === 'right'"
+    [style.--tempo]="metronome.bpm()"
+  >
     <div class="beat-dots" aria-label="Four beat accent pattern">
       @for (beat of [1, 2, 3, 4]; track beat) {
         <span [class.active]="metronome.beat() === beat"></span>
       }
     </div>
-    <div class="arm"><span></span></div>
+    <div class="arm" aria-hidden="true"><span></span></div>
     <div class="tempo-readout">
       <strong>{{ bpm }}</strong
       ><span>beats per minute</span>
