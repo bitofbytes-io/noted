@@ -93,4 +93,34 @@ describe('practice entry drafts', () => {
     });
     expect(toPracticeTimestamp(draft.startedAtLocal)).toBe(session.startedAt);
   });
+
+  it('excludes archived scores from new entries but preserves a historical selection', () => {
+    const component = new PracticeComponent({} as ApiService, {} as PracticeTimerService) as any;
+    component.selectedWork.set({
+      editions: [
+        {
+          id: 'edition-1',
+          name: 'Edition',
+          assets: [
+            { id: 'active', originalFilename: 'active.musicxml' },
+            { id: 'archived', originalFilename: 'old.musicxml', archivedAt: '2031-05-01' },
+          ],
+        },
+        {
+          id: 'archived-edition',
+          name: 'Old edition',
+          archivedAt: '2031-05-01',
+          assets: [{ id: 'edition-asset', originalFilename: 'edition.musicxml' }],
+        },
+      ],
+    });
+
+    expect(component.scoreOptions().map((option: { id: string }) => option.id)).toEqual(['active']);
+    component.editingId = 'session-1';
+    component.draft.scoreAssetId = 'archived';
+    expect(component.scoreOptions().map((option: { id: string }) => option.id)).toEqual([
+      'active',
+      'archived',
+    ]);
+  });
 });

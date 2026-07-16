@@ -514,6 +514,38 @@ func TestIntegrationPracticePatchPreservesOmittedFieldsAndClearsNulls(t *testing
 	}
 }
 
+func TestIntegrationArchivedScoresCannotEnterNewPracticeHistory(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	session, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, ScoreAssetID: &fixture.AssetID, DurationSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := true
+	if _, err := service.UpdateAsset(ctx, fixture.UserID, fixture.AssetID, AssetPatchInput{Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateManualPractice(ctx, fixture.UserID, PracticeInput{
+		WorkID: fixture.WorkID, ScoreAssetID: &fixture.AssetID, DurationSeconds: 60,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("new practice with archived score error = %v, want ErrNotFound", err)
+	}
+	var patch PracticePatchInput
+	if err := json.Unmarshal([]byte(`{"notes":"historical correction"}`), &patch); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.UpdatePractice(ctx, fixture.UserID, session.ID, patch)
+	if err != nil {
+		t.Fatalf("historical practice correction with archived score: %v", err)
+	}
+	if updated.ScoreAssetID == nil || *updated.ScoreAssetID != fixture.AssetID {
+		t.Fatalf("historical score context was not retained: %+v", updated)
+	}
+}
+
 func TestIntegrationPracticeRangesRespectMovementLength(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
