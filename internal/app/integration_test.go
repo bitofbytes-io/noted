@@ -739,6 +739,33 @@ func TestIntegrationLibraryManagementUpdatesArchivesAndDeletes(t *testing.T) {
 	}
 }
 
+func TestIntegrationWorkUpdateRejectsDuplicateIdentity(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+
+	second, err := service.CreateWork(ctx, fixture.UserID, CreateWorkInput{
+		Title: "Second integration work", Composer: "Integration Composer", EditionName: "Second edition",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.UpdateWork(ctx, fixture.UserID, second.ID, WorkPatchInput{
+		Title: "Integration work", Composer: "Integration Composer",
+	})
+	var validation ValidationError
+	if !errors.As(err, &validation) || validation.Fields["title"] != "is already in your library" {
+		t.Fatalf("duplicate work update error = %v, want title validation", err)
+	}
+	unchanged, err := service.GetWork(ctx, fixture.UserID, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Title != "Second integration work" {
+		t.Fatalf("duplicate update changed title to %q", unchanged.Title)
+	}
+}
+
 func TestIntegrationDeletionPreservesOtherLearnersLibraryData(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)

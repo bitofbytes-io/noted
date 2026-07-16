@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type WorkFilters struct {
@@ -174,6 +175,10 @@ func (s *Service) UpdateWork(ctx context.Context, userID, workID string, input W
 		UPDATE works SET composer_id=$3,title=$4,subtitle=NULLIF($5,''),catalog_number=NULLIF($6,''),key_signature=NULLIF($7,''),period=NULLIF($8,''),published_difficulty_label=NULLIF($9,''),notes=NULLIF($10,''),updated_at=now()
 		WHERE id=$2 AND created_by_user_id=$1`, userID, workID, composerID, input.Title, strings.TrimSpace(input.Subtitle), strings.TrimSpace(input.CatalogNumber), strings.TrimSpace(input.KeySignature), strings.TrimSpace(input.Period), strings.TrimSpace(input.PublishedDifficultyLabel), strings.TrimSpace(input.Notes))
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "works_composer_id_title_catalog_number_key" {
+			return WorkDetail{}, ValidationError{Fields: map[string]string{"title": "is already in your library"}}
+		}
 		return WorkDetail{}, err
 	}
 	if result.RowsAffected() == 0 {
