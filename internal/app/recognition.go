@@ -62,6 +62,46 @@ func (r CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDirec
 	return RecognitionOutput{}, errors.New("Audiveris completed without a MusicXML export")
 }
 
+// RecoverRecognitionJobs requeues work interrupted by a previous API process and
+// starts every persisted queued job. runRecognition claims each row atomically,
+// so duplicate recovery calls cannot execute the same job twice.
+func (s *Service) RecoverRecognitionJobs(ctx context.Context) error {
+	if s.Recognizer == nil {
+		return ErrRecognitionUnavailable
+	}
+	if _, err := s.Pool.Exec(ctx, `
+		UPDATE recognition_jobs
+		SET status='queued',started_at=NULL,finished_at=NULL,failure_message=NULL,updated_at=now()
+		WHERE status='processing'`); err != nil {
+		return fmt.Errorf("requeue interrupted recognition jobs: %w", err)
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id::text,user_id::text,source_asset_id::text
+		FROM recognition_jobs WHERE status='queued' ORDER BY created_at`)
+	if err != nil {
+		return fmt.Errorf("list queued recognition jobs: %w", err)
+	}
+	defer rows.Close()
+	type queuedJob struct {
+		id, userID, sourceAssetID string
+	}
+	jobs := []queuedJob{}
+	for rows.Next() {
+		var job queuedJob
+		if err := rows.Scan(&job.id, &job.userID, &job.sourceAssetID); err != nil {
+			return err
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		go s.runRecognition(job.userID, job.id, job.sourceAssetID)
+	}
+	return nil
+}
+
 type limitedBuffer struct{ bytes.Buffer }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {

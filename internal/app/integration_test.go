@@ -783,6 +783,54 @@ func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
 	}
 }
 
+func TestIntegrationRecognitionRecoveryResumesInterruptedJob(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	ctx := context.Background()
+	pdf, err := os.Open("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.Store.Put(ctx, fixture.StorageKey, pdf)
+	_ = pdf.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE score_assets SET byte_size=$2,sha256=$3 WHERE id=$1`, fixture.AssetID, stored.Size, stored.Checksum); err != nil {
+		t.Fatal(err)
+	}
+	jobID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO recognition_jobs(id,user_id,source_asset_id,status,started_at)
+		VALUES($1,$2,$3,'processing',now())`, jobID, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RecoverRecognitionJobs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		job, err := service.GetRecognitionJob(ctx, fixture.UserID, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status == "succeeded" {
+			if job.OutputAssetID == nil {
+				t.Fatal("recovered recognition did not retain its output asset")
+			}
+			break
+		}
+		if job.Status == "failed" || job.Status == "cancelled" {
+			t.Fatalf("recovered recognition job = %+v", job)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recognition recovery did not complete: %+v", job)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestIntegrationOwnerCanDiscardRunningPracticeTimer(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
