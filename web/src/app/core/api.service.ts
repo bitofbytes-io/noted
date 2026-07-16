@@ -217,3 +217,16 @@ export function errorMessage(error: unknown): string {
   }
   return error instanceof Error ? error.message : 'Something went wrong';
 }
+
+export function validationFields(error: unknown): Record<string, string> {
+  if (!(error instanceof HttpErrorResponse)) return {};
+
+  const fields = error.error?.error?.fields;
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return {};
+
+  return Object.fromEntries(
+    Object.entries(fields).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
+}

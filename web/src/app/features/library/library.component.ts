@@ -1,8 +1,8 @@
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { FormsModule, NgForm } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
-import { ApiService, errorMessage } from '../../core/api.service';
+import { ApiService, errorMessage, validationFields } from '../../core/api.service';
 import { learnerStatuses, Tag, WorkSummary } from '../../core/models';
 
 @Component({
@@ -17,6 +17,7 @@ export class LibraryComponent implements OnInit, OnDestroy {
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly error = signal('');
+  protected readonly createFieldErrors = signal<Record<string, string>>({});
   protected readonly statuses = learnerStatuses;
   protected showCreate = false;
   protected query = '';
@@ -100,12 +101,34 @@ export class LibraryComponent implements OnInit, OnDestroy {
     }
   }
 
-  async createWork(): Promise<void> {
+  fieldError(name: string): string {
+    return this.createFieldErrors()[name] ?? '';
+  }
+
+  clearFieldError(name: string): void {
+    const remaining = { ...this.createFieldErrors() };
+    delete remaining[name];
+    this.createFieldErrors.set(remaining);
+    if (this.error().toLowerCase().startsWith('correct the highlighted fields')) {
+      this.error.set(Object.keys(remaining).length ? 'Correct the highlighted fields.' : '');
+    }
+  }
+
+  async createWork(form: NgForm): Promise<void> {
+    this.createFieldErrors.set({});
+    if (form.invalid) {
+      form.control.markAllAsTouched();
+      this.error.set('Correct the highlighted fields.');
+      return;
+    }
+
+    this.error.set('');
     this.saving.set(true);
     try {
       const work = await firstValueFrom(this.api.createWork(this.draft));
       await this.router.navigate(['/works', work.id]);
     } catch (error) {
+      this.createFieldErrors.set(validationFields(error));
       this.error.set(errorMessage(error));
     } finally {
       this.saving.set(false);
