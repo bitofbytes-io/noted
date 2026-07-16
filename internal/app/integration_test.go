@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -735,6 +736,40 @@ func TestIntegrationLibraryManagementUpdatesArchivesAndDeletes(t *testing.T) {
 	}
 	if _, err := service.GetWork(ctx, fixture.UserID, fixture.WorkID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted work lookup = %v", err)
+	}
+}
+
+func TestIntegrationDeletionPreservesOtherLearnersLibraryData(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	otherUserID := uuid.NewString()
+	otherAssetID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO users(id,email,display_name) VALUES($1,$2,'Other learner')`, otherUserID, otherUserID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = service.Pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, otherUserID) })
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO learner_works(user_id,work_id) VALUES($1,$2)`, otherUserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,rights_note,uploaded_by_user_id)
+		VALUES($1,$2,'pdf',$3,'other.pdf','application/pdf',8,$4,'CC0',$5)`, otherAssetID, fixture.EditionID, "pdf/"+uuid.NewString(), strings.Repeat("b", 64), otherUserID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.DeleteEdition(ctx, fixture.UserID, fixture.EditionID); !errors.Is(err, ErrEditionInUse) {
+		t.Fatalf("shared edition deletion error = %v, want ErrEditionInUse", err)
+	}
+	if err := service.DeleteWork(ctx, fixture.UserID, fixture.WorkID); !errors.Is(err, ErrWorkInUse) {
+		t.Fatalf("shared work deletion error = %v, want ErrWorkInUse", err)
+	}
+	var assetExists, workExists bool
+	if err := service.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM score_assets WHERE id=$1),EXISTS(SELECT 1 FROM learner_works WHERE user_id=$2 AND work_id=$3)`, otherAssetID, otherUserID, fixture.WorkID).Scan(&assetExists, &workExists); err != nil {
+		t.Fatal(err)
+	}
+	if !assetExists || !workExists {
+		t.Fatalf("shared data was removed: asset=%v work=%v", assetExists, workExists)
 	}
 }
 

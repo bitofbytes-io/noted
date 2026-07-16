@@ -1,8 +1,10 @@
 package app
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -56,10 +58,86 @@ func (r CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDirec
 			return RecognitionOutput{}, err
 		}
 		if len(matches) > 0 {
+			if err := validateRecognitionScore(matches[0]); err != nil {
+				return RecognitionOutput{}, fmt.Errorf("Audiveris produced unusable MusicXML: %w", err)
+			}
 			return RecognitionOutput{Path: matches[0], EngineVersion: r.Version}, nil
 		}
 	}
 	return RecognitionOutput{}, errors.New("Audiveris completed without a MusicXML export")
+}
+
+func validateRecognitionScore(path string) error {
+	if strings.EqualFold(filepath.Ext(path), ".mxl") {
+		archive, err := zip.OpenReader(path)
+		if err != nil {
+			return fmt.Errorf("open compressed score: %w", err)
+		}
+		defer archive.Close()
+		if len(archive.File) == 0 || len(archive.File) > 128 {
+			return errors.New("compressed score has an invalid entry count")
+		}
+		for _, entry := range archive.File {
+			if strings.HasPrefix(entry.Name, "META-INF/") || !strings.HasSuffix(strings.ToLower(entry.Name), ".xml") {
+				continue
+			}
+			if entry.UncompressedSize64 > 32<<20 {
+				return errors.New("compressed score XML is too large")
+			}
+			reader, err := entry.Open()
+			if err != nil {
+				return err
+			}
+			err = validateRecognitionXML(io.LimitReader(reader, (32<<20)+1))
+			_ = reader.Close()
+			if err == nil {
+				return nil
+			}
+		}
+		return errors.New("compressed score contains no playable pitched notes")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return validateRecognitionXML(io.LimitReader(file, (32<<20)+1))
+}
+
+func validateRecognitionXML(reader io.Reader) error {
+	decoder := xml.NewDecoder(reader)
+	var score, measure, pitch bool
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("parse MusicXML: %w", err)
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch start.Name.Local {
+		case "score-partwise", "score-timewise":
+			score = true
+		case "measure":
+			measure = true
+		case "pitch":
+			pitch = true
+		}
+	}
+	if !score {
+		return errors.New("export is not a MusicXML score")
+	}
+	if !measure {
+		return errors.New("export contains no measures")
+	}
+	if !pitch {
+		return errors.New("export contains no pitched notes")
+	}
+	return nil
 }
 
 // RecoverRecognitionJobs requeues work interrupted by a previous API process and

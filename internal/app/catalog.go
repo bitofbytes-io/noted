@@ -194,14 +194,19 @@ func (s *Service) DeleteWork(ctx context.Context, userID, workID string) error {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
-	var owned, referenced bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM works w JOIN learner_works lw ON lw.work_id=w.id WHERE w.id=$2 AND w.created_by_user_id=$1 AND lw.user_id=$1),EXISTS(SELECT 1 FROM practice_sessions WHERE work_id=$2)`, userID, workID).Scan(&owned, &referenced); err != nil {
+	var owned, referenced, shared bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM works w JOIN learner_works lw ON lw.work_id=w.id WHERE w.id=$2 AND w.created_by_user_id=$1 AND lw.user_id=$1),
+		       EXISTS(SELECT 1 FROM practice_sessions WHERE work_id=$2),
+		       EXISTS(SELECT 1 FROM learner_works WHERE work_id=$2 AND user_id<>$1)
+		       OR EXISTS(SELECT 1 FROM editions WHERE work_id=$2 AND created_by_user_id<>$1)
+		       OR EXISTS(SELECT 1 FROM score_assets a JOIN editions e ON e.id=a.edition_id WHERE e.work_id=$2 AND a.uploaded_by_user_id<>$1)`, userID, workID).Scan(&owned, &referenced, &shared); err != nil {
 		return err
 	}
 	if !owned {
 		return ErrNotFound
 	}
-	if referenced {
+	if referenced || shared {
 		return ErrWorkInUse
 	}
 	rows, err := tx.Query(ctx, `SELECT a.storage_key FROM score_assets a JOIN editions e ON e.id=a.edition_id WHERE e.work_id=$1`, workID)
@@ -371,16 +376,17 @@ func (s *Service) DeleteEdition(ctx context.Context, userID, editionID string) e
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
-	var owned, referenced bool
+	var owned, referenced, shared bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM editions e JOIN learner_works lw ON lw.work_id=e.work_id WHERE e.id=$2 AND e.created_by_user_id=$1 AND lw.user_id=$1),
-		       EXISTS(SELECT 1 FROM practice_sessions ps JOIN score_assets a ON a.id=ps.score_asset_id WHERE a.edition_id=$2)`, userID, editionID).Scan(&owned, &referenced); err != nil {
+		       EXISTS(SELECT 1 FROM practice_sessions ps JOIN score_assets a ON a.id=ps.score_asset_id WHERE a.edition_id=$2),
+		       EXISTS(SELECT 1 FROM score_assets WHERE edition_id=$2 AND uploaded_by_user_id<>$1)`, userID, editionID).Scan(&owned, &referenced, &shared); err != nil {
 		return err
 	}
 	if !owned {
 		return ErrNotFound
 	}
-	if referenced {
+	if referenced || shared {
 		return ErrEditionInUse
 	}
 	rows, err := tx.Query(ctx, `SELECT storage_key FROM score_assets WHERE edition_id=$1`, editionID)
