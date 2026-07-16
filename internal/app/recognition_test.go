@@ -44,3 +44,23 @@ func TestValidateRecognitionScoreAcceptsCompressedPitchedExport(t *testing.T) {
 		t.Fatalf("pitched export validation = %v", err)
 	}
 }
+
+func TestValidateRecognitionScoreRejectsOversizedRawExport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.musicxml")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(`<score-partwise><part><measure><note><pitch/></note></measure></part></score-partwise>`); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxRecognitionOutputBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRecognitionScore(path); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized export validation = %v", err)
+	}
+}

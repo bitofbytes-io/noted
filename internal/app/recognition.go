@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	recognitionTimeout  = 10 * time.Minute
-	maxRecognitionBytes = 25 << 20
+	recognitionTimeout        = 10 * time.Minute
+	maxRecognitionBytes       = 25 << 20
+	maxRecognitionOutputBytes = 25 << 20
 )
 
 type RecognitionOutput struct {
@@ -69,6 +70,13 @@ func (r CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDirec
 }
 
 func validateRecognitionScore(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxRecognitionOutputBytes {
+		return errors.New("recognition output is too large")
+	}
 	if strings.EqualFold(filepath.Ext(path), ".mxl") {
 		archive, err := zip.OpenReader(path)
 		if err != nil {
@@ -82,14 +90,14 @@ func validateRecognitionScore(path string) error {
 			if strings.HasPrefix(entry.Name, "META-INF/") || !strings.HasSuffix(strings.ToLower(entry.Name), ".xml") {
 				continue
 			}
-			if entry.UncompressedSize64 > 32<<20 {
+			if entry.UncompressedSize64 > maxRecognitionOutputBytes {
 				return errors.New("compressed score XML is too large")
 			}
 			reader, err := entry.Open()
 			if err != nil {
 				return err
 			}
-			err = validateRecognitionXML(io.LimitReader(reader, (32<<20)+1))
+			err = validateRecognitionXML(reader)
 			_ = reader.Close()
 			if err == nil {
 				return nil
@@ -102,11 +110,12 @@ func validateRecognitionScore(path string) error {
 		return err
 	}
 	defer file.Close()
-	return validateRecognitionXML(io.LimitReader(file, (32<<20)+1))
+	return validateRecognitionXML(file)
 }
 
 func validateRecognitionXML(reader io.Reader) error {
-	decoder := xml.NewDecoder(reader)
+	limited := &io.LimitedReader{R: reader, N: maxRecognitionOutputBytes + 1}
+	decoder := xml.NewDecoder(limited)
 	var score, measure, pitch bool
 	for {
 		token, err := decoder.Token()
@@ -128,6 +137,9 @@ func validateRecognitionXML(reader io.Reader) error {
 		case "pitch":
 			pitch = true
 		}
+	}
+	if limited.N == 0 {
+		return errors.New("recognition output is too large")
 	}
 	if !score {
 		return errors.New("export is not a MusicXML score")
@@ -374,6 +386,11 @@ func (s *Service) runRecognition(userID, jobID, sourceAssetID string) {
 	if err != nil {
 		_ = output.Close()
 		s.failRecognition(jobID, err)
+		return
+	}
+	if info.Size() > maxRecognitionOutputBytes {
+		_ = output.Close()
+		s.failRecognition(jobID, errors.New("recognition output is too large"))
 		return
 	}
 	header := &multipart.FileHeader{Filename: info.Name(), Size: info.Size()}
