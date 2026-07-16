@@ -175,9 +175,13 @@ func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
 	ctx := context.Background()
+	composerName := "Shared Composer " + uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `UPDATE composers SET canonical_name=$2,sort_name=$2 WHERE id=(SELECT composer_id FROM works WHERE id=$1)`, fixture.WorkID, composerName); err != nil {
+		t.Fatal(err)
+	}
 
 	created, err := service.CreateWork(ctx, current.ID, CreateWorkInput{
-		Title: "Integration work", Composer: "Integration Composer",
+		Title: "Integration work", Composer: composerName,
 		EditionName: "Current learner edition", RightsNote: "Current learner copy",
 	})
 	if err != nil {
@@ -743,21 +747,29 @@ func TestIntegrationWorkUpdateRejectsDuplicateIdentity(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
 	ctx := context.Background()
-
-	second, err := service.CreateWork(ctx, fixture.UserID, CreateWorkInput{
-		Title: "Second integration work", Composer: "Integration Composer", EditionName: "Second edition",
-	})
-	if err != nil {
+	secondID := uuid.NewString()
+	var composerName string
+	if err := service.Pool.QueryRow(ctx, `SELECT c.canonical_name FROM works w JOIN composers c ON c.id=w.composer_id WHERE w.id=$1`, fixture.WorkID).Scan(&composerName); err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.UpdateWork(ctx, fixture.UserID, second.ID, WorkPatchInput{
-		Title: "Integration work", Composer: "Integration Composer",
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO works(id,composer_id,title,created_by_user_id)
+		SELECT $1,composer_id,'Second integration work',$2 FROM works WHERE id=$3`, secondID, fixture.UserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO learner_works(user_id,work_id) VALUES($1,$2)`, fixture.UserID, secondID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = service.Pool.Exec(ctx, `DELETE FROM works WHERE id=$1`, secondID) })
+
+	_, err := service.UpdateWork(ctx, fixture.UserID, secondID, WorkPatchInput{
+		Title: "Integration work", Composer: composerName,
 	})
 	var validation ValidationError
 	if !errors.As(err, &validation) || validation.Fields["title"] != "is already in your library" {
 		t.Fatalf("duplicate work update error = %v, want title validation", err)
 	}
-	unchanged, err := service.GetWork(ctx, fixture.UserID, second.ID)
+	unchanged, err := service.GetWork(ctx, fixture.UserID, secondID)
 	if err != nil {
 		t.Fatal(err)
 	}

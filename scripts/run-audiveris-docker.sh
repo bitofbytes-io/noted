@@ -23,7 +23,7 @@ if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
     -e 'ObjC.import("PDFKit"); const args = ObjC.deepUnwrap($.NSProcessInfo.processInfo.arguments); const input = args[args.length - 1]; const doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(input)); doc ? Number(doc.pageCount) : ""' \
     "$input")
 else
-  pages=$(docker run --rm --platform linux/amd64 -v "$job_dir:/work" --entrypoint pdfinfo "$image" "/work/$input_name" | awk '/^Pages:/ { print $2 }')
+  pages=$(docker run --rm --network none --platform linux/amd64 -v "$job_dir:/work" --entrypoint pdfinfo "$image" "/work/$input_name" | awk '/^Pages:/ { print $2 }')
 fi
 
 if [ -z "$pages" ] || [ "$pages" -gt 25 ]; then
@@ -34,7 +34,7 @@ fi
 if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
   "$audiveris" -batch -transcribe -export -output "$output" -- "$input"
 else
-  docker run --rm --platform linux/amd64 \
+  docker run --rm --network none --platform linux/amd64 \
     --memory=4g --cpus=2 \
     -v "$job_dir:/work" \
     "$image" -batch -transcribe -export -output "/work/$output_name" -- "/work/$input_name"

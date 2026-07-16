@@ -1,10 +1,28 @@
 import { signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { PracticeTimerService } from '../../core/practice-timer.service';
-import { WorkDetailsComponent } from './work-details.component';
+import { hasApiErrorCode, WorkDetailsComponent } from './work-details.component';
+
+describe('WorkDetailsComponent delete conflicts', () => {
+  it('archives only for the matching in-use error', () => {
+    const inUse = new HttpErrorResponse({
+      status: 409,
+      error: { error: { code: 'asset_in_use' } },
+    });
+    const serverFailure = new HttpErrorResponse({
+      status: 500,
+      error: { error: { code: 'internal_error' } },
+    });
+
+    expect(hasApiErrorCode(inUse, 'asset_in_use')).toBe(true);
+    expect(hasApiErrorCode(inUse, 'edition_in_use')).toBe(false);
+    expect(hasApiErrorCode(serverFailure, 'asset_in_use')).toBe(false);
+  });
+});
 
 describe('WorkDetailsComponent capability states', () => {
   it('keeps PDF-only editions readable and shows provenance', async () => {

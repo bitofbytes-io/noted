@@ -56,7 +56,7 @@ func Load() (Config, error) {
 		GoogleSecret:     googleSecret,
 		GoogleRedirect:   os.Getenv("AUTH_GOOGLE_REDIRECT_URL"),
 		AllowedEmails:    split(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS")),
-		AudiverisCommand: value("AUDIVERIS_COMMAND", "scripts/run-audiveris-docker.sh"),
+		AudiverisCommand: strings.TrimSpace(os.Getenv("AUDIVERIS_COMMAND")),
 	}
 
 	if cfg.DatabaseURL == "" {

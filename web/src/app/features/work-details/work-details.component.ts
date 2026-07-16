@@ -1,4 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -298,9 +299,20 @@ export class WorkDetailsComponent implements OnInit {
       await firstValueFrom(this.api.deleteEdition(edition.id));
       await this.load();
       this.success.set('Edition deleted.');
-    } catch {
-      await this.setEditionArchived(edition, true);
-      this.success.set('The edition is used by practice history, so it was archived instead.');
+    } catch (error) {
+      if (!hasApiErrorCode(error, 'edition_in_use')) {
+        this.error.set(errorMessage(error));
+        return;
+      }
+      try {
+        await firstValueFrom(
+          this.api.updateEdition(edition.id, { name: edition.name, archived: true }),
+        );
+        await this.load();
+        this.success.set('The edition is used by practice history, so it was archived instead.');
+      } catch (archiveError) {
+        this.error.set(errorMessage(archiveError));
+      }
     }
   }
 
@@ -341,9 +353,18 @@ export class WorkDetailsComponent implements OnInit {
       await firstValueFrom(this.api.deleteAsset(asset.id));
       await this.load();
       this.success.set('Score deleted.');
-    } catch {
-      await this.setAssetArchived(asset, true);
-      this.success.set('The score is used by practice history, so it was archived instead.');
+    } catch (error) {
+      if (!hasApiErrorCode(error, 'asset_in_use')) {
+        this.error.set(errorMessage(error));
+        return;
+      }
+      try {
+        await firstValueFrom(this.api.updateAsset(asset.id, { archived: true }));
+        await this.load();
+        this.success.set('The score is used by practice history, so it was archived instead.');
+      } catch (archiveError) {
+        this.error.set(errorMessage(archiveError));
+      }
     }
   }
 
@@ -468,4 +489,8 @@ export class WorkDetailsComponent implements OnInit {
       ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`
       : `${Math.round(seconds / 60)}m`;
   }
+}
+
+export function hasApiErrorCode(error: unknown, code: string): boolean {
+  return error instanceof HttpErrorResponse && error.error?.error?.code === code;
 }

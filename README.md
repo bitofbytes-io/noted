@@ -26,7 +26,7 @@ PDF-to-MusicXML conversion is an optional, heavyweight post-POC increment. To en
 
 ```sh
 make omr-build
-make local
+AUDIVERIS_COMMAND=scripts/run-audiveris-docker.sh make local
 ```
 
 On Apple-silicon Macs this installs the native release under ignored `.local/tools`; elsewhere it builds the isolated container. The normal `make local` path deliberately does not download or distribute Audiveris.
@@ -52,7 +52,7 @@ Copy-safe defaults live in `.env.example`. Important values are:
 - `MAX_UPLOAD_BYTES`: maximum accepted PDF or MusicXML size, default 25 MiB.
 - `AUTH_MODE=development` and `DEV_USER_EMAIL`: local identity only.
 - `ALLOWED_ORIGINS`: allowed browser origins for the API.
-- `AUDIVERIS_COMMAND`: conversion runner, default `scripts/run-audiveris-docker.sh`. `make omr-build` installs the native Apple-silicon release under ignored `.local/tools` on Apple-silicon Macs and builds the isolated container elsewhere.
+- `AUDIVERIS_COMMAND`: optional conversion runner. It is empty by default so recognition is inactive in the normal POC runtime. Set it to `scripts/run-audiveris-docker.sh` after `make omr-build` to enable the explicitly requested local OCR increment.
 
 Local catalog data, practice history, asset metadata, and recognition jobs live in the persistent
 PostgreSQL Docker volume. Uploaded and generated score binaries live under `.local/noted-assets`.
