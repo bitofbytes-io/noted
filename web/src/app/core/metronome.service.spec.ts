@@ -77,7 +77,7 @@ describe('MetronomeService', () => {
     expect(service.side()).toBe('center');
   });
 
-  it('applies a tempo change to the next unscheduled interval', async () => {
+  it('re-anchors the next audio and visual beat when tempo changes', async () => {
     const service = TestBed.inject(MetronomeService);
     service.setBpm(60);
     await service.start();
@@ -85,7 +85,8 @@ describe('MetronomeService', () => {
     service.setBpm(120);
     await vi.advanceTimersByTimeAsync(1500);
 
-    expect(FakeAudioContext.starts.slice(0, 3)).toEqual([0.05, 1.05, 1.55]);
+    expect(FakeAudioContext.starts.slice(0, 4)).toEqual([0.05, 0.7, 1.2, 1.7]);
+    expect(service.lastBeat()).toMatchObject({ number: 4, bpm: 120, side: 'right' });
     service.stop();
   });
 });

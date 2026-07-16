@@ -48,6 +48,15 @@ export class MetronomeService {
     this.running.set(false);
     if (this.scheduler) clearInterval(this.scheduler);
     this.scheduler = undefined;
+    this.cancelScheduledBeats();
+    this.beat.set(0);
+    this.side.set('center');
+    this.lastBeat.set(null);
+    void this.context?.close();
+    this.context = undefined;
+  }
+
+  private cancelScheduledBeats(): void {
     for (const timer of this.visualTimers) clearTimeout(timer);
     this.visualTimers.clear();
     for (const oscillator of this.scheduledOscillators) {
@@ -58,15 +67,20 @@ export class MetronomeService {
       }
     }
     this.scheduledOscillators.clear();
-    this.beat.set(0);
-    this.side.set('center');
-    this.lastBeat.set(null);
-    void this.context?.close();
-    this.context = undefined;
   }
 
   setBpm(value: number): void {
-    this.bpm.set(Math.min(240, Math.max(30, Math.round(value || 96))));
+    const bpm = Math.min(240, Math.max(30, Math.round(value || 96)));
+    this.bpm.set(bpm);
+    const context = this.context;
+    if (!context || !this.running()) return;
+
+    this.cancelScheduledBeats();
+    const lastBeat = this.lastBeat();
+    this.nextBeatNumber = lastBeat ? (((lastBeat.number % 4) + 1) as 1 | 2 | 3 | 4) : 1;
+    this.nextSide = lastBeat?.side === 'left' ? 'right' : 'left';
+    this.nextBeatTime = context.currentTime + 60 / bpm;
+    this.scheduleAhead();
   }
 
   setAccent(value: boolean): void {
