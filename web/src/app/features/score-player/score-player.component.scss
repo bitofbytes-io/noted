@@ -61,15 +61,15 @@
 .notation-viewport {
   height: 100%;
   overflow: auto;
-  padding: calc(74px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
-    calc(105px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   touch-action: pan-x pan-y;
 }
 .notation-canvas {
   background: white;
   box-shadow: 0 7px 28px rgba(0, 0, 0, 0.12);
   margin: 0 auto;
-  max-width: 1120px;
+  width: 100%;
   min-height: 65vh;
   padding: 12px;
 }
@@ -78,7 +78,7 @@
   display: flex;
   gap: 4px;
   margin: 0 auto 10px;
-  max-width: 1120px;
+  width: 100%;
   overflow-x: auto;
 }
 .measure-legend > span {
@@ -144,6 +144,19 @@
   gap: 4px;
   margin-left: 4px;
   padding-left: 8px;
+}
+.zoom-control {
+  align-items: center;
+  border-left: 1px solid #424650;
+  display: flex;
+  gap: 2px;
+  padding-left: 5px;
+}
+.zoom-control span {
+  color: #d7d9de;
+  font-size: 10px;
+  min-width: 38px;
+  text-align: center;
 }
 .bpm-control label {
   color: #9ba0a9;
@@ -294,7 +307,8 @@
     0 0 9px rgba(30, 92, 224, 0.55);
   min-width: 3px;
 }
-:host ::ng-deep .notation-canvas .at-highlight {
+:host ::ng-deep .notation-canvas .at-highlight,
+:host ::ng-deep .notation-canvas .at-highlight * {
   color: var(--blue) !important;
   fill: var(--blue) !important;
   stroke: var(--blue) !important;

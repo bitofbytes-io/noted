@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -18,6 +19,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+type fixtureRecognizer struct{}
+
+func (fixtureRecognizer) Recognize(_ context.Context, _ string, outputDirectory string) (RecognitionOutput, error) {
+	source, err := os.Open("../../testdata/fixtures/noted-exercise.musicxml")
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	defer source.Close()
+	path := filepath.Join(outputDirectory, "converted.musicxml")
+	output, err := os.Create(path)
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	if _, err := io.Copy(output, source); err != nil {
+		_ = output.Close()
+		return RecognitionOutput{}, err
+	}
+	if err := output.Close(); err != nil {
+		return RecognitionOutput{}, err
+	}
+	return RecognitionOutput{Path: path, EngineVersion: "test"}, nil
+}
 
 type integrationFixture struct {
 	UserID     string
@@ -676,6 +700,86 @@ func TestIntegrationDeleteAssetPreservesReferencedPracticeHistory(t *testing.T) 
 	}
 	if err := service.DeleteAsset(ctx, fixture.UserID, fixture.AssetID); err != nil {
 		t.Fatalf("unreferenced asset could not be deleted: %v", err)
+	}
+}
+
+func TestIntegrationLibraryManagementUpdatesArchivesAndDeletes(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+
+	name := "My clean score"
+	rights := "Personal licensed copy"
+	archived := true
+	asset, err := service.UpdateAsset(ctx, fixture.UserID, fixture.AssetID, AssetPatchInput{
+		DisplayName: &name, RightsNote: &rights, Archived: &archived,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.DisplayName != name || asset.RightsNote != rights || asset.ArchivedAt == nil {
+		t.Fatalf("asset update = %+v", asset)
+	}
+
+	work, err := service.UpdateWork(ctx, fixture.UserID, fixture.WorkID, WorkPatchInput{
+		Title: "Updated integration work", Composer: "Integration Composer", Subtitle: "Revised",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if work.Title != "Updated integration work" || work.Subtitle != "Revised" {
+		t.Fatalf("work update = %+v", work)
+	}
+	if err := service.DeleteWork(ctx, fixture.UserID, fixture.WorkID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.GetWork(ctx, fixture.UserID, fixture.WorkID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted work lookup = %v", err)
+	}
+}
+
+func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	ctx := context.Background()
+	pdf, err := os.Open("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.Store.Put(ctx, fixture.StorageKey, pdf)
+	_ = pdf.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE score_assets SET byte_size=$2,sha256=$3 WHERE id=$1`, fixture.AssetID, stored.Size, stored.Checksum); err != nil {
+		t.Fatal(err)
+	}
+
+	job, err := service.CreateRecognitionJob(ctx, fixture.UserID, fixture.AssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for job.Status == "queued" || job.Status == "processing" {
+		if time.Now().After(deadline) {
+			t.Fatal("recognition did not complete")
+		}
+		time.Sleep(20 * time.Millisecond)
+		job, err = service.GetRecognitionJob(ctx, fixture.UserID, job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if job.Status != "succeeded" || job.OutputAssetID == nil {
+		t.Fatalf("recognition job = %+v", job)
+	}
+	asset, err := service.GetAsset(ctx, fixture.UserID, *job.OutputAssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.AssetType != "musicxml" || asset.VerificationState != "unverified_ocr" || asset.DerivedFromAssetID == nil || *asset.DerivedFromAssetID != fixture.AssetID {
+		t.Fatalf("derived asset = %+v", asset)
 	}
 }
 

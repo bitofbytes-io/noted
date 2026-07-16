@@ -12,29 +12,49 @@ type User struct {
 }
 
 type Asset struct {
-	ID               string    `json:"id"`
-	EditionID        string    `json:"editionId"`
-	AssetType        string    `json:"assetType"`
-	OriginalFilename string    `json:"originalFilename"`
-	MediaType        string    `json:"mediaType"`
-	ByteSize         int64     `json:"byteSize"`
-	SHA256           string    `json:"sha256"`
-	SourceURL        string    `json:"sourceUrl,omitempty"`
-	RightsNote       string    `json:"rightsNote"`
-	PlaybackCapable  bool      `json:"playbackCapable"`
-	CreatedAt        time.Time `json:"createdAt"`
-	ContentURL       string    `json:"contentUrl"`
+	ID                 string     `json:"id"`
+	EditionID          string     `json:"editionId"`
+	AssetType          string     `json:"assetType"`
+	OriginalFilename   string     `json:"originalFilename"`
+	DisplayName        string     `json:"displayName"`
+	MediaType          string     `json:"mediaType"`
+	ByteSize           int64      `json:"byteSize"`
+	SHA256             string     `json:"sha256"`
+	SourceURL          string     `json:"sourceUrl,omitempty"`
+	RightsNote         string     `json:"rightsNote"`
+	PlaybackCapable    bool       `json:"playbackCapable"`
+	ArchivedAt         *time.Time `json:"archivedAt,omitempty"`
+	ReplacesAssetID    *string    `json:"replacesAssetId,omitempty"`
+	DerivedFromAssetID *string    `json:"derivedFromAssetId,omitempty"`
+	VerificationState  string     `json:"verificationState"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	ContentURL         string     `json:"contentUrl"`
 }
 
 type Edition struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Editor          string  `json:"editor,omitempty"`
-	Publisher       string  `json:"publisher,omitempty"`
-	PublicationYear *int    `json:"publicationYear,omitempty"`
-	SourceURL       string  `json:"sourceUrl,omitempty"`
-	RightsNote      string  `json:"rightsNote,omitempty"`
-	Assets          []Asset `json:"assets"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Editor          string     `json:"editor,omitempty"`
+	Publisher       string     `json:"publisher,omitempty"`
+	PublicationYear *int       `json:"publicationYear,omitempty"`
+	SourceURL       string     `json:"sourceUrl,omitempty"`
+	RightsNote      string     `json:"rightsNote,omitempty"`
+	ArchivedAt      *time.Time `json:"archivedAt,omitempty"`
+	Assets          []Asset    `json:"assets"`
+}
+
+type RecognitionJob struct {
+	ID             string     `json:"id"`
+	SourceAssetID  string     `json:"sourceAssetId"`
+	OutputAssetID  *string    `json:"outputAssetId,omitempty"`
+	Status         string     `json:"status"`
+	Engine         string     `json:"engine"`
+	EngineVersion  string     `json:"engineVersion"`
+	FailureMessage string     `json:"failureMessage,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	StartedAt      *time.Time `json:"startedAt,omitempty"`
+	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 type Movement struct {

@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 COMPOSE := docker compose -p noted -f compose.local.yml
 
-.PHONY: setup db-up db-down migrate seed api-run web-start local test test-api test-web test-migrations test-e2e lint build clean
+.PHONY: setup db-up db-down migrate seed omr-build api-run web-start local test test-api test-web test-migrations test-e2e lint build clean
 
 setup:
 	mkdir -p .local/noted-assets/temporary .local/noted-assets/originals/pdf .local/noted-assets/originals/musicxml
@@ -24,10 +24,17 @@ seed:
 api-run:
 	go run ./cmd/api
 
+omr-build:
+	@if [ "$$(uname -s)" = Darwin ] && [ "$$(uname -m)" = arm64 ]; then \
+		./scripts/install-audiveris-macos.sh; \
+	else \
+		docker build --platform linux/amd64 -t noted-audiveris:5.10.2 omr; \
+	fi
+
 web-start:
 	cd web && npm start
 
-local: db-up migrate seed
+local: db-up migrate seed omr-build
 	@set -eu; \
 		go run ./cmd/api & api_pid=$$!; \
 		trap 'kill "$$api_pid" 2>/dev/null || true' EXIT INT TERM; \

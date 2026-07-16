@@ -11,20 +11,21 @@ import (
 const defaultMaxUploadBytes int64 = 25 << 20
 
 type Config struct {
-	AppEnv         string
-	Port           string
-	LogLevel       string
-	DatabaseURL    string
-	AssetRoot      string
-	MaxUploadBytes int64
-	AuthMode       string
-	DevUserEmail   string
-	FrontendURL    string
-	AllowedOrigins []string
-	GoogleClientID string
-	GoogleSecret   string
-	GoogleRedirect string
-	AllowedEmails  []string
+	AppEnv           string
+	Port             string
+	LogLevel         string
+	DatabaseURL      string
+	AssetRoot        string
+	MaxUploadBytes   int64
+	AuthMode         string
+	DevUserEmail     string
+	FrontendURL      string
+	AllowedOrigins   []string
+	GoogleClientID   string
+	GoogleSecret     string
+	GoogleRedirect   string
+	AllowedEmails    []string
+	AudiverisCommand string
 }
 
 func Load() (Config, error) {
@@ -41,20 +42,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		AppEnv:         value("APP_ENV", "development"),
-		Port:           value("PORT", "8080"),
-		LogLevel:       value("LOG_LEVEL", "info"),
-		DatabaseURL:    databaseURL,
-		AssetRoot:      value("ASSET_ROOT", ".local/noted-assets"),
-		MaxUploadBytes: defaultMaxUploadBytes,
-		AuthMode:       value("AUTH_MODE", "development"),
-		DevUserEmail:   strings.ToLower(value("DEV_USER_EMAIL", "learner@noted.local")),
-		FrontendURL:    value("FRONTEND_URL", "http://localhost:4200"),
-		AllowedOrigins: split(value("ALLOWED_ORIGINS", "http://localhost:4200")),
-		GoogleClientID: googleClientID,
-		GoogleSecret:   googleSecret,
-		GoogleRedirect: os.Getenv("AUTH_GOOGLE_REDIRECT_URL"),
-		AllowedEmails:  split(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS")),
+		AppEnv:           value("APP_ENV", "development"),
+		Port:             value("PORT", "8080"),
+		LogLevel:         value("LOG_LEVEL", "info"),
+		DatabaseURL:      databaseURL,
+		AssetRoot:        value("ASSET_ROOT", ".local/noted-assets"),
+		MaxUploadBytes:   defaultMaxUploadBytes,
+		AuthMode:         value("AUTH_MODE", "development"),
+		DevUserEmail:     strings.ToLower(value("DEV_USER_EMAIL", "learner@noted.local")),
+		FrontendURL:      value("FRONTEND_URL", "http://localhost:4200"),
+		AllowedOrigins:   split(value("ALLOWED_ORIGINS", "http://localhost:4200")),
+		GoogleClientID:   googleClientID,
+		GoogleSecret:     googleSecret,
+		GoogleRedirect:   os.Getenv("AUTH_GOOGLE_REDIRECT_URL"),
+		AllowedEmails:    split(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS")),
+		AudiverisCommand: value("AUDIVERIS_COMMAND", "scripts/run-audiveris-docker.sh"),
 	}
 
 	if cfg.DatabaseURL == "" {

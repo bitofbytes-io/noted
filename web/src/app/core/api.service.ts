@@ -10,6 +10,7 @@ import {
   PracticeInput,
   PracticeSession,
   Preferences,
+  RecognitionJob,
   Session,
   Tag,
   WeekSummary,
@@ -66,6 +67,14 @@ export class ApiService {
     return this.http.get<WorkDetail>(`/api/works/${id}`);
   }
 
+  updateWork(id: string, input: Partial<WorkDetail>): Observable<WorkDetail> {
+    return this.http.patch<WorkDetail>(`/api/works/${id}`, input);
+  }
+
+  deleteWork(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/works/${id}`);
+  }
+
   updateLearnerState(
     id: string,
     state: Omit<LearnerState, 'tags' | 'lastBpm'> & { lastBpm?: number | null },
@@ -75,6 +84,17 @@ export class ApiService {
 
   addEdition(workId: string, input: Partial<Edition> & { name: string }): Observable<Edition> {
     return this.http.post<Edition>(`/api/works/${workId}/editions`, input);
+  }
+
+  updateEdition(
+    id: string,
+    input: Partial<Edition> & { name: string; archived?: boolean },
+  ): Observable<Edition> {
+    return this.http.patch<Edition>(`/api/editions/${id}`, input);
+  }
+
+  deleteEdition(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/editions/${id}`);
   }
 
   uploadAsset(
@@ -92,6 +112,45 @@ export class ApiService {
 
   asset(id: string): Observable<Asset> {
     return this.http.get<Asset>(`/api/assets/${id}`);
+  }
+
+  updateAsset(
+    id: string,
+    input: { displayName?: string; sourceUrl?: string; rightsNote?: string; archived?: boolean },
+  ): Observable<Asset> {
+    return this.http.patch<Asset>(`/api/assets/${id}`, input);
+  }
+
+  replaceAsset(id: string, file: File, sourceUrl: string, rightsNote: string): Observable<Asset> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('sourceUrl', sourceUrl);
+    form.append('rightsNote', rightsNote);
+    return this.http.post<Asset>(`/api/assets/${id}/replacement`, form);
+  }
+
+  deleteAsset(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/assets/${id}`);
+  }
+
+  createRecognitionJob(assetId: string): Observable<RecognitionJob> {
+    return this.http.post<RecognitionJob>(`/api/assets/${assetId}/recognition-jobs`, {});
+  }
+
+  recognitionJobs(assetId: string): Observable<ApiList<RecognitionJob>> {
+    return this.http.get<ApiList<RecognitionJob>>(`/api/assets/${assetId}/recognition-jobs`);
+  }
+
+  recognitionJob(id: string): Observable<RecognitionJob> {
+    return this.http.get<RecognitionJob>(`/api/recognition-jobs/${id}`);
+  }
+
+  retryRecognitionJob(id: string): Observable<RecognitionJob> {
+    return this.http.post<RecognitionJob>(`/api/recognition-jobs/${id}/retry`, {});
+  }
+
+  cancelRecognitionJob(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/recognition-jobs/${id}`);
   }
 
   tags(): Observable<ApiList<Tag>> {

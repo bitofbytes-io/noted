@@ -20,11 +20,28 @@ test.describe.serial('Noted core POC flows', () => {
     await page.screenshot({ path: testInfo.outputPath('work-details.png'), fullPage: true });
 
     await page.getByRole('link', { name: 'Read' }).click();
+    await expect(page.locator('.topbar')).toHaveCount(0);
+    await expect(page.locator('.bottom-nav')).toHaveCount(0);
     const canvas = page.locator('.pdf-stage canvas');
     await expect(canvas).toBeVisible();
     await expect
       .poll(async () => canvas.evaluate((node: HTMLCanvasElement) => node.width))
       .toBeGreaterThan(100);
+    await expect
+      .poll(async () =>
+        canvas.evaluate((node: HTMLCanvasElement) => {
+          const context = node.getContext('2d');
+          if (!context) return 0;
+          const pixels = context.getImageData(0, 0, node.width, node.height).data;
+          let nonWhite = 0;
+          for (let index = 0; index < pixels.length; index += 64) {
+            if (pixels[index] < 245 || pixels[index + 1] < 245 || pixels[index + 2] < 245)
+              nonWhite += 1;
+          }
+          return nonWhite;
+        }),
+      )
+      .toBeGreaterThan(50);
     await page.screenshot({ path: testInfo.outputPath('pdf-reader.png') });
 
     await page.getByLabel('Back to work').click();
@@ -130,6 +147,32 @@ test.describe.serial('Noted core POC flows', () => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
   });
 
+  test('Metronome: audible scheduler and graphic share the selected tempo', async ({ page }) => {
+    await page.goto('/metronome');
+    const tempo = page.getByRole('slider', { name: 'BPM' });
+    await tempo.fill('120');
+    await tempo.press('Tab');
+    await page.getByRole('button', { name: 'Start', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+    const arm = page.locator('.arm span');
+    await expect
+      .poll(() => arm.evaluate((node) => getComputedStyle(node).transitionDuration))
+      .toBe('0.5s');
+    await expect.poll(() => page.locator('.beat-dots .active').count()).toBe(1);
+    const firstActive = await page
+      .locator('.beat-dots span')
+      .evaluateAll((nodes) => nodes.findIndex((node) => node.classList.contains('active')));
+    await expect
+      .poll(() =>
+        page
+          .locator('.beat-dots span')
+          .evaluateAll((nodes) => nodes.findIndex((node) => node.classList.contains('active'))),
+      )
+      .not.toBe(firstActive);
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(page.locator('.beat-dots .active')).toHaveCount(0);
+  });
+
   test('Flow B: create a work and securely upload PDF and MusicXML assets', async ({
     page,
   }, testInfo) => {
@@ -143,10 +186,27 @@ test.describe.serial('Noted core POC flows', () => {
     await page.getByRole('button', { name: 'Create work' }).click();
     await expect(page.getByRole('heading', { name: title })).toBeVisible();
 
-    await page.getByLabel('File').setInputFiles(path.join(fixtureRoot, 'noted-exercise.pdf'));
+    await page.getByLabel('File').setInputFiles(path.join(fixtureRoot, 'noted-ccitt-exercise.pdf'));
     await page.getByLabel('Rights note', { exact: true }).last().fill('Original CC0 test fixture');
     await page.getByRole('button', { name: 'Upload & verify' }).click();
-    await expect(page.getByText('noted-exercise.pdf')).toBeVisible();
+    await expect(page.getByText('noted-ccitt-exercise.pdf')).toBeVisible();
+    await page.getByRole('link', { name: 'Read' }).click();
+    const ccittCanvas = page.locator('.pdf-stage canvas');
+    await expect
+      .poll(async () =>
+        ccittCanvas.evaluate((node: HTMLCanvasElement) => {
+          const context = node.getContext('2d');
+          if (!context || node.width === 0) return 0;
+          const pixels = context.getImageData(0, 0, node.width, node.height).data;
+          let dark = 0;
+          for (let index = 0; index < pixels.length; index += 64) {
+            if (pixels[index] < 200) dark += 1;
+          }
+          return dark;
+        }),
+      )
+      .toBeGreaterThan(50);
+    await page.getByLabel('Back to work').click();
 
     await page.getByLabel('File').setInputFiles(path.join(fixtureRoot, 'noted-exercise.musicxml'));
     await page.getByLabel('Rights note', { exact: true }).last().fill('Original CC0 test fixture');
@@ -155,6 +215,15 @@ test.describe.serial('Noted core POC flows', () => {
     await expect(page.getByRole('link', { name: 'Read' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Play' })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('imported-work.png'), fullPage: true });
+
+    const pdfRow = page.locator('.asset-row').filter({ hasText: 'noted-ccitt-exercise.pdf' });
+    page.once('dialog', (dialog) => dialog.accept());
+    await pdfRow.getByRole('button', { name: 'Delete' }).click();
+    await expect(page.getByText('noted-ccitt-exercise.pdf')).toHaveCount(0);
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Delete work' }).click();
+    await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+    await expect(page.getByText(title)).toHaveCount(0);
   });
 
   test('Flow C: explicitly time practice and see the saved summary', async ({ page }, testInfo) => {

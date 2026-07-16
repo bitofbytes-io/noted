@@ -28,6 +28,7 @@ export const routes: Routes = [
         (module) => module.ScoreReaderComponent,
       ),
     title: 'PDF reader · Noted',
+    data: { immersive: true },
   },
   {
     path: 'player/:assetId',

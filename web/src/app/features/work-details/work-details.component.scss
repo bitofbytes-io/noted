@@ -33,6 +33,12 @@
 .stop-panel {
   margin-top: 28px;
 }
+.work-actions {
+  margin-top: 24px;
+}
+.work-edit-form {
+  margin-top: 16px;
+}
 .stop-panel .compact {
   margin-bottom: 16px;
 }
@@ -52,6 +58,16 @@
 }
 .edition-card {
   margin-bottom: 14px;
+}
+.edition-card.archived,
+.asset-row.archived {
+  background: #f3f4f6;
+}
+.inline-edit {
+  background: #f7f9ff;
+  border-bottom: 1px solid var(--line);
+  margin: 0 -4px;
+  padding: 16px;
 }
 .edition-card header {
   align-items: start;
@@ -109,6 +125,44 @@
   color: var(--muted);
   font-size: 10px;
   margin-top: 4px;
+}
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 290px;
+}
+.replace-button {
+  cursor: pointer;
+}
+.replace-button input {
+  display: none;
+}
+.asset-row .ocr-warning {
+  color: #8a4b00;
+  font-weight: 800;
+}
+.asset-row .archived-label {
+  color: var(--danger);
+  font-weight: 800;
+}
+.recognition-status {
+  align-items: center;
+  background: var(--blue-soft);
+  border-left: 3px solid var(--blue);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 10px;
+  padding: 10px 12px;
+}
+.recognition-status.failed {
+  background: #fff0ee;
+  border-left-color: var(--danger);
+}
+.asset-edit {
+  border-top: 0;
 }
 .upload-panel {
   display: flex;

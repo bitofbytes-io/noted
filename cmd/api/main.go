@@ -48,8 +48,12 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           httptransport.NewRouter(app.NewService(pool, store), cfg, logger),
+		Addr: ":" + cfg.Port,
+		Handler: httptransport.NewRouter(
+			app.NewService(pool, store).WithRecognizer(app.CommandRecognizer{Command: cfg.AudiverisCommand, Version: "5.10.2"}),
+			cfg,
+			logger,
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

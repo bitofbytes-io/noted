@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -38,13 +39,14 @@ func (s *Service) ListWorks(ctx context.Context, userID string, filters WorkFilt
 		       COALESCE(ARRAY(SELECT t.name FROM learner_work_tags lwt JOIN tags t ON t.id=lwt.tag_id WHERE lwt.learner_work_id=lw.id ORDER BY t.name), ARRAY[]::text[]),
 		       (SELECT max(ps.started_at) FROM practice_sessions ps WHERE ps.user_id=lw.user_id AND ps.work_id=w.id AND ps.ended_at IS NOT NULL),
 		       lw.last_bpm,
-		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND a.uploaded_by_user_id=lw.user_id AND a.asset_type='pdf'),
-		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND a.uploaded_by_user_id=lw.user_id AND a.playback_capable),
+		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND e.archived_at IS NULL AND a.archived_at IS NULL AND a.uploaded_by_user_id=lw.user_id AND a.asset_type='pdf'),
+		       EXISTS(SELECT 1 FROM editions e JOIN score_assets a ON a.edition_id=e.id WHERE e.work_id=w.id AND e.archived_at IS NULL AND a.archived_at IS NULL AND a.uploaded_by_user_id=lw.user_id AND a.playback_capable),
 		       lw.updated_at
 		FROM learner_works lw
 		JOIN works w ON w.id=lw.work_id
 		JOIN composers c ON c.id=w.composer_id
 		WHERE lw.user_id=$1
+		  AND ($3='Archived' OR lw.status<>'Archived')
 		  AND ($2='' OR w.title ILIKE '%%' || $2 || '%%' OR c.canonical_name ILIKE '%%' || $2 || '%%')
 		  AND ($3='' OR lw.status=$3)
 		  AND ($4::boolean IS NULL OR lw.is_favorite=$4)
@@ -128,6 +130,108 @@ func (s *Service) CreateWork(ctx context.Context, userID string, input CreateWor
 	return s.GetWork(ctx, userID, workID)
 }
 
+type WorkPatchInput struct {
+	Title                    string `json:"title"`
+	Subtitle                 string `json:"subtitle"`
+	Composer                 string `json:"composer"`
+	CatalogNumber            string `json:"catalogNumber"`
+	KeySignature             string `json:"keySignature"`
+	Period                   string `json:"period"`
+	PublishedDifficultyLabel string `json:"publishedDifficultyLabel"`
+	Notes                    string `json:"notes"`
+}
+
+func (s *Service) UpdateWork(ctx context.Context, userID, workID string, input WorkPatchInput) (WorkDetail, error) {
+	if err := validateResourceID(workID); err != nil {
+		return WorkDetail{}, err
+	}
+	input.Title = strings.TrimSpace(input.Title)
+	input.Composer = strings.TrimSpace(input.Composer)
+	fields := map[string]string{}
+	if input.Title == "" {
+		fields["title"] = "is required"
+	}
+	if input.Composer == "" {
+		fields["composer"] = "is required"
+	}
+	if len(fields) > 0 {
+		return WorkDetail{}, ValidationError{Fields: fields}
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return WorkDetail{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
+	var composerID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM composers WHERE lower(canonical_name)=lower($1) ORDER BY created_at LIMIT 1`, input.Composer).Scan(&composerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `INSERT INTO composers(canonical_name,sort_name) VALUES($1,$1) RETURNING id::text`, input.Composer).Scan(&composerID)
+	}
+	if err != nil {
+		return WorkDetail{}, err
+	}
+	result, err := tx.Exec(ctx, `
+		UPDATE works SET composer_id=$3,title=$4,subtitle=NULLIF($5,''),catalog_number=NULLIF($6,''),key_signature=NULLIF($7,''),period=NULLIF($8,''),published_difficulty_label=NULLIF($9,''),notes=NULLIF($10,''),updated_at=now()
+		WHERE id=$2 AND created_by_user_id=$1`, userID, workID, composerID, input.Title, strings.TrimSpace(input.Subtitle), strings.TrimSpace(input.CatalogNumber), strings.TrimSpace(input.KeySignature), strings.TrimSpace(input.Period), strings.TrimSpace(input.PublishedDifficultyLabel), strings.TrimSpace(input.Notes))
+	if err != nil {
+		return WorkDetail{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return WorkDetail{}, ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return WorkDetail{}, err
+	}
+	return s.GetWork(ctx, userID, workID)
+}
+
+func (s *Service) DeleteWork(ctx context.Context, userID, workID string) error {
+	if err := validateResourceID(workID); err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
+	var owned, referenced bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM works w JOIN learner_works lw ON lw.work_id=w.id WHERE w.id=$2 AND w.created_by_user_id=$1 AND lw.user_id=$1),EXISTS(SELECT 1 FROM practice_sessions WHERE work_id=$2)`, userID, workID).Scan(&owned, &referenced); err != nil {
+		return err
+	}
+	if !owned {
+		return ErrNotFound
+	}
+	if referenced {
+		return ErrWorkInUse
+	}
+	rows, err := tx.Query(ctx, `SELECT a.storage_key FROM score_assets a JOIN editions e ON e.id=a.edition_id WHERE e.work_id=$1`, workID)
+	if err != nil {
+		return err
+	}
+	keys := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return err
+		}
+		keys = append(keys, key)
+	}
+	rows.Close()
+	if _, err := tx.Exec(ctx, `DELETE FROM works WHERE id=$1 AND created_by_user_id=$2`, workID, userID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := s.Store.Delete(context.Background(), key); err != nil {
+			slog.Error("work metadata deleted but storage cleanup failed", "work_id", workID, "storage_key", key, "error", err)
+		}
+	}
+	return nil
+}
+
 func (s *Service) GetWork(ctx context.Context, userID, workID string) (WorkDetail, error) {
 	if err := validateResourceID(workID); err != nil {
 		return WorkDetail{}, ErrNotFound
@@ -177,7 +281,7 @@ func (s *Service) listMovements(ctx context.Context, workID string) ([]Movement,
 }
 
 func (s *Service) listEditions(ctx context.Context, userID, workID string) ([]Edition, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT id::text,name,COALESCE(editor,''),COALESCE(publisher,''),publication_year,COALESCE(source_url,''),COALESCE(rights_note,'') FROM editions WHERE work_id=$1 ORDER BY created_at`, workID)
+	rows, err := s.Pool.Query(ctx, `SELECT id::text,name,COALESCE(editor,''),COALESCE(publisher,''),publication_year,COALESCE(source_url,''),COALESCE(rights_note,''),archived_at FROM editions WHERE work_id=$1 ORDER BY archived_at NULLS FIRST,created_at`, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +289,7 @@ func (s *Service) listEditions(ctx context.Context, userID, workID string) ([]Ed
 	items := []Edition{}
 	for rows.Next() {
 		var item Edition
-		if err := rows.Scan(&item.ID, &item.Name, &item.Editor, &item.Publisher, &item.PublicationYear, &item.SourceURL, &item.RightsNote); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Editor, &item.Publisher, &item.PublicationYear, &item.SourceURL, &item.RightsNote, &item.ArchivedAt); err != nil {
 			return nil, err
 		}
 		item.Assets, err = s.ListEditionAssets(ctx, userID, item.ID)
@@ -231,6 +335,80 @@ type EditionInput struct {
 	Publisher  string `json:"publisher"`
 	SourceURL  string `json:"sourceUrl"`
 	RightsNote string `json:"rightsNote"`
+	Archived   *bool  `json:"archived,omitempty"`
+}
+
+func (s *Service) UpdateEdition(ctx context.Context, userID, editionID string, input EditionInput) (Edition, error) {
+	if err := validateResourceID(editionID); err != nil {
+		return Edition{}, err
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return Edition{}, ValidationError{Fields: map[string]string{"name": "is required"}}
+	}
+	var edition Edition
+	err := s.Pool.QueryRow(ctx, `
+		UPDATE editions e SET name=btrim($3),editor=NULLIF(btrim($4),''),publisher=NULLIF(btrim($5),''),source_url=NULLIF(btrim($6),''),rights_note=NULLIF(btrim($7),''),archived_at=CASE WHEN $8::boolean IS NULL THEN archived_at WHEN $8 THEN COALESCE(archived_at,now()) ELSE NULL END,updated_at=now()
+		FROM learner_works lw WHERE lw.work_id=e.work_id AND lw.user_id=$1 AND e.created_by_user_id=$1 AND e.id=$2
+		RETURNING e.id::text,e.name,COALESCE(e.editor,''),COALESCE(e.publisher,''),e.publication_year,COALESCE(e.source_url,''),COALESCE(e.rights_note,''),e.archived_at`,
+		userID, editionID, input.Name, input.Editor, input.Publisher, input.SourceURL, input.RightsNote, input.Archived,
+	).Scan(&edition.ID, &edition.Name, &edition.Editor, &edition.Publisher, &edition.PublicationYear, &edition.SourceURL, &edition.RightsNote, &edition.ArchivedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Edition{}, ErrNotFound
+	}
+	if err != nil {
+		return Edition{}, err
+	}
+	edition.Assets, err = s.ListEditionAssets(ctx, userID, editionID)
+	return edition, err
+}
+
+func (s *Service) DeleteEdition(ctx context.Context, userID, editionID string) error {
+	if err := validateResourceID(editionID); err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
+	var owned, referenced bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM editions e JOIN learner_works lw ON lw.work_id=e.work_id WHERE e.id=$2 AND e.created_by_user_id=$1 AND lw.user_id=$1),
+		       EXISTS(SELECT 1 FROM practice_sessions ps JOIN score_assets a ON a.id=ps.score_asset_id WHERE a.edition_id=$2)`, userID, editionID).Scan(&owned, &referenced); err != nil {
+		return err
+	}
+	if !owned {
+		return ErrNotFound
+	}
+	if referenced {
+		return ErrEditionInUse
+	}
+	rows, err := tx.Query(ctx, `SELECT storage_key FROM score_assets WHERE edition_id=$1`, editionID)
+	if err != nil {
+		return err
+	}
+	keys := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return err
+		}
+		keys = append(keys, key)
+	}
+	rows.Close()
+	if _, err := tx.Exec(ctx, `DELETE FROM editions WHERE id=$1 AND created_by_user_id=$2`, editionID, userID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := s.Store.Delete(context.Background(), key); err != nil {
+			slog.Error("edition metadata deleted but storage cleanup failed", "edition_id", editionID, "storage_key", key, "error", err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) AddEdition(ctx context.Context, userID, workID string, input EditionInput) (Edition, error) {

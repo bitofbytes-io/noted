@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/bitofbytes-io/noted/internal/assets"
 	"github.com/google/uuid"
@@ -11,19 +12,31 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("not found")
-	ErrNotAuthorized = errors.New("not authorized")
-	ErrConflict      = errors.New("conflict")
-	ErrAssetInUse    = errors.New("asset is referenced by practice history")
+	ErrNotFound               = errors.New("not found")
+	ErrNotAuthorized          = errors.New("not authorized")
+	ErrConflict               = errors.New("conflict")
+	ErrAssetInUse             = errors.New("asset is referenced by practice history")
+	ErrWorkInUse              = errors.New("work is referenced by practice history")
+	ErrEditionInUse           = errors.New("edition contains an asset referenced by practice history")
+	ErrRecognitionUnavailable = errors.New("score recognition is unavailable")
 )
 
 type Service struct {
-	Pool  *pgxpool.Pool
-	Store assets.AssetStore
+	Pool               *pgxpool.Pool
+	Store              assets.AssetStore
+	Recognizer         Recognizer
+	recognitionSlots   chan struct{}
+	recognitionMu      sync.Mutex
+	recognitionCancels map[string]context.CancelFunc
 }
 
 func NewService(pool *pgxpool.Pool, store assets.AssetStore) *Service {
-	return &Service{Pool: pool, Store: store}
+	return &Service{Pool: pool, Store: store, recognitionSlots: make(chan struct{}, 1), recognitionCancels: map[string]context.CancelFunc{}}
+}
+
+func (s *Service) WithRecognizer(recognizer Recognizer) *Service {
+	s.Recognizer = recognizer
+	return s
 }
 
 func validateResourceID(value string) error {

@@ -26,7 +26,7 @@ export class PdfScoreAdapter {
 
   async load(url: string): Promise<number> {
     await this.dispose();
-    this.loadingTask = this.documentLoader({ url });
+    this.loadingTask = this.documentLoader({ url, wasmUrl: '/pdfjs/wasm/' });
     this.document = await this.loadingTask.promise;
     return this.document.numPages;
   }
@@ -37,6 +37,7 @@ export class PdfScoreAdapter {
     mode: PdfFitMode,
     availableWidth: number,
     availableHeight: number,
+    zoom = 1,
   ): Promise<void> {
     if (!this.document) throw new Error('PDF is not loaded');
     const request = ++this.renderRequest;
@@ -45,7 +46,8 @@ export class PdfScoreAdapter {
     const base = page.getViewport({ scale: 1 });
     const widthScale = Math.max(0.25, (availableWidth - 28) / base.width);
     const heightScale = Math.max(0.25, (availableHeight - 28) / base.height);
-    const scale = mode === 'width' ? widthScale : Math.min(widthScale, heightScale);
+    const fitScale = mode === 'width' ? widthScale : Math.min(widthScale, heightScale);
+    const scale = fitScale * Math.min(2, Math.max(0.75, zoom));
     const viewport = page.getViewport({ scale });
     const outputScale = window.devicePixelRatio || 1;
     await this.cancelRender();

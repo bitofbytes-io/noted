@@ -51,12 +51,17 @@ describe('PdfScoreAdapter rendering', () => {
       promise: Promise.resolve(pdfDocument),
       destroy: vi.fn(async () => undefined),
     } as unknown as PDFDocumentLoadingTask;
-    const adapter = new PdfScoreAdapter(() => loadingTask);
+    const loader = vi.fn(() => loadingTask);
+    const adapter = new PdfScoreAdapter(loader);
     const canvas = document.createElement('canvas');
     Object.defineProperty(canvas, 'getContext', {
       value: vi.fn(() => ({}) as CanvasRenderingContext2D),
     });
     await adapter.load('/api/assets/pdf/content');
+    expect(loader).toHaveBeenCalledWith({
+      url: '/api/assets/pdf/content',
+      wasmUrl: '/pdfjs/wasm/',
+    });
 
     const first = adapter.render(canvas, 1, 'width', 700, 900);
     await Promise.resolve();

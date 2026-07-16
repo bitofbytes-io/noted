@@ -40,6 +40,60 @@
     </div>
   </section>
 
+  <div class="button-row work-actions">
+    <button class="button secondary small" (click)="showWorkEdit = !showWorkEdit">Edit work</button>
+    <button class="button secondary small" (click)="archiveWork()">Archive work</button>
+    <button class="button danger small" (click)="deleteWork()">
+      {{ item.practiceSummary.sessionCount ? 'Archive instead of delete' : 'Delete work' }}
+    </button>
+  </div>
+  @if (showWorkEdit) {
+    <form class="card form-grid work-edit-form" (ngSubmit)="saveWork()">
+      <div class="field">
+        <label for="work-title">Title</label
+        ><input id="work-title" name="title" [(ngModel)]="workEditDraft.title" required />
+      </div>
+      <div class="field">
+        <label for="work-composer">Composer</label
+        ><input id="work-composer" name="composer" [(ngModel)]="workEditDraft.composer" required />
+      </div>
+      <div class="field full">
+        <label for="work-subtitle">Subtitle</label
+        ><input id="work-subtitle" name="subtitle" [(ngModel)]="workEditDraft.subtitle" />
+      </div>
+      <div class="field">
+        <label for="work-catalog">Catalog number</label
+        ><input id="work-catalog" name="catalog" [(ngModel)]="workEditDraft.catalogNumber" />
+      </div>
+      <div class="field">
+        <label for="work-key">Key</label
+        ><input id="work-key" name="key" [(ngModel)]="workEditDraft.keySignature" />
+      </div>
+      <div class="field">
+        <label for="work-period">Period</label
+        ><input id="work-period" name="period" [(ngModel)]="workEditDraft.period" />
+      </div>
+      <div class="field">
+        <label for="work-difficulty">Published difficulty</label
+        ><input
+          id="work-difficulty"
+          name="difficulty"
+          [(ngModel)]="workEditDraft.publishedDifficultyLabel"
+        />
+      </div>
+      <div class="field full">
+        <label for="work-notes">Catalog notes</label
+        ><textarea id="work-notes" name="notes" [(ngModel)]="workEditDraft.notes"></textarea>
+      </div>
+      <div class="button-row">
+        <button class="button" type="submit" [disabled]="saving()">Save work</button
+        ><button class="button secondary" type="button" (click)="showWorkEdit = false">
+          Cancel
+        </button>
+      </div>
+    </form>
+  }
+
   @if (timer.running()?.workId === item.id) {
     <section class="card stop-panel">
       <div>
@@ -117,14 +171,82 @@
         </form>
       }
       @for (edition of item.editions; track edition.id) {
-        <article class="card edition-card">
+        <article class="card edition-card" [class.archived]="edition.archivedAt">
           <header>
             <div>
               <h3>{{ edition.name }}</h3>
               <p>{{ edition.editor || edition.publisher || 'Personal edition' }}</p>
             </div>
-            <span>{{ edition.publicationYear || '' }}</span>
+            <div class="button-row">
+              @if (edition.archivedAt) {
+                <span class="status-chip">Archived</span>
+                <button class="button secondary small" (click)="setEditionArchived(edition, false)">
+                  Restore
+                </button>
+              } @else {
+                <button class="button secondary small" (click)="editEdition(edition)">Edit</button>
+                <button class="button secondary small" (click)="setEditionArchived(edition, true)">
+                  Archive
+                </button>
+              }
+              <button class="button danger small" (click)="deleteEdition(edition)">Delete</button>
+            </div>
           </header>
+          @if (editingEditionId === edition.id) {
+            <form class="form-grid inline-edit" (ngSubmit)="saveEdition(edition)">
+              <div class="field">
+                <label [for]="'edit-edition-name-' + edition.id">Name</label
+                ><input
+                  [id]="'edit-edition-name-' + edition.id"
+                  name="name"
+                  [(ngModel)]="editionEditDraft.name"
+                  required
+                />
+              </div>
+              <div class="field">
+                <label [for]="'edit-edition-editor-' + edition.id">Editor</label
+                ><input
+                  [id]="'edit-edition-editor-' + edition.id"
+                  name="editor"
+                  [(ngModel)]="editionEditDraft.editor"
+                />
+              </div>
+              <div class="field">
+                <label [for]="'edit-edition-publisher-' + edition.id">Publisher</label
+                ><input
+                  [id]="'edit-edition-publisher-' + edition.id"
+                  name="publisher"
+                  [(ngModel)]="editionEditDraft.publisher"
+                />
+              </div>
+              <div class="field">
+                <label [for]="'edit-edition-source-' + edition.id">Source URL</label
+                ><input
+                  [id]="'edit-edition-source-' + edition.id"
+                  name="sourceUrl"
+                  [(ngModel)]="editionEditDraft.sourceUrl"
+                />
+              </div>
+              <div class="field full">
+                <label [for]="'edit-edition-rights-' + edition.id">Rights note</label
+                ><input
+                  [id]="'edit-edition-rights-' + edition.id"
+                  name="rightsNote"
+                  [(ngModel)]="editionEditDraft.rightsNote"
+                />
+              </div>
+              <div class="button-row">
+                <button class="button small" type="submit">Save edition</button
+                ><button
+                  class="button secondary small"
+                  type="button"
+                  (click)="editingEditionId = ''"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          }
           <div class="provenance">
             <strong>Provenance</strong
             ><span>{{ edition.rightsNote || 'No edition rights note' }}</span>
@@ -135,34 +257,131 @@
           @if (edition.assets.length) {
             <div class="asset-list">
               @for (asset of edition.assets; track asset.id) {
-                <div class="asset-row">
+                <div class="asset-row" [class.archived]="asset.archivedAt">
                   <span class="asset-icon">{{ asset.assetType === 'pdf' ? 'PDF' : 'XML' }}</span>
                   <div>
-                    <strong>{{ asset.originalFilename }}</strong
+                    <strong>{{ asset.displayName || asset.originalFilename }}</strong
                     ><span
                       >{{ (asset.byteSize / 1024).toFixed(1) }} KB · SHA-256
                       {{ asset.sha256.slice(0, 10) }}…</span
                     ><small>{{ asset.rightsNote }}</small>
+                    @if (asset.verificationState === 'unverified_ocr') {
+                      <span class="ocr-warning">Unverified OCR · compare against the PDF</span>
+                    }
+                    @if (asset.archivedAt) {
+                      <span class="archived-label">Archived</span>
+                    }
                   </div>
-                  @if (asset.assetType === 'pdf') {
-                    <a
+                  <div class="asset-actions">
+                    @if (asset.assetType === 'pdf') {
+                      <a
+                        class="button secondary small"
+                        [routerLink]="['/reader', asset.id]"
+                        [queryParams]="{ workId: item.id }"
+                        >Read</a
+                      >
+                      @if (!asset.archivedAt) {
+                        <button
+                          class="button small"
+                          (click)="convertAsset(asset)"
+                          [disabled]="
+                            recognitionJobs()[asset.id]?.status === 'queued' ||
+                            recognitionJobs()[asset.id]?.status === 'processing'
+                          "
+                        >
+                          Convert
+                        </button>
+                      }
+                    } @else {
+                      <a
+                        class="button small"
+                        [routerLink]="['/player', asset.id]"
+                        [queryParams]="{
+                          workId: item.id,
+                          measures: item.movements[0]?.measureCount || 1,
+                        }"
+                        >Play</a
+                      >
+                    }
+                    <button class="button secondary small" (click)="editAsset(asset)">Edit</button>
+                    <label class="button secondary small replace-button"
+                      >Replace<input
+                        type="file"
+                        [accept]="
+                          asset.assetType === 'pdf' ? '.pdf,application/pdf' : '.musicxml,.xml,.mxl'
+                        "
+                        (change)="replaceAsset(asset, $event)"
+                    /></label>
+                    <button
                       class="button secondary small"
-                      [routerLink]="['/reader', asset.id]"
-                      [queryParams]="{ workId: item.id }"
-                      >Read</a
+                      (click)="setAssetArchived(asset, !asset.archivedAt)"
                     >
-                  } @else {
-                    <a
-                      class="button small"
-                      [routerLink]="['/player', asset.id]"
-                      [queryParams]="{
-                        workId: item.id,
-                        measures: item.movements[0]?.measureCount || 1,
-                      }"
-                      >Play</a
-                    >
-                  }
+                      {{ asset.archivedAt ? 'Restore' : 'Archive' }}
+                    </button>
+                    <button class="button danger small" (click)="deleteAsset(asset)">Delete</button>
+                  </div>
                 </div>
+                @if (editingAssetId === asset.id) {
+                  <form class="form-grid inline-edit asset-edit" (ngSubmit)="saveAsset(asset)">
+                    <div class="field">
+                      <label [for]="'asset-name-' + asset.id">Display name</label
+                      ><input
+                        [id]="'asset-name-' + asset.id"
+                        name="displayName"
+                        [(ngModel)]="assetEditDraft.displayName"
+                        required
+                      />
+                    </div>
+                    <div class="field">
+                      <label [for]="'asset-source-' + asset.id">Source URL</label
+                      ><input
+                        [id]="'asset-source-' + asset.id"
+                        name="sourceUrl"
+                        [(ngModel)]="assetEditDraft.sourceUrl"
+                      />
+                    </div>
+                    <div class="field full">
+                      <label [for]="'asset-rights-' + asset.id">Rights note</label
+                      ><input
+                        [id]="'asset-rights-' + asset.id"
+                        name="rightsNote"
+                        [(ngModel)]="assetEditDraft.rightsNote"
+                        required
+                      />
+                    </div>
+                    <div class="button-row">
+                      <button class="button small" type="submit">Save score</button
+                      ><button
+                        class="button secondary small"
+                        type="button"
+                        (click)="editingAssetId = ''"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                }
+                @if (recognitionJobs()[asset.id]; as job) {
+                  <div class="recognition-status" [class.failed]="job.status === 'failed'">
+                    <strong>Conversion {{ job.status }}</strong>
+                    <span>Audiveris {{ job.engineVersion }}</span>
+                    @if (job.failureMessage) {
+                      <span>{{ job.failureMessage }}</span>
+                    }
+                    @if (job.status === 'queued' || job.status === 'processing') {
+                      <button
+                        class="button secondary small"
+                        (click)="cancelRecognition(asset, job)"
+                      >
+                        Cancel
+                      </button>
+                    } @else if (job.status === 'failed' || job.status === 'cancelled') {
+                      <button class="button secondary small" (click)="retryRecognition(asset, job)">
+                        Retry
+                      </button>
+                    }
+                  </div>
+                }
               }
             </div>
           } @else {
