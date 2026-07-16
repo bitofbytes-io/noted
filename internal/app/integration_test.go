@@ -866,6 +866,45 @@ func TestIntegrationRecognitionRecoveryResumesInterruptedJob(t *testing.T) {
 	}
 }
 
+func TestIntegrationRecognitionRejectsArchivedEdition(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	archived := true
+	if _, err := service.UpdateEdition(context.Background(), fixture.UserID, fixture.EditionID, EditionInput{Name: "Integration edition", Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateRecognitionJob(context.Background(), fixture.UserID, fixture.AssetID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("archived edition recognition error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestIntegrationCancelledRecognitionDiscardsLateOutput(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	jobID := uuid.NewString()
+	assetID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO recognition_jobs(id,user_id,source_asset_id,status,finished_at) VALUES($1,$2,$3,'cancelled',now())`, jobID, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,rights_note,playback_capable,uploaded_by_user_id,derived_from_asset_id,verification_state)
+		VALUES($1,$2,'musicxml',$3,'late.musicxml','application/vnd.recordare.musicxml+xml',8,$4,'Generated OCR',true,$5,$6,'unverified_ocr')`, assetID, fixture.EditionID, "musicxml/"+uuid.NewString(), strings.Repeat("c", 64), fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var exists bool
+	if err := service.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM score_assets WHERE id=$1)`, assetID).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("late output asset survived recognition cancellation")
+	}
+}
+
 func TestIntegrationOwnerCanDiscardRunningPracticeTimer(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)

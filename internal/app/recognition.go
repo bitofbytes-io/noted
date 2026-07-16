@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"os"
 	"os/exec"
@@ -206,7 +207,7 @@ func (s *Service) CreateRecognitionJob(ctx context.Context, userID, sourceAssetI
 	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `
 		INSERT INTO recognition_jobs(user_id,source_asset_id)
 		SELECT $1,a.id FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
-		WHERE a.id=$2 AND a.uploaded_by_user_id=$1 AND lw.user_id=$1 AND a.asset_type='pdf' AND a.archived_at IS NULL AND a.byte_size<=$3
+		WHERE a.id=$2 AND a.uploaded_by_user_id=$1 AND lw.user_id=$1 AND a.asset_type='pdf' AND a.archived_at IS NULL AND e.archived_at IS NULL AND a.byte_size<=$3
 		RETURNING id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),created_at,started_at,finished_at,updated_at`, userID, sourceAssetID, maxRecognitionBytes), &job)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -385,7 +386,24 @@ func (s *Service) runRecognition(userID, jobID, sourceAssetID string) {
 		s.failRecognition(jobID, err)
 		return
 	}
-	_, _ = s.Pool.Exec(context.Background(), `UPDATE recognition_jobs SET status='succeeded',output_asset_id=$2,engine_version=$3,finished_at=now(),updated_at=now() WHERE id=$1 AND status='processing'`, jobID, asset.ID, converted.EngineVersion)
+	if err := s.finishRecognition(jobID, userID, asset.ID, converted.EngineVersion); err != nil {
+		slog.Error("finish score recognition", "job_id", jobID, "asset_id", asset.ID, "error", err)
+	}
+}
+
+func (s *Service) finishRecognition(jobID, userID, assetID, engineVersion string) error {
+	result, err := s.Pool.Exec(context.Background(), `UPDATE recognition_jobs SET status='succeeded',output_asset_id=$2,engine_version=$3,finished_at=now(),updated_at=now() WHERE id=$1 AND status='processing'`, jobID, assetID, engineVersion)
+	if err == nil && result.RowsAffected() == 1 {
+		return nil
+	}
+	cleanupErr := s.DeleteAsset(context.Background(), userID, assetID)
+	if err != nil {
+		return errors.Join(fmt.Errorf("record recognition output: %w", err), cleanupErr)
+	}
+	if cleanupErr != nil {
+		return fmt.Errorf("recognition was no longer active and output cleanup failed: %w", cleanupErr)
+	}
+	return nil
 }
 
 func (s *Service) failRecognition(jobID string, err error) {

@@ -280,7 +280,7 @@
                         [queryParams]="{ workId: item.id }"
                         >Read</a
                       >
-                      @if (!asset.archivedAt) {
+                      @if (!edition.archivedAt && !asset.archivedAt) {
                         <button
                           class="button small"
                           (click)="convertAsset(asset)"
