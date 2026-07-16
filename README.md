@@ -20,7 +20,16 @@ make setup
 make local
 ```
 
-`make setup` creates the gitignored asset directories, copies `.env.example` to `.env` when needed, and installs pinned dependencies. `make local` starts PostgreSQL, applies migrations, inserts the rights-safe sample only on the first initialization, builds the pinned Audiveris worker image, then runs the API and Angular development server together. Open <http://localhost:4200>. Stop the foreground command with Ctrl-C; PostgreSQL remains available so local data persists. Use `make db-down` when you want to stop it.
+`make setup` creates the gitignored asset directories, copies `.env.example` to `.env` when needed, and installs pinned dependencies. `make local` starts PostgreSQL, applies migrations, inserts the rights-safe sample only on the first initialization, then runs the API and Angular development server together. Open <http://localhost:4200>. Stop the foreground command with Ctrl-C; PostgreSQL remains available so local data persists. Use `make db-down` when you want to stop it.
+
+PDF-to-MusicXML conversion is an optional, heavyweight post-POC increment. To enable it locally, install the pinned Audiveris worker once before starting the app:
+
+```sh
+make omr-build
+make local
+```
+
+On Apple-silicon Macs this installs the native release under ignored `.local/tools`; elsewhere it builds the isolated container. The normal `make local` path deliberately does not download or distribute Audiveris.
 
 For separate terminals instead:
 

@@ -34,7 +34,7 @@ omr-build:
 web-start:
 	cd web && npm start
 
-local: db-up migrate seed omr-build
+local: db-up migrate seed
 	@set -eu; \
 		go run ./cmd/api & api_pid=$$!; \
 		trap 'kill "$$api_pid" 2>/dev/null || true' EXIT INT TERM; \
