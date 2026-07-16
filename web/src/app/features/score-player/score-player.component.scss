@@ -61,7 +61,7 @@
 .notation-viewport {
   height: 100%;
   overflow: auto;
-  padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+  padding: calc(68px + env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
     max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   touch-action: pan-x pan-y;
 }
