@@ -19,7 +19,9 @@ if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
     echo "Audiveris is not installed; run make omr-build" >&2
     exit 69
   fi
-  pages=$(pdfinfo "$input" | awk '/^Pages:/ { print $2 }')
+  pages=$(osascript -l JavaScript \
+    -e 'ObjC.import("PDFKit"); const args = ObjC.deepUnwrap($.NSProcessInfo.processInfo.arguments); const input = args[args.length - 1]; const doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(input)); doc ? Number(doc.pageCount) : ""' \
+    "$input")
 else
   pages=$(docker run --rm --platform linux/amd64 -v "$job_dir:/work" --entrypoint pdfinfo "$image" "/work/$input_name" | awk '/^Pages:/ { print $2 }')
 fi
