@@ -15,14 +15,60 @@
       <p class="eyebrow">Catalog</p>
       <h2 id="create-work-title">Create work and first edition</h2>
     </div>
-    <form class="form-grid" (ngSubmit)="createWork()">
-      <div class="field">
+    <form #createForm="ngForm" class="form-grid" (ngSubmit)="createWork(createForm)">
+      <div
+        class="field"
+        [class.has-error]="
+          (titleModel.invalid && (titleModel.touched || createForm.submitted)) ||
+          !!fieldError('title')
+        "
+      >
         <label for="title">Work title</label
-        ><input id="title" name="title" [(ngModel)]="draft.title" required />
+        ><input
+          #titleModel="ngModel"
+          id="title"
+          name="title"
+          [(ngModel)]="draft.title"
+          (ngModelChange)="clearFieldError('title')"
+          required
+          [attr.aria-invalid]="
+            (titleModel.invalid && (titleModel.touched || createForm.submitted)) ||
+            !!fieldError('title')
+          "
+          aria-describedby="title-error"
+        />
+        @if (fieldError('title') || (titleModel.invalid && titleModel.touched)) {
+          <span id="title-error" class="field-error">{{
+            fieldError('title') || 'is required'
+          }}</span>
+        }
       </div>
-      <div class="field">
+      <div
+        class="field"
+        [class.has-error]="
+          (composerModel.invalid && (composerModel.touched || createForm.submitted)) ||
+          !!fieldError('composer')
+        "
+      >
         <label for="composer">Composer</label
-        ><input id="composer" name="composer" [(ngModel)]="draft.composer" required />
+        ><input
+          #composerModel="ngModel"
+          id="composer"
+          name="composer"
+          [(ngModel)]="draft.composer"
+          (ngModelChange)="clearFieldError('composer')"
+          required
+          [attr.aria-invalid]="
+            (composerModel.invalid && (composerModel.touched || createForm.submitted)) ||
+            !!fieldError('composer')
+          "
+          aria-describedby="composer-error"
+        />
+        @if (fieldError('composer') || (composerModel.invalid && composerModel.touched)) {
+          <span id="composer-error" class="field-error">{{
+            fieldError('composer') || 'is required'
+          }}</span>
+        }
       </div>
       <div class="field">
         <label for="catalog">Catalog number</label
@@ -35,9 +81,32 @@
         <label for="period">Period</label
         ><input id="period" name="period" [(ngModel)]="draft.period" />
       </div>
-      <div class="field">
+      <div
+        class="field"
+        [class.has-error]="
+          (editionModel.invalid && (editionModel.touched || createForm.submitted)) ||
+          !!fieldError('editionName')
+        "
+      >
         <label for="edition">Edition name</label
-        ><input id="edition" name="edition" [(ngModel)]="draft.editionName" required />
+        ><input
+          #editionModel="ngModel"
+          id="edition"
+          name="edition"
+          [(ngModel)]="draft.editionName"
+          (ngModelChange)="clearFieldError('editionName')"
+          required
+          [attr.aria-invalid]="
+            (editionModel.invalid && (editionModel.touched || createForm.submitted)) ||
+            !!fieldError('editionName')
+          "
+          aria-describedby="edition-error"
+        />
+        @if (fieldError('editionName') || (editionModel.invalid && editionModel.touched)) {
+          <span id="edition-error" class="field-error">{{
+            fieldError('editionName') || 'is required'
+          }}</span>
+        }
       </div>
       <div class="field">
         <label for="source">Source URL</label

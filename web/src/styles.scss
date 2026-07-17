@@ -203,6 +203,16 @@ a {
   min-height: 90px;
   resize: vertical;
 }
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.1);
+}
+.field-error {
+  color: var(--danger);
+  font-size: 12px;
+}
 .form-grid {
   display: grid;
   gap: 16px;
