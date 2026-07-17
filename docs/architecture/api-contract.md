@@ -17,8 +17,10 @@ Last updated: 2026-07-13
 
 - `GET /api/health` — process liveness.
 - `GET /api/ready` — PostgreSQL and asset-storage readiness.
-- `GET /api/session` — current user and authentication mode.
-- Google OAuth routes are added before production deployment.
+- `GET /api/session` — authentication state, optional current user, authentication mode, and runtime capabilities.
+- `GET /api/auth/google` — begin Google OAuth with a one-time server-stored state value.
+- `GET /api/auth/google/callback` — exchange the Google code, enforce verified allow-listed email, and create the production session.
+- `DELETE /api/session` — revoke the current opaque session and clear its secure cookie.
 
 ## Dashboard
 

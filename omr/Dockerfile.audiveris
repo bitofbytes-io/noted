@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+
+# Local-development compatibility image for scripts/run-audiveris-docker.sh.
+# The production HTTP worker is built from omr/Dockerfile instead.
+FROM ubuntu:22.04
+
+ARG AUDIVERIS_VERSION=5.10.2
+ARG AUDIVERIS_DEB=Audiveris-5.10.2-ubuntu22.04-x86_64.deb
+ARG AUDIVERIS_SHA256=9470d15e79dd4fe45f817b8545ba9f8e57ddaebff3b3a1031f21218647602068
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl poppler-utils xdg-utils \
+    && curl -fsSL -o /tmp/audiveris.deb "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/${AUDIVERIS_DEB}" \
+    && echo "${AUDIVERIS_SHA256}  /tmp/audiveris.deb" | sha256sum -c - \
+    && ln -sf /bin/true /usr/bin/xdg-desktop-menu \
+    && ln -sf /bin/true /usr/bin/xdg-mime \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/audiveris.deb \
+    && rm -rf /var/lib/apt/lists/* /tmp/audiveris.deb
+
+ENV JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+
+ENTRYPOINT ["/opt/audiveris/bin/Audiveris"]
+

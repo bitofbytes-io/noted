@@ -1,0 +1,179 @@
+name: Build, push, and trigger Crystal deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    name: Verify API and UI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install UI dependencies
+        run: npm ci
+        working-directory: web
+      - name: Run checks
+        run: make lint test
+
+  build-and-trigger:
+    name: Publish images and trigger deployment
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    concurrency:
+      group: noted-crystal-deploy
+      cancel-in-progress: false
+    environment:
+      name: crystal1
+    env:
+      IMAGE_REG: ${{ vars.IMAGE_REG }}
+      IMAGE_REPO: ${{ vars.IMAGE_REPO }}
+      API_IMAGE_REPO: ${{ format('{0}-api', vars.IMAGE_REPO) }}
+      UI_IMAGE_REPO: ${{ format('{0}-ui', vars.IMAGE_REPO) }}
+      MANAGER_HOST: ${{ vars.MANAGER_HOST }}
+      MANAGER_REPO_PATH: ${{ vars.MANAGER_REPO_PATH }}
+      DEPLOY_REQUEST_REF: refs/deploy/requests/${{ github.run_id }}-${{ github.run_attempt }}
+      PLATFORMS: linux/arm64/v8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Derive image tag
+        id: meta
+        run: echo "tag=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${IMAGE_REG:?Missing crystal1 variable IMAGE_REG}"
+          : "${IMAGE_REPO:?Missing repository variable IMAGE_REPO}"
+          : "${MANAGER_HOST:?Missing crystal1 variable MANAGER_HOST}"
+          : "${MANAGER_REPO_PATH:?Missing crystal1 variable MANAGER_REPO_PATH}"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ vars.TS_AUDIENCE }}
+          tags: tag:ci
+          ping: ${{ env.MANAGER_HOST }}
+
+      - name: Verify registry Tailscale route
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry_endpoint="${IMAGE_REG%%/*}"
+          registry_host="${registry_endpoint%%:*}"
+          registry_ip="$(getent ahostsv4 "${registry_host}" | awk '{print $1; exit}')"
+          if [[ -z "${registry_ip}" ]]; then
+            echo "Unable to resolve registry host over Tailscale" >&2
+            exit 1
+          fi
+          if [[ ! "${registry_ip}" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "Registry did not resolve to a Tailscale address" >&2
+            exit 1
+          fi
+          status="$(curl -sS -o /dev/null -w '%{http_code}' "https://${registry_endpoint}/v2/")"
+          if [[ "${status}" != "200" && "${status}" != "401" ]]; then
+            echo "Registry returned HTTP ${status}" >&2
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
+
+      - name: Log in to registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.IMAGE_REG }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push API and UI images
+        env:
+          REGISTRY: ${{ env.IMAGE_REG }}
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.tag }}
+          REVISION: ${{ github.sha }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: make docker-buildx
+
+      - name: Install deployment SSH material
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.LOCAL_REPO_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.LOCAL_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${DEPLOY_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Push main to Crystal deployment repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add crystal "ssh://git@${MANAGER_HOST}/${MANAGER_REPO_PATH}"
+          if git ls-remote --exit-code crystal refs/heads/main >/dev/null 2>&1; then
+            git fetch --no-tags crystal \
+              refs/heads/main:refs/remotes/crystal/main
+            if ! git merge-base --is-ancestor refs/remotes/crystal/main HEAD; then
+              echo "Crystal main is newer than this workflow revision; refusing a stale deployment" >&2
+              exit 1
+            fi
+          fi
+          git push --atomic crystal \
+            HEAD:refs/heads/main \
+            "HEAD:${DEPLOY_REQUEST_REF}"
+
+      - name: Verify Crystal deployed this revision
+        shell: bash
+        env:
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force crystal \
+            refs/deploy/status:refs/remotes/crystal/deploy-status
+          git show refs/remotes/crystal/deploy-status:status.json > "${RUNNER_TEMP}/noted-deploy-status.json"
+          jq -e --arg revision "${EXPECTED_REVISION}" '
+            . as $status |
+            $status.schema == 1 and
+            $status.state == "succeeded" and
+            $status.revision == $revision and
+            (["proxy_noted-api", "proxy_noted-ui"] | all(
+              . as $service |
+              $status.services[$service].revision == $revision and
+              $status.services[$service].desired > 0 and
+              $status.services[$service].running == $status.services[$service].desired
+            ))
+          ' "${RUNNER_TEMP}/noted-deploy-status.json"
+
+      - name: Remove deployment request ref
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: git push crystal ":${DEPLOY_REQUEST_REF}"
