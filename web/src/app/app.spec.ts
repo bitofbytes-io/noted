@@ -5,6 +5,7 @@ import { of } from 'rxjs';
 import { App } from './app';
 import { ApiService } from './core/api.service';
 import { Session } from './core/models';
+import { SessionExpiryEvents } from './core/session-expiry.interceptor';
 
 @Component({ template: '' })
 class RouteFixtureComponent {}
@@ -74,6 +75,20 @@ describe('App navigation', () => {
     expect(labels).toEqual(['Home', 'Library', 'Metronome', 'Practice', 'Settings']);
     expect(fixture.nativeElement.textContent).toContain('Local learner');
     expect(fixture.nativeElement.textContent).toContain('DEV');
+  });
+
+  it('returns to the Google sign-in gate when the session expires', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.bottom-nav')).not.toBeNull();
+
+    TestBed.inject(SessionExpiryEvents).notify();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('a[href="/api/auth/google"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.bottom-nav')).toBeNull();
   });
 
   it('hides the global shell only on an immersive route and restores it on exit', async () => {
