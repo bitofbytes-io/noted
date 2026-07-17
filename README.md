@@ -2,7 +2,7 @@
 
 Noted is a locally runnable proof of concept for a personal piano library and practice desk. It keeps works, editions, PDF/MusicXML assets, measure-aware synthesized playback, and explicit practice history together in an Angular, Go, and PostgreSQL application.
 
-The POC uses one clearly identified development learner. Every learner-owned query is still scoped by user ID, and the API refuses to run development authentication outside development/test configuration. Production OAuth and deployment are intentionally not implemented.
+Local development uses one clearly identified learner. Every learner-owned query is still scoped by user ID, and the API refuses to run development authentication outside development/test configuration. Production uses Google OAuth, an explicit email allowlist, opaque database-backed sessions, external secret files, and the API/UI container workflow. Crystal Swarm, Traefik, NAS PostgreSQL/NFS, and NAS-worker operations are maintained in the companion `home_swarm` repository.
 
 ## Run locally
 
@@ -95,8 +95,9 @@ The [verification record](docs/implementation/verification.md) maps requirements
 - A Web Audio-clock metronome whose audible beat, beat dots, accent pattern, and pendulum share one scheduler.
 - A durable one-at-a-time practice timer with confirmed discard recovery, complete manual entries/corrections, deletion, and Monday-first summaries.
 - Responsive cobalt/white interface exercised at a 1024×1366 portrait viewport.
+- Production Google OAuth, database-backed sessions, `_FILE` secrets, API/UI containers, and commit-tagged deployment workflows for the Crystal Swarm.
 
-Built-in notation correction remains later work. Annotations, lessons, sharing, offline support, performance assessment, production OAuth, NAS/NFS provisioning, and deployment also remain deferred.
+Built-in notation correction remains later work. Annotations, lessons, sharing, offline support, and performance assessment also remain deferred. Production infrastructure provisioning and operations live in `home_swarm`; promotion of the private Audiveris worker remains subject to the quality and AGPL acceptance gate in [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md).
 
 ## Design and architecture
 
@@ -107,4 +108,4 @@ Built-in notation correction remains later work. Annotations, lessons, sharing, 
 - [Visual direction](docs/design/visual-direction.md)
 - [Implementation handoff](docs/implementation/handoff.md)
 - [Audiveris OCR decision](docs/decisions/0002-audiveris-ocr-pipeline.md)
-- [Deployment architecture (future)](docs/architecture/deployment.md)
+- [Production deployment architecture](docs/architecture/deployment.md)
