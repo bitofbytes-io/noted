@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API, migrations, and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Run API tests and migration round trip
+        run: |
+          make db-up migrate seed
+          make test-api test-migrations
+      - name: Run API lint
+        run: |
+          test -z "$(gofmt -l cmd internal migrations)"
+          go vet ./...
+
+  ui:
+    name: UI tests, lint, and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: web
+      - name: Run unit tests
+        run: npm test -- --watch=false
+        working-directory: web
+      - name: Run lint
+        run: npm run lint
+        working-directory: web
+      - name: Build production UI
+        run: npm run build
+        working-directory: web
+
+  e2e:
+    name: Browser end-to-end tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install UI dependencies
+        run: npm ci
+        working-directory: web
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: web
+      - name: Run browser suite
+        run: make test-e2e
+
+  containers:
+    name: Production container builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Build API and UI images
+        run: make docker-build
+

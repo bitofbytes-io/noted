@@ -58,20 +58,22 @@
     </section>
     <section class="card settings-section">
       <p class="eyebrow">Account</p>
-      <h2>Development learner</h2>
-      @if (session(); as current) {
+      <h2>{{ session()?.development ? 'Development learner' : 'Google account' }}</h2>
+      @if (session()?.user; as user) {
         <div class="identity">
-          <span>{{ current.user.displayName.slice(0, 1) }}</span>
+          <span>{{ user.displayName.slice(0, 1) }}</span>
           <div>
-            <strong>{{ current.user.displayName }}</strong
-            ><small>{{ current.user.email }}</small>
+            <strong>{{ user.displayName }}</strong
+            ><small>{{ user.email }}</small>
           </div>
-          <b>Development</b>
+          <b>{{ session()?.development ? 'Development' : 'Google' }}</b>
         </div>
-        <div class="notice">
-          Requests still resolve and scope this learner server-side. Development auth is rejected
-          outside development configuration.
-        </div>
+        @if (session()?.development) {
+          <div class="notice">
+            Requests still resolve and scope this learner server-side. Development auth is rejected
+            outside development configuration.
+          </div>
+        }
       }
     </section>
     <section class="card settings-section about">

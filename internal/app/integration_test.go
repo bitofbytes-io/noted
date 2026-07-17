@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,13 @@ func (fixtureRecognizer) Recognize(_ context.Context, _ string, outputDirectory 
 		return RecognitionOutput{}, err
 	}
 	return RecognitionOutput{Path: path, EngineVersion: "test"}, nil
+}
+
+type countingFixtureRecognizer struct{ calls *atomic.Int32 }
+
+func (r countingFixtureRecognizer) Recognize(ctx context.Context, inputPath, outputDirectory string) (RecognitionOutput, error) {
+	r.calls.Add(1)
+	return (fixtureRecognizer{}).Recognize(ctx, inputPath, outputDirectory)
 }
 
 type integrationFixture struct {
@@ -912,7 +920,9 @@ func TestIntegrationRecognitionRecoveryResumesInterruptedJob(t *testing.T) {
 		VALUES($1,$2,$3,'processing',now())`, jobID, fixture.UserID, fixture.AssetID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.RecoverRecognitionJobs(ctx); err != nil {
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	defer stopWorker()
+	if err := service.RecoverRecognitionJobs(workerCtx); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -934,6 +944,84 @@ func TestIntegrationRecognitionRecoveryResumesInterruptedJob(t *testing.T) {
 			t.Fatalf("recognition recovery did not complete: %+v", job)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestIntegrationRecognitionLeaseAllowsOnlyOneReplicaToRunJob(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	pdf, err := os.Open("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.Store.Put(ctx, fixture.StorageKey, pdf)
+	_ = pdf.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Pool.Exec(ctx, `UPDATE score_assets SET byte_size=$2,sha256=$3 WHERE id=$1`, fixture.AssetID, stored.Size, stored.Checksum); err != nil {
+		t.Fatal(err)
+	}
+	jobID := uuid.NewString()
+	if _, err := service.Pool.Exec(ctx, `INSERT INTO recognition_jobs(id,user_id,source_asset_id) VALUES($1,$2,$3)`, jobID, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	calls := &atomic.Int32{}
+	service.WithRecognizer(countingFixtureRecognizer{calls: calls})
+	otherReplica := NewService(service.Pool, service.Store).WithRecognizer(countingFixtureRecognizer{calls: calls})
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	defer stopWorkers()
+	if err := service.RecoverRecognitionJobs(workerCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := otherReplica.RecoverRecognitionJobs(workerCtx); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		job, err := service.GetRecognitionJob(ctx, fixture.UserID, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Status == "succeeded" {
+			break
+		}
+		if job.Status == "failed" || time.Now().After(deadline) {
+			t.Fatalf("leased recognition job = %+v", job)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("recognizer calls = %d, want exactly one", calls.Load())
+	}
+}
+
+func TestIntegrationRecognitionRecoveryPreservesAnotherReplicasActiveLease(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	service.WithRecognizer(fixtureRecognizer{})
+	jobID := uuid.NewString()
+	if _, err := service.Pool.Exec(context.Background(), `
+		INSERT INTO recognition_jobs(id,user_id,source_asset_id,status,started_at,lease_owner,lease_expires_at,attempt_count)
+		VALUES($1,$2,$3,'processing',now(),'other-api-replica',now()+interval '5 minutes',1)`,
+		jobID, fixture.UserID, fixture.AssetID); err != nil {
+		t.Fatal(err)
+	}
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	if err := service.RecoverRecognitionJobs(workerCtx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	var status, leaseOwner string
+	var attempts int
+	if err := service.Pool.QueryRow(context.Background(), `SELECT status,lease_owner,attempt_count FROM recognition_jobs WHERE id=$1`, jobID).Scan(&status, &leaseOwner, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "processing" || leaseOwner != "other-api-replica" || attempts != 1 {
+		t.Fatalf("active lease changed: status=%s owner=%s attempts=%d", status, leaseOwner, attempts)
 	}
 }
 
@@ -964,7 +1052,7 @@ func TestIntegrationCancelledRecognitionDiscardsLateOutput(t *testing.T) {
 		VALUES($1,$2,'musicxml',$3,'late.musicxml','application/vnd.recordare.musicxml+xml',8,$4,'Generated OCR',true,$5,$6,'unverified_ocr')`, assetID, fixture.EditionID, "musicxml/"+uuid.NewString(), strings.Repeat("c", 64), fixture.UserID, fixture.AssetID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test"); err != nil {
+	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test", service.recognitionWorkerID); err != nil {
 		t.Fatal(err)
 	}
 	var exists bool

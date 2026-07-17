@@ -201,8 +201,12 @@ Initial configuration categories:
 - `AUTH_GOOGLE_CLIENT_SECRET` / `_FILE`
 - `AUTH_GOOGLE_REDIRECT_URL`
 - `AUTH_GOOGLE_ALLOWED_EMAILS`
+- `SESSION_TTL` (defaults to `12h`)
 - `FRONTEND_URL`
 - `ALLOWED_ORIGINS`
+- `AUDIVERIS_COMMAND` for the optional local command runner
+- `OMR_BASE_URL`
+- `OMR_TOKEN` / `OMR_TOKEN_FILE`
 
 Secrets may be read through `_FILE` variants in production. Local values belong in an ignored local configuration file.
 

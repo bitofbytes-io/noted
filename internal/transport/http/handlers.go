@@ -35,10 +35,6 @@ func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
-func (h *Handler) session(w http.ResponseWriter, r *http.Request) {
-	h.writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "authMode": h.Config.AuthMode, "development": true})
-}
-
 func parseWeek(value string) (time.Time, error) {
 	if value == "" {
 		return time.Now().UTC(), nil

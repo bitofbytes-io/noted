@@ -13,6 +13,7 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/bitofbytes-io/noted/internal/auth"
 	"github.com/bitofbytes-io/noted/internal/config"
 	httptransport "github.com/bitofbytes-io/noted/internal/transport/http"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,9 +25,6 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
-	}
-	if cfg.AuthMode != "development" {
-		log.Fatal("production authentication is not implemented in the POC; refusing to start without a real session provider")
 	}
 	level := slog.LevelInfo
 	if cfg.LogLevel == "debug" {
@@ -47,9 +45,19 @@ func main() {
 		os.Exit(1)
 	}
 	service := app.NewService(pool, store)
-	if cfg.AudiverisCommand != "" {
+	authService := auth.NewService(pool, cfg.AllowedEmails, cfg.SessionTTL)
+	switch {
+	case cfg.OMRBaseURL != "":
+		service.WithRecognizer(app.HTTPRecognizer{BaseURL: cfg.OMRBaseURL, Token: cfg.OMRToken})
+	case cfg.AudiverisCommand != "":
 		service.WithRecognizer(app.CommandRecognizer{Command: cfg.AudiverisCommand, Version: "5.10.2"})
-		if err := service.RecoverRecognitionJobs(ctx); err != nil {
+	}
+	stopRecognitionWorker := func() {}
+	if service.Recognizer != nil {
+		workerCtx, stopWorker := context.WithCancel(ctx)
+		stopRecognitionWorker = stopWorker
+		defer stopRecognitionWorker()
+		if err := service.RecoverRecognitionJobs(workerCtx); err != nil {
 			logger.Error("recover score recognition jobs", "error", err)
 			os.Exit(1)
 		}
@@ -57,7 +65,9 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httptransport.NewRouter(service, cfg, logger),
+		Handler:           httptransport.NewRouter(service, authService, cfg, logger),
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -72,6 +82,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	stopRecognitionWorker()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {

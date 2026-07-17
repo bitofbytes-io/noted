@@ -10,6 +10,7 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	assetstore "github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/bitofbytes-io/noted/internal/auth"
 	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,19 +20,23 @@ type userContextKey struct{}
 
 type Handler struct {
 	Service *app.Service
+	Auth    *auth.Service
 	Config  config.Config
 	Logger  *slog.Logger
 }
 
-func NewRouter(service *app.Service, cfg config.Config, logger *slog.Logger) http.Handler {
-	h := &Handler{Service: service, Config: cfg, Logger: logger}
+func NewRouter(service *app.Service, authService *auth.Service, cfg config.Config, logger *slog.Logger) http.Handler {
+	h := &Handler{Service: service, Auth: authService, Config: cfg, Logger: logger}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, h.requestLog, h.cors)
 	r.Get("/api/health", h.health)
 	r.Get("/api/ready", h.ready)
+	r.Get("/api/auth/google", h.startGoogleLogin)
+	r.Get("/api/auth/google/callback", h.googleCallback)
+	r.Get("/api/session", h.session)
+	r.Delete("/api/session", h.logout)
 	r.Group(func(r chi.Router) {
-		r.Use(h.developmentUser)
-		r.Get("/api/session", h.session)
+		r.Use(h.authenticatedUser)
 		r.Get("/api/dashboard", h.dashboard)
 		r.Get("/api/works", h.listWorks)
 		r.Post("/api/works", h.createWork)
@@ -84,6 +89,7 @@ func (h *Handler) cors(next http.Handler) http.Handler {
 		for _, allowed := range h.Config.AllowedOrigins {
 			if origin == allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 				w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
@@ -98,13 +104,30 @@ func (h *Handler) cors(next http.Handler) http.Handler {
 	})
 }
 
-func (h *Handler) developmentUser(next http.Handler) http.Handler {
+func (h *Handler) authenticatedUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.Config.AppEnv != "development" && h.Config.AppEnv != "test" {
-			h.writeError(w, http.StatusUnauthorized, "not_authenticated", "a production session is required", nil)
+		var user app.User
+		var err error
+		switch h.Config.AuthMode {
+		case "development":
+			user, err = h.Service.CurrentUser(r.Context(), h.Config.DevUserEmail)
+		case "google":
+			cookie, cookieErr := r.Cookie(auth.SessionCookieName)
+			if cookieErr != nil {
+				h.writeError(w, http.StatusUnauthorized, "not_authenticated", "sign in to continue", nil)
+				return
+			}
+			user, err = h.Auth.ResolveSession(r.Context(), cookie.Value)
+		default:
+			err = auth.ErrNotAuthenticated
+		}
+		if errors.Is(err, auth.ErrNotAuthenticated) || errors.Is(err, app.ErrNotFound) {
+			if h.Config.AuthMode == "google" {
+				h.clearSessionCookie(w)
+			}
+			h.writeError(w, http.StatusUnauthorized, "not_authenticated", "sign in to continue", nil)
 			return
 		}
-		user, err := h.Service.CurrentUser(r.Context(), h.Config.DevUserEmail)
 		if err != nil {
 			h.handleError(w, err)
 			return

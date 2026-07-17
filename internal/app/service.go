@@ -22,16 +22,25 @@ var (
 )
 
 type Service struct {
-	Pool               *pgxpool.Pool
-	Store              assets.AssetStore
-	Recognizer         Recognizer
-	recognitionSlots   chan struct{}
-	recognitionMu      sync.Mutex
-	recognitionCancels map[string]context.CancelFunc
+	Pool                *pgxpool.Pool
+	Store               assets.AssetStore
+	Recognizer          Recognizer
+	recognitionWorkerID string
+	recognitionSlots    chan struct{}
+	recognitionWorker   sync.Once
+	recognitionMu       sync.Mutex
+	recognitionContext  context.Context
+	recognitionCancels  map[string]context.CancelFunc
 }
 
 func NewService(pool *pgxpool.Pool, store assets.AssetStore) *Service {
-	return &Service{Pool: pool, Store: store, recognitionSlots: make(chan struct{}, 1), recognitionCancels: map[string]context.CancelFunc{}}
+	return &Service{
+		Pool:                pool,
+		Store:               store,
+		recognitionWorkerID: uuid.NewString(),
+		recognitionSlots:    make(chan struct{}, 1),
+		recognitionCancels:  map[string]context.CancelFunc{},
+	}
 }
 
 func (s *Service) WithRecognizer(recognizer Recognizer) *Service {

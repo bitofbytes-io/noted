@@ -29,9 +29,11 @@ export interface User {
 }
 
 export interface Session {
-  user: User;
+  authenticated: boolean;
+  user?: User;
   authMode: string;
   development: boolean;
+  capabilities: { recognition: boolean };
 }
 
 export interface Asset {

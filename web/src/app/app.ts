@@ -21,7 +21,9 @@ import { Session } from './core/models';
 })
 export class App implements OnInit {
   protected readonly session = signal<Session | null>(null);
+  protected readonly loadingSession = signal(true);
   protected readonly apiOffline = signal(false);
+  protected readonly signingOut = signal(false);
   protected readonly immersive = signal(false);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -42,7 +44,30 @@ export class App implements OnInit {
       this.session.set(await firstValueFrom(this.api.session()));
     } catch {
       this.apiOffline.set(true);
+    } finally {
+      this.loadingSession.set(false);
     }
+  }
+
+  async logout(): Promise<void> {
+    this.signingOut.set(true);
+    try {
+      await firstValueFrom(this.api.logout());
+      this.session.set({
+        authenticated: false,
+        authMode: 'google',
+        development: false,
+        capabilities: { recognition: false },
+      });
+    } catch {
+      this.apiOffline.set(true);
+    } finally {
+      this.signingOut.set(false);
+    }
+  }
+
+  reload(): void {
+    window.location.reload();
   }
 
   private updateRouteMode(): void {

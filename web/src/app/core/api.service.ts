@@ -26,6 +26,10 @@ export class ApiService {
     return this.http.get<Session>('/api/session');
   }
 
+  logout(): Observable<void> {
+    return this.http.delete<void>('/api/session');
+  }
+
   dashboard(week?: string): Observable<Dashboard> {
     return this.http.get<Dashboard>('/api/dashboard', {
       params: week ? { week } : {},

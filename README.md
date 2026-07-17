@@ -51,8 +51,13 @@ Copy-safe defaults live in `.env.example`. Important values are:
 - `ASSET_ROOT`: filesystem storage root, default `.local/noted-assets`.
 - `MAX_UPLOAD_BYTES`: maximum accepted PDF or MusicXML size, default 25 MiB.
 - `AUTH_MODE=development` and `DEV_USER_EMAIL`: local identity only.
+- `AUTH_MODE=google`: production Google OAuth using `AUTH_GOOGLE_CLIENT_ID`,
+  `AUTH_GOOGLE_CLIENT_SECRET`, `AUTH_GOOGLE_REDIRECT_URL`, and
+  `AUTH_GOOGLE_ALLOWED_EMAILS`; secret values also support the documented `_FILE` form.
+- `SESSION_TTL`: opaque database-backed production session lifetime, default `12h`.
 - `ALLOWED_ORIGINS`: allowed browser origins for the API.
 - `AUDIVERIS_COMMAND`: optional conversion runner. It is empty by default so recognition is inactive in the normal POC runtime. Set it to `scripts/run-audiveris-docker.sh` after `make omr-build` to enable the explicitly requested local OCR increment.
+- `OMR_BASE_URL`: private base URL for the production HTTP worker. Configure it together with `OMR_TOKEN` or `OMR_TOKEN_FILE`; it is mutually exclusive with `AUDIVERIS_COMMAND`.
 
 Local catalog data, practice history, asset metadata, and recognition jobs live in the persistent
 PostgreSQL Docker volume. Uploaded and generated score binaries live under `.local/noted-assets`.

@@ -4,12 +4,29 @@ import { provideRouter, Router } from '@angular/router';
 import { of } from 'rxjs';
 import { App } from './app';
 import { ApiService } from './core/api.service';
+import { Session } from './core/models';
 
 @Component({ template: '' })
 class RouteFixtureComponent {}
 
 describe('App navigation', () => {
+  let sessionResponse: Session;
+
   beforeEach(async () => {
+    sessionResponse = {
+      authenticated: true,
+      authMode: 'development',
+      development: true,
+      capabilities: { recognition: false },
+      user: {
+        id: 'u1',
+        email: 'learner@noted.local',
+        displayName: 'Local learner',
+        weekStartsOn: 1,
+        metronomeBpm: 96,
+        metronomeAccent: true,
+      },
+    };
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
@@ -20,23 +37,29 @@ describe('App navigation', () => {
         {
           provide: ApiService,
           useValue: {
-            session: () =>
-              of({
-                authMode: 'development',
-                development: true,
-                user: {
-                  id: 'u1',
-                  email: 'learner@noted.local',
-                  displayName: 'Local learner',
-                  weekStartsOn: 1,
-                  metronomeBpm: 96,
-                  metronomeAccent: true,
-                },
-              }),
+            session: () => of(sessionResponse),
+            logout: () => of(undefined),
           },
         },
       ],
     }).compileComponents();
+  });
+
+  it('shows Google sign-in without instantiating the application shell', async () => {
+    sessionResponse = {
+      authenticated: false,
+      authMode: 'google',
+      development: false,
+      capabilities: { recognition: true },
+    };
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const link = fixture.nativeElement.querySelector('a[href="/api/auth/google"]');
+    expect(link).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.bottom-nav')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Continue with Google');
   });
 
   it('renders all five required primary destinations', async () => {
