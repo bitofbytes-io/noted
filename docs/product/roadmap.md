@@ -1,7 +1,7 @@
 # Noted: Provisional Product Roadmap
 
-Status: Product sequence selected; scope details remain provisional
-Last updated: 2026-07-13
+Status: Product sequence selected; OCR follow-up in active development
+Last updated: 2026-07-18
 
 ## Phase 1: Store and Play
 
@@ -17,11 +17,18 @@ Supporting capabilities include Google sign-in, learner-private libraries, work 
 
 The local POC is a subset of this phase and is defined separately in `poc-requirements.md`.
 
-### Phase 1 follow-up: OCR-assisted upload
+### Phase 1 follow-up: OCR-assisted upload (active development)
 
-Add an asynchronous, resource-limited [Audiveris](https://github.com/Audiveris/audiveris) worker so a learner can request printed PDF/image recognition and receive a derived MusicXML asset. Preserve the original, link every derived result to its source and engine version, and label playback as `Unverified OCR`.
+The repository now implements an asynchronous, resource-limited dual-engine worker so a learner can request recognition of an eligible printed PDF and receive a derived MusicXML asset. Audiveris 5.10.2 and homr 0.7.0 run against shared 300-DPI preprocessing, music21 10.3.0 repairs each surviving result, measure-level fusion records source/agreement/confidence, and alphaTab 1.8.4 gates final playability. The original is preserved, every result is linked to its source/job/engine provenance, and playback remains labeled `Unverified OCR` with corrected/suspect counts and per-measure review signals.
 
-This increment uses batch recognition only. It does not build correction tools into Noted. Retaining the Audiveris `.omr` artifact keeps later Audiveris/external-editor correction possible, while handwritten-score recognition remains out of scope. Complete the representative-score quality spike and AGPL-3.0 compliance review before implementation.
+This increment uses batch recognition and automatic conservative repair only. It does not build a notation editor into Noted. Retaining the private Audiveris `.omr` artifact keeps later Audiveris/external-editor correction possible, while image-source uploads and handwritten-score recognition remain out of scope for the current route.
+
+Implementation is not the production release gate. The committed rights-safe corpus now has recorded
+Audiveris-only, homr/repaired, and fused results: playability and aggregate event accuracy improve,
+with a disclosed dense-polyphony fidelity tradeoff. Before promotion, add rights-cleared
+representative real scans, NAS-native resource/failure behavior from the pinned image, and owner
+acceptance of AGPL, model-weight provenance/redistribution, notices, corresponding-source,
+private-network, backup, and operations obligations.
 
 ## Phase 2: Tracking, Lessons, and Progress
 

@@ -1,6 +1,7 @@
 import {
   AfterViewInit,
   Component,
+  computed,
   ElementRef,
   HostListener,
   inject,
@@ -12,7 +13,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { Asset } from '../../core/models';
+import { Asset, RecognitionMeasureConfidence, RecognitionReport } from '../../core/models';
 import { PracticeTimerService } from '../../core/practice-timer.service';
 import { NotationPlaybackAdapter, validateMeasureRange } from './notation-playback.adapter';
 
@@ -39,6 +40,11 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   protected readonly playing = signal(false);
   protected readonly error = signal('');
   protected readonly validationMessage = signal('');
+  protected readonly qualityMessage = signal('');
+  protected readonly recognitionReport = signal<RecognitionReport | null>(null);
+  protected readonly reviewMessage = computed(() =>
+    [this.qualityMessage(), this.validationMessage()].filter(Boolean).join(' '),
+  );
   protected readonly validationBlocked = signal(false);
   protected readonly validationNoticeVisible = signal(false);
   protected readonly workId = this.route.snapshot.queryParamMap.get('workId') ?? '';
@@ -113,6 +119,8 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     this.loading.set(true);
     this.error.set('');
     this.validationMessage.set('');
+    this.qualityMessage.set('');
+    this.recognitionReport.set(null);
     this.validationBlocked.set(false);
     this.validationNoticeVisible.set(false);
     this.scoreReady.set(false);
@@ -126,6 +134,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
           'This score has no structured playback representation. Open its PDF instead.',
         );
       }
+      void this.loadRecognitionQuality(asset);
       const validation = asset.playbackValidation;
       if (
         !validation ||
@@ -258,6 +267,29 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     return Array.from({ length: this.measureCount }, (_, index) => index + 1);
   }
 
+  protected measureConfidence(number: number): RecognitionMeasureConfidence | null {
+    const confidences =
+      this.recognitionReport()
+        ?.measures.filter((measure) => measure.measureIndex === number)
+        .map((measure) => measure.confidence) ?? [];
+    if (confidences.includes('low')) return 'low';
+    if (confidences.includes('medium')) return 'medium';
+    if (confidences.includes('high')) return 'high';
+    return null;
+  }
+
+  protected measureConfidenceTitle(number: number): string | null {
+    const confidence = this.measureConfidence(number);
+    if (confidence !== 'medium' && confidence !== 'low') return null;
+    return `${this.capitalize(confidence)} confidence OCR in measure ${number}; review against the PDF`;
+  }
+
+  protected measureAriaLabel(number: number): string {
+    const confidence = this.measureConfidence(number);
+    if (confidence !== 'medium' && confidence !== 'low') return `Measure ${number}`;
+    return `Measure ${number}, ${confidence} confidence OCR, review recommended`;
+  }
+
   async startPractice(): Promise<void> {
     if (!this.workId) return;
     try {
@@ -293,6 +325,37 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
         return `${issue.message}${measures}`;
       })
       .join(' ');
+  }
+
+  private async loadRecognitionQuality(asset: Asset): Promise<void> {
+    if (asset.verificationState !== 'unverified_ocr') return;
+
+    let report: RecognitionReport | undefined;
+    if (asset.derivedFromAssetId) {
+      try {
+        const jobs = (await firstValueFrom(this.api.recognitionJobs(asset.derivedFromAssetId)))
+          .items;
+        report = jobs.find((job) => job.outputAssetId === asset.id)?.report;
+      } catch {
+        // Quality metadata must never prevent a valid score from loading or playing.
+      }
+    }
+
+    if (report) {
+      this.recognitionReport.set(report);
+      this.qualityMessage.set(
+        `Unverified OCR — ${report.correctedMeasures} of ${report.totalMeasures} measures auto-corrected, ${report.suspectMeasures} still suspect.`,
+      );
+    } else {
+      this.qualityMessage.set(
+        'Unverified OCR — quality report unavailable; compare against the PDF.',
+      );
+    }
+    this.validationNoticeVisible.set(true);
+  }
+
+  private capitalize(value: string): string {
+    return value.charAt(0).toUpperCase() + value.slice(1);
   }
 
   private scheduleControlsHide(): void {

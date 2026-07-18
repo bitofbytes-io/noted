@@ -22,14 +22,14 @@ make local
 
 `make setup` creates the gitignored asset directories, copies `.env.example` to `.env` when needed, and installs pinned dependencies. `make local` starts PostgreSQL, applies migrations, inserts the rights-safe sample only on the first initialization, then runs the API and Angular development server together. Open <http://localhost:4200>. Stop the foreground command with Ctrl-C; PostgreSQL remains available so local data persists. Use `make db-down` when you want to stop it.
 
-PDF-to-MusicXML conversion is an optional, heavyweight service. To enable it locally, install the pinned Audiveris worker once before starting the app:
+PDF-to-MusicXML conversion is an optional, heavyweight service. The lightweight local command path remains an Audiveris-only compatibility path. To enable it, install the pinned Audiveris release once before starting the app:
 
 ```sh
 make omr-build
 AUDIVERIS_COMMAND=scripts/run-audiveris-docker.sh make local
 ```
 
-On Apple-silicon Macs this installs the native release under ignored `.local/tools`; elsewhere it builds the isolated container. The normal `make local` path deliberately does not download or distribute Audiveris.
+On Apple-silicon Macs this installs the native release under ignored `.local/tools`; elsewhere it builds the isolated Audiveris container. This path does not run homr, fusion, or the worker's alphaTab gate and does not produce a dual-engine quality report. The production-oriented private HTTP worker image contains the full pinned Audiveris + homr + music21 + alphaTab pipeline and is built separately with `make docker-build-omr`. The normal `make local` path deliberately downloads none of those heavyweight dependencies.
 
 For separate terminals instead:
 
@@ -57,8 +57,8 @@ Copy-safe defaults live in `.env.example`. Important values are:
   `AUTH_GOOGLE_ALLOWED_EMAILS`; secret values also support the documented `_FILE` form.
 - `SESSION_TTL`: opaque database-backed production session lifetime, default `12h`.
 - `ALLOWED_ORIGINS`: allowed browser origins for the API.
-- `AUDIVERIS_COMMAND`: optional conversion runner. It is empty by default so recognition is inactive in the standard local runtime. Set it to `scripts/run-audiveris-docker.sh` after `make omr-build` to enable local OCR.
-- `OMR_BASE_URL`: private base URL for the production HTTP worker. Configure it together with `OMR_TOKEN` or `OMR_TOKEN_FILE`; it is mutually exclusive with `AUDIVERIS_COMMAND`.
+- `AUDIVERIS_COMMAND`: optional Audiveris-only local conversion runner. It is empty by default so recognition is inactive in the standard local runtime. Set it to `scripts/run-audiveris-docker.sh` after `make omr-build`.
+- `OMR_BASE_URL`: private base URL for the full HTTP OMR worker. Configure it together with exactly one of `OMR_TOKEN` or `OMR_TOKEN_FILE`; it is mutually exclusive with `AUDIVERIS_COMMAND`. Never expose the worker through Traefik or to the browser.
 
 Local catalog data, practice history, asset metadata, and recognition jobs live in the persistent
 PostgreSQL Docker volume. Uploaded and generated score binaries live under `.local/noted-assets`.
@@ -66,7 +66,7 @@ Neither is in memory. Backups must include a PostgreSQL dump and the asset direc
 full local reset requires removing both the Compose volume and `.local/noted-assets` while the app
 is stopped.
 
-`.env`, PostgreSQL volume data, browser state, generated output, and `.local/` assets are ignored. The committed PDF and MusicXML under `testdata/fixtures/` are original project fixtures dedicated to CC0-1.0; see [testdata/README.md](testdata/README.md).
+`.env`, PostgreSQL volume data, browser state, generated output, and `.local/` assets are ignored. The committed PDF and MusicXML under `testdata/fixtures/` and the synthetic clean/noisy/dense/multi-page OMR corpus under `testdata/omr/` are original project fixtures dedicated to CC0-1.0; see [testdata/README.md](testdata/README.md).
 
 ## Verify
 
@@ -76,6 +76,7 @@ make lint       # gofmt, go vet, Prettier check, and TypeScript check
 make build      # Go and production Angular builds
 make test-e2e   # isolated core flows in desktop Chrome and iPad-sized WebKit
 make test-ui-container-mime # built-image worker MIME check for PDF.js and alphaTab
+python3 -m unittest discover -s scripts/omr-eval/tests -v # OMR metric/harness tests
 ```
 
 `make test-e2e` creates a dedicated temporary PostgreSQL database and asset root, then removes
@@ -88,18 +89,20 @@ Playwright installs its browser engines separately. If this machine has not run 
 
 The [verification record](docs/implementation/verification.md) maps requirements to implementation/tests and records the exact final checks. The [browser score ADR](docs/decisions/0001-browser-score-rendering-and-playback.md) explains the PDF.js/alphaTab decision and browser constraints.
 
+The OMR harness writes ignored JSON/Markdown results beneath `.local/omr-eval/`. A reference self-check (`python3 scripts/omr-eval/evaluate.py --include-reference-baseline`) validates the harness and alphaTab check only. The [recorded four-fixture benchmark](docs/implementation/omr-benchmark.md) compares Audiveris-only, homr-only, repaired, and fused outputs and finds an overall playability/event improvement with a documented dense-polyphony fidelity tradeoff. [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md) defines the remaining production gates.
+
 ## Capabilities
 
 - Home dashboard, Library search/filtering, work/edition/asset edit/replace/archive/delete management, Metronome, Practice, and Settings.
 - Authenticated PDF/MusicXML upload, download, and streaming through opaque filesystem keys with content validation, checksums, provenance, and cleanup.
 - Immersive PDF.js reading and alphaTab MusicXML playback with score zoom, a beat cursor, both-staff note highlighting, synthesized playback, BPM control, validated measure ranges, and looping.
-- Explicit PDF-to-MusicXML conversion through a pinned Audiveris 5.10.2 worker. Results remain separate assets and pass through a rhythmic playback-quality gate; blocked output stays downloadable for correction.
+- Explicit PDF-to-MusicXML conversion through a private worker pinned to Audiveris 5.10.2, homr 0.7.0, music21 10.3.0, and alphaTab 1.8.4. Shared preprocessing, per-engine repair, measure-level fusion/fallback, strict quality reports, and the final playability gate keep results separate and `Unverified OCR`; `unplayable_output` fails the job without importing a broken derived asset.
 - A Web Audio-clock metronome with one-to-four-beat meters, three synthesized click profiles, and a shared scheduler for audio, beat dots, accent, and pendulum.
 - A durable one-at-a-time practice timer with confirmed discard recovery, complete manual entries/corrections, deletion, and Monday-first summaries.
 - Responsive cobalt/white interface exercised at a 1024×1366 portrait viewport.
 - Production Google OAuth, database-backed sessions, `_FILE` secrets, API/UI containers, and commit-tagged deployment workflows for the Crystal Swarm.
 
-Built-in notation correction is not included. Annotations, lessons, sharing, offline support, and performance assessment are also deferred. Production infrastructure provisioning and operations live in `home_swarm`; promotion of the private Audiveris worker remains subject to the quality and AGPL acceptance gate in [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md).
+An interactive notation-correction editor is not included; the worker does perform conservative automatic repair and always leaves the result unverified. Annotations, lessons, sharing, offline support, and performance assessment are also deferred. Production infrastructure provisioning and operations live in `home_swarm`; promotion of the private OMR worker remains subject to representative real-score and NAS-resource evidence plus owner acceptance of the AGPL, model-weight, notice, corresponding-source, private-network, and operational obligations in [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md).
 
 ## Design and architecture
 
@@ -109,5 +112,6 @@ Built-in notation correction is not included. Annotations, lessons, sharing, off
 - [API contract](docs/architecture/api-contract.md)
 - [Visual direction](docs/design/visual-direction.md)
 - [Implementation handoff](docs/implementation/handoff.md)
-- [Audiveris OCR decision](docs/decisions/0002-audiveris-ocr-pipeline.md)
+- [OMR benchmark record](docs/implementation/omr-benchmark.md)
+- [Dual-engine OMR decision](docs/decisions/0002-audiveris-ocr-pipeline.md)
 - [Production deployment architecture](docs/architecture/deployment.md)

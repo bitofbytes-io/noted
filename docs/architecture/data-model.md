@@ -1,7 +1,7 @@
 # Noted: POC Data Model
 
-Status: Logical model for implementation planning
-Last updated: 2026-07-13
+Status: Implemented logical model with active post-POC extensions
+Last updated: 2026-07-18
 
 ## Modeling principles
 
@@ -174,49 +174,67 @@ composer 1 ── * work 1 ── * movement
 - Physical books, holdings, and book contents.
 - Lessons, assignments, and practice targets.
 - Annotation layers and strokes.
-- Recognition jobs and corrected notation versions.
 - External source import jobs.
 
 Do not add empty speculative tables solely for these later concepts. Add them through migrations when their requirements become active.
 
-## Post-POC recognition model
+## Active post-POC recognition model
 
-The Audiveris increment activates recognition lineage without changing the meaning of an original score asset.
+The dual-engine OMR increment activates recognition lineage without changing the meaning of an original score asset. These fields/tables are current migrations, not reserved placeholders.
 
-### Future score_assets extensions
+### Current score_assets extensions
 
-- `asset_type` additionally permits validated source images (`png`, `jpeg`, `tiff`) when the OCR increment begins
 - `derived_from_asset_id` (nullable self-reference; required for OCR output)
-- `derivation_type` (nullable; `omr` initially)
-- `verification_state` (`original`, `unverified_ocr`, `accepted`, `corrected`)
-- `recognition_job_id` (nullable)
+- `verification_state` (`original`, `unverified_ocr`, `verified`, `corrected`)
+- `playback_validation_status` (`not_checked`, `ready`, `needs_review`, `blocked`)
+- `playback_validation_issues` (bounded JSON array of stable rhythmic/format warnings)
 
-The original and generated MusicXML are separate immutable binary objects. Re-running OCR creates a new result/version rather than silently replacing an existing asset. `accepted` records a learner decision to use a result; it is not a claim of note-perfect recognition.
+The implemented recognition route currently accepts eligible PDF assets; image-source asset types remain future work. The original and generated MusicXML are separate immutable binary objects. Re-running OCR creates a new result/version rather than silently replacing an existing asset. `unverified_ocr` remains distinct from playback validation: passing the alphaTab gate means the result can be loaded and timed, not that its notes match the PDF.
 
 ### recognition_jobs
 
 - `id`
 - `user_id`
 - `source_asset_id`
-- `status` (`queued`, `running`, `succeeded`, `failed`, `canceled`)
-- `engine` (`audiveris` initially)
-- `engine_version`
-- `configuration` (bounded JSON or normalized fields)
+- `status` (`queued`, `processing`, `succeeded`, `failed`, `cancelled`)
+- `engine` (`audiveris+homr` for the dual-engine worker; legacy local jobs may be `audiveris`)
+- `engine_version` (queued rows default to `audiveris-5.10.2+homr-0.7.0`; a successful remote job records worker pipeline contract version `1`; per-engine pins remain in the report/image)
 - `output_asset_id` (nullable until success)
 - `project_storage_key` (optional private `.omr` artifact)
-- `attempt_number`
-- `error_code`, `error_message` (sanitized; nullable)
-- `queued_at`, `started_at`, `finished_at`
+- `lease_owner`, `lease_expires_at`, `attempt_count`
+- `failure_code`, `failure_message` (sanitized; nullable)
+- `flagged_measures`, `corrected_measures` (nullable denormalized report summaries)
+- `quality_report` (nullable validated JSONB; required from the dual-engine worker on success)
+- `started_at`, `finished_at`
 - `created_at`, `updated_at`
+
+### Quality report schema v1
+
+The report is a bounded (maximum 1 MiB), strict JSON object. Unknown fields, invalid counts/confidence values, empty engine summaries, missing measures, or a playability result other than `passed` are rejected before persistence.
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | Integer `1`. |
+| `totalMeasures` | Master measure count, from 1 through 10,000. |
+| `flaggedMeasures` | Unique measure indexes with repair/fusion issues. |
+| `correctedMeasures` | Flagged indexes changed by repair or valid-engine substitution; cannot exceed `flaggedMeasures`. |
+| `suspectMeasures` | Unique indexes with non-high confidence or issues. |
+| `selectedEngine` | `fusion`, `audiveris`, or `homr` for the current producer. |
+| `engines` | Per-engine object keyed by `audiveris`/`homr`, including version, status, measure/flag/correction/suspect counts, and bounded sanitized error/warning text when present. |
+| `measures[]` | One row per part/measure with `partId`, source XML `number`, 1-based `measureIndex`, `sourceEngine`, `agreement`, `confidence` (`high`, `medium`, `low`), `corrected`, and stable `issues[]`. |
+| `playability` | `{status: "passed", measureCount, totalTicks}` from alphaTab 1.8.4; `measureCount` must equal `totalMeasures`. |
+
+Confidence is heuristic review guidance. High means both aligned engine measures agree and pass duration checks; medium covers a valid substitution, valid disagreement, or a valid backbone with an invalid alternate; low covers a single-engine result, missing alignment, or both invalid. It is not a probability or correctness guarantee.
 
 Validation and ownership rules:
 
-- The source must be an eligible PDF/image asset visible to the requesting learner.
+- The source must be an eligible PDF asset uploaded by and visible to the requesting learner.
 - Source, derived asset, recognition job, edition, and user scope must remain consistent.
-- Only one active job per source/user/configuration fingerprint should run at once; retries create auditable attempts.
+- Only one queued/processing job per source/user may run at once; retries create new auditable rows after a terminal job.
 - Deleting a derived result does not delete the original. Original deletion must account for or cascade derived/job artifacts deliberately.
 - Worker logs and `.omr` projects are private operational artifacts with explicit retention limits. Projects are available only through a learner-scoped authenticated download route.
-- If Audiveris emits compressed `.mxl`, the importer must enforce archive entry/count/expanded-size limits and reject paths or unexpected content. The initial implementation may instead configure Audiveris for plain MusicXML output.
+- Compressed `.mxl` and `.omr` inputs are untrusted archives. Importers enforce entry/count/expanded-size limits and reject unsafe paths or unexpected content; the dual-engine pipeline returns plain MusicXML.
+- A failed or cancelled job has no imported output asset or persisted quality report. `unplayable_output` is retained as a stable `failure_code` from the private worker.
 
 ## Dashboard query expectations
 

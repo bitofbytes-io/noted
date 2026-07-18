@@ -20,11 +20,17 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/bitofbytes-io/noted/internal/omrreport"
 )
 
 const (
-	EngineName    = "audiveris"
-	EngineVersion = "5.10.2"
+	EngineName       = "audiveris+homr"
+	EngineVersion    = "audiveris-5.10.2+homr-0.7.0+music21-10.3.0+alphatab-1.8.4"
+	AudiverisVersion = "5.10.2"
+	HomrVersion      = "0.7.0"
+	Music21Version   = "10.3.0"
+	AlphaTabVersion  = "1.8.4"
 
 	DefaultMaxPages       = 25
 	DefaultMaxOutputBytes = int64(25 << 20)
@@ -39,6 +45,7 @@ type Result struct {
 	ContentType string
 	Extension   string
 	ProjectPath string
+	Report      *omrreport.Report
 }
 
 type Recognizer interface {
@@ -47,11 +54,25 @@ type Recognizer interface {
 }
 
 type CommandRecognizer struct {
-	Command        string
-	PDFInfoCommand string
-	Version        string
-	MaxPages       int
-	MaxOutputBytes int64
+	Command            string
+	PDFInfoCommand     string
+	PDFToPPMCommand    string
+	HomrCommand        string
+	PythonCommand      string
+	NodeCommand        string
+	SHA256Command      string
+	PreprocessScript   string
+	RepairScript       string
+	FuseScript         string
+	AlphaTabGateScript string
+	ModelManifest      string
+	Version            string
+	HomrVersion        string
+	Music21Version     string
+	AlphaTabVersion    string
+	DPI                int
+	MaxPages           int
+	MaxOutputBytes     int64
 
 	readyMu      sync.Mutex
 	readyVersion string
@@ -59,11 +80,25 @@ type CommandRecognizer struct {
 
 func NewCommandRecognizer() *CommandRecognizer {
 	return &CommandRecognizer{
-		Command:        "/opt/audiveris/bin/Audiveris",
-		PDFInfoCommand: "pdfinfo",
-		Version:        EngineVersion,
-		MaxPages:       DefaultMaxPages,
-		MaxOutputBytes: DefaultMaxOutputBytes,
+		Command:            "/opt/audiveris/bin/Audiveris",
+		PDFInfoCommand:     "pdfinfo",
+		PDFToPPMCommand:    "pdftoppm",
+		HomrCommand:        "/opt/noted-omr/venv/bin/homr",
+		PythonCommand:      "/opt/noted-omr/venv/bin/python",
+		NodeCommand:        "/usr/local/bin/node",
+		SHA256Command:      "sha256sum",
+		PreprocessScript:   "/opt/noted-omr/pipeline/preprocess.py",
+		RepairScript:       "/opt/noted-omr/pipeline/repair.py",
+		FuseScript:         "/opt/noted-omr/pipeline/fuse.py",
+		AlphaTabGateScript: "/opt/noted-omr/pipeline/alphatab-gate.mjs",
+		ModelManifest:      "/opt/noted-omr/homr-models.sha256",
+		Version:            AudiverisVersion,
+		HomrVersion:        HomrVersion,
+		Music21Version:     Music21Version,
+		AlphaTabVersion:    AlphaTabVersion,
+		DPI:                300,
+		MaxPages:           DefaultMaxPages,
+		MaxOutputBytes:     DefaultMaxOutputBytes,
 	}
 }
 
@@ -86,11 +121,25 @@ func (r *CommandRecognizer) Ready(ctx context.Context) (string, error) {
 	if !strings.Contains(string(output), r.Version) {
 		return "", workerError("worker_version_mismatch", "Audiveris version does not match the pinned worker version", nil)
 	}
+	if r.pipelineEnabled() {
+		if err := r.readyPipeline(ctx); err != nil {
+			return "", err
+		}
+		r.readyVersion = EngineVersion
+		return r.readyVersion, nil
+	}
 	r.readyVersion = r.Version
 	return r.readyVersion, nil
 }
 
 func (r *CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDirectory string) (Result, error) {
+	if r.pipelineEnabled() {
+		return r.recognizePipeline(ctx, inputPath, outputDirectory)
+	}
+	return r.recognizeAudiverisOnly(ctx, inputPath, outputDirectory)
+}
+
+func (r *CommandRecognizer) recognizeAudiverisOnly(ctx context.Context, inputPath, outputDirectory string) (Result, error) {
 	pages, err := r.pageCount(ctx, inputPath)
 	if err != nil {
 		return Result{}, err

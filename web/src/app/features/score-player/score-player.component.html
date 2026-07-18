@@ -39,7 +39,7 @@
       </div>
     </div>
   }
-  @if (validationNoticeVisible() && validationMessage() && !error()) {
+  @if (validationNoticeVisible() && reviewMessage() && !error()) {
     <div class="player-validation" [class.blocked]="validationBlocked()" role="status">
       <button
         type="button"
@@ -52,7 +52,7 @@
         ×
       </button>
       <strong>{{ validationBlocked() ? 'Score needs correction' : 'Review recommended' }}</strong>
-      <span>{{ validationMessage() }}</span>
+      <span>{{ reviewMessage() }}</span>
       @if (asset(); as scoreAsset) {
         <a [href]="scoreAsset.downloadUrl">Download MusicXML</a>
       }
@@ -68,6 +68,10 @@
       @for (number of measureNumbers(); track number) {
         <button
           [class.in-range]="number >= rangeStart && number <= rangeEnd"
+          [class.confidence-medium]="measureConfidence(number) === 'medium'"
+          [class.confidence-low]="measureConfidence(number) === 'low'"
+          [attr.title]="measureConfidenceTitle(number)"
+          [attr.aria-label]="measureAriaLabel(number)"
           (click)="selectMeasure(number)"
         >
           {{ number }}

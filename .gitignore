@@ -21,6 +21,8 @@ web/dist/
 web/.angular/
 web/test-results/
 web/playwright-report/
+__pycache__/
+*.py[cod]
 
 # Editor and OS files
 .DS_Store

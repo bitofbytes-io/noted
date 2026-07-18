@@ -52,6 +52,24 @@ jobs:
         run: npm run build
         working-directory: web
 
+  omr-evaluation:
+    name: OMR corpus and evaluator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install alphaTab dependency
+        run: npm ci
+        working-directory: web
+      - name: Verify corpus, metrics, and alphaTab evaluator
+        run: python3 -m unittest discover -s scripts/omr-eval/tests -v
+
   e2e:
     name: Browser end-to-end tests
     runs-on: ubuntu-latest
@@ -83,5 +101,5 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Build API and UI images
-        run: make docker-build
+      - name: Build API, UI, and OMR images
+        run: make docker-build docker-build-omr

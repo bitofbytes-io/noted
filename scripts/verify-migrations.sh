@@ -2,6 +2,17 @@
 set -eu
 
 go run ./cmd/migrate
+quality_columns=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='recognition_jobs' AND column_name IN ('failure_code','flagged_measures','corrected_measures','quality_report')")
+if [ "$quality_columns" -ne 4 ]; then
+	echo "migration 000009 did not add the recognition quality columns" >&2
+	exit 1
+fi
+go run ./cmd/migrate down
+quality_columns=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='recognition_jobs' AND column_name IN ('failure_code','flagged_measures','corrected_measures','quality_report')")
+if [ "$quality_columns" -ne 0 ]; then
+	echo "migration 000009 rollback left recognition quality columns behind" >&2
+	exit 1
+fi
 go run ./cmd/migrate down
 
 # A rollback from the validation-aware application must leave MusicXML playable
@@ -27,6 +38,7 @@ if [ "$warning_playback" != "true:needs_review" ]; then
 	echo "migration 000008 did not restore warning-only MusicXML playability" >&2
 	exit 1
 fi
+go run ./cmd/migrate down
 go run ./cmd/migrate down
 go run ./cmd/migrate down
 go run ./cmd/migrate down

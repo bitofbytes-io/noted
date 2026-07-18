@@ -216,7 +216,7 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 	response.Header().Set("X-Noted-OMR-Engine", EngineName)
 	response.Header().Set("X-Noted-OMR-Version", EngineVersion)
 	response.Header().Set("Cache-Control", "no-store")
-	if result.ProjectPath == "" {
+	if result.ProjectPath == "" && result.Report == nil {
 		response.Header().Set("Content-Type", result.ContentType)
 		response.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="recognized%s"`, result.Extension))
 		response.Header().Set("Content-Length", strconv.FormatInt(scoreInfo.Size(), 10))
@@ -227,12 +227,21 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	project, err := os.Open(result.ProjectPath)
-	if err != nil {
-		h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition project could not be opened")
-		return
+	var project *os.File
+	if result.ProjectPath != "" {
+		project, err = os.Open(result.ProjectPath)
+		if err != nil {
+			h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition project could not be opened")
+			return
+		}
+		defer project.Close()
 	}
-	defer project.Close()
+	if result.Report != nil {
+		if err := result.Report.Validate(); err != nil {
+			h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition quality report is invalid")
+			return
+		}
+	}
 	writer := multipart.NewWriter(response)
 	response.Header().Set("Content-Type", "multipart/mixed; boundary="+writer.Boundary())
 	response.WriteHeader(http.StatusOK)
@@ -240,13 +249,33 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 		h.logger.Warn("stream OCR score output", "error", err)
 		return
 	}
-	if err := writeArtifactPart(writer, project, "project", "recognized.omr", "application/octet-stream"); err != nil {
-		h.logger.Warn("stream OCR project output", "error", err)
-		return
+	if project != nil {
+		if err := writeArtifactPart(writer, project, "project", "recognized.omr", "application/octet-stream"); err != nil {
+			h.logger.Warn("stream OCR project output", "error", err)
+			return
+		}
+	}
+	if result.Report != nil {
+		if err := writeJSONArtifactPart(writer, result.Report, "report", "quality-report.json"); err != nil {
+			h.logger.Warn("stream OCR quality report", "error", err)
+			return
+		}
 	}
 	if err := writer.Close(); err != nil {
 		h.logger.Warn("finish OCR multipart output", "error", err)
 	}
+}
+
+func writeJSONArtifactPart(writer *multipart.Writer, value any, artifact, filename string) error {
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`attachment; name="%s"; filename="%s"`, artifact, filename))
+	header.Set("Content-Type", "application/json")
+	header.Set("X-Noted-Artifact", artifact)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(part).Encode(value)
 }
 
 func writeArtifactPart(writer *multipart.Writer, reader io.Reader, artifact, filename, contentType string) error {
@@ -351,7 +380,7 @@ func (h *Handler) writeWorkerError(response http.ResponseWriter, err error) {
 	code := codeForError(err, "internal_error")
 	status := http.StatusInternalServerError
 	switch code {
-	case "invalid_request", "invalid_pdf":
+	case "invalid_request", "invalid_pdf", "unplayable_output":
 		status = http.StatusUnprocessableEntity
 	case "input_too_large":
 		status = http.StatusRequestEntityTooLarge

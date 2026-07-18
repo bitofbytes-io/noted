@@ -30,6 +30,7 @@ export class WorkDetailsComponent implements OnInit {
   protected readonly success = signal('');
   protected readonly statuses = learnerStatuses;
   protected readonly recognitionJobs = signal<Record<string, RecognitionJob>>({});
+  protected readonly recognitionJobsByOutputAssetId = signal<Record<string, RecognitionJob>>({});
   protected showWorkEdit = false;
   protected workEditDraft = {
     title: '',
@@ -124,19 +125,37 @@ export class WorkDetailsComponent implements OnInit {
     const pdfs = work.editions
       .flatMap((edition) => edition.assets)
       .filter((asset) => asset.assetType === 'pdf');
-    const entries = await Promise.all(
+    const histories = await Promise.all(
       pdfs.map(async (asset) => {
         try {
           const jobs = (await firstValueFrom(this.api.recognitionJobs(asset.id))).items;
-          return [asset.id, jobs[0]] as const;
+          return { sourceAssetId: asset.id, jobs };
         } catch {
-          return [asset.id, undefined] as const;
+          return { sourceAssetId: asset.id, jobs: [] };
         }
       }),
     );
     this.recognitionJobs.set(
       Object.fromEntries(
-        entries.filter((entry): entry is readonly [string, RecognitionJob] => Boolean(entry[1])),
+        histories
+          .filter(
+            (
+              history,
+            ): history is { sourceAssetId: string; jobs: [RecognitionJob, ...RecognitionJob[]] } =>
+              history.jobs.length > 0,
+          )
+          .map((history) => [history.sourceAssetId, history.jobs[0]]),
+      ),
+    );
+    this.recognitionJobsByOutputAssetId.set(
+      Object.fromEntries(
+        histories
+          .flatMap((history) => history.jobs)
+          .filter(
+            (job): job is RecognitionJob & { outputAssetId: string } =>
+              job.status === 'succeeded' && Boolean(job.outputAssetId),
+          )
+          .map((job) => [job.outputAssetId, job]),
       ),
     );
   }
@@ -442,10 +461,14 @@ export class WorkDetailsComponent implements OnInit {
   }
 
   protected recognitionProjectUrl(outputAssetId: string): string {
-    return (
-      Object.values(this.recognitionJobs()).find((job) => job.outputAssetId === outputAssetId)
-        ?.projectDownloadUrl ?? ''
-    );
+    return this.recognitionJobsByOutputAssetId()[outputAssetId]?.projectDownloadUrl ?? '';
+  }
+
+  protected recognitionQualitySummary(asset: Asset): string {
+    if (asset.verificationState !== 'unverified_ocr') return '';
+    const report = this.recognitionJobsByOutputAssetId()[asset.id]?.report;
+    if (!report) return 'Unverified OCR · compare against the PDF';
+    return `Unverified OCR — ${report.correctedMeasures} of ${report.totalMeasures} measures auto-corrected, ${report.suspectMeasures} still suspect`;
   }
 
   chooseFile(event: Event): void {

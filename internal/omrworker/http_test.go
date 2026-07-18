@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bitofbytes-io/noted/internal/omrreport"
 )
 
 const testToken = "test-token-with-enough-entropy"
@@ -55,6 +57,9 @@ func TestHealthAndReadiness(t *testing.T) {
 	}
 	if body["engine"] != EngineName || body["version"] != EngineVersion {
 		t.Fatalf("ready body = %#v", body)
+	}
+	if EngineVersion != "audiveris-5.10.2+homr-0.7.0+music21-10.3.0+alphatab-1.8.4" {
+		t.Fatalf("worker component version = %q", EngineVersion)
 	}
 }
 
@@ -126,6 +131,8 @@ func TestRecognizeStreamsLinkedScoreAndCorrectionProject(t *testing.T) {
 			return Result{}, err
 		}
 		result.ProjectPath = projectPath
+		report := validQualityReport()
+		result.Report = &report
 		return result, nil
 	}}
 	handler := newTestHandler(t, recognizer)
@@ -160,6 +167,24 @@ func TestRecognizeStreamsLinkedScoreAndCorrectionProject(t *testing.T) {
 	if !bytes.Equal(artifacts["project"], validOMRProject(t)) {
 		t.Fatal("correction project artifact was not preserved")
 	}
+	var report omrreport.Report
+	if err := json.Unmarshal(artifacts["report"], &report); err != nil {
+		t.Fatalf("decode quality report: %v", err)
+	}
+	if err := report.Validate(); err != nil {
+		t.Fatalf("quality report = %+v: %v", report, err)
+	}
+}
+
+func TestRecognizeClassifiesUnplayableOutput(t *testing.T) {
+	handler := newTestHandler(t, &fakeRecognizer{recognize: func(context.Context, string, string) (Result, error) {
+		return Result{}, workerError("unplayable_output", "alphaTab could not load the recognized score", nil)
+	}})
+	request := multipartRequest(t, minimalPDF(), true)
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assertErrorCode(t, response, http.StatusUnprocessableEntity, "unplayable_output")
 }
 
 func TestRecognizeRejectsInvalidAndOversizedInput(t *testing.T) {
@@ -378,6 +403,21 @@ func validOMRProject(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return output.Bytes()
+}
+
+func validQualityReport() omrreport.Report {
+	return omrreport.Report{
+		SchemaVersion: 1, TotalMeasures: 1, FlaggedMeasures: 1, SuspectMeasures: 1, SelectedEngine: "audiveris",
+		Engines: map[string]json.RawMessage{
+			"audiveris": json.RawMessage(`{"version":"5.10.2","status":"succeeded"}`),
+			"homr":      json.RawMessage(`{"version":"0.7.0","status":"failed"}`),
+		},
+		Measures: []omrreport.Measure{{
+			PartID: "P1", Number: "1", MeasureIndex: 1, SourceEngine: "audiveris",
+			Agreement: false, Confidence: "medium", Issues: []string{},
+		}},
+		Playability: omrreport.Playability{Status: "passed", MeasureCount: 1, TotalTicks: 3840},
+	}
 }
 
 func minimalPDF() []byte { return []byte("%PDF-1.7\n%%EOF\n") }
