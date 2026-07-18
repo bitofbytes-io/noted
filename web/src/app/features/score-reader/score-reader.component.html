@@ -2,14 +2,29 @@
   <header class="reader-header">
     <a [routerLink]="workId ? ['/works', workId] : ['/library']" aria-label="Back to work">←</a>
     <div>
-      <strong>{{ asset()?.originalFilename || 'PDF score' }}</strong
-      ><span>Faithful PDF view</span>
+      @if (asset(); as pdfAsset) {
+        <a class="score-download" [href]="pdfAsset.downloadUrl">{{
+          pdfAsset.displayName || pdfAsset.originalFilename
+        }}</a>
+      } @else {
+        <strong>PDF score</strong>
+      }
+      <span>Faithful PDF view</span>
     </div>
     <button class="reader-button" (click)="controlsHidden = true">Hide controls</button>
   </header>
 
   @if (error()) {
-    <div class="error reader-error" role="alert">{{ error() }}</div>
+    <div class="error reader-error" role="alert">
+      <strong>PDF viewer unavailable</strong><span>{{ error() }}</span>
+      <div class="error-actions">
+        <button type="button" (click)="retry()">Retry viewer</button>
+        @if (asset(); as pdfAsset) {
+          <a [href]="pdfAsset.downloadUrl">Download PDF</a>
+        }
+        <a [routerLink]="workId ? ['/works', workId] : ['/library']">Back</a>
+      </div>
+    </div>
   }
   @if (loading()) {
     <div class="reader-loading">Rendering score…</div>
@@ -25,15 +40,6 @@
   >
     •••
   </button>
-  <button
-    class="pencil-button"
-    disabled
-    title="Annotations come in a later phase"
-    aria-label="Annotations coming later"
-  >
-    ✎<span>Later</span>
-  </button>
-
   <div class="reader-controls">
     <button (click)="changePage(-1)" [disabled]="page <= 1" aria-label="Previous page">←</button>
     <span

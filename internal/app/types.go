@@ -1,6 +1,13 @@
 package app
 
-import "time"
+import (
+	"time"
+
+	assetstore "github.com/bitofbytes-io/noted/internal/assets"
+)
+
+type PlaybackIssue = assetstore.PlaybackIssue
+type PlaybackValidation = assetstore.PlaybackValidation
 
 type User struct {
 	ID              string `json:"id"`
@@ -12,23 +19,25 @@ type User struct {
 }
 
 type Asset struct {
-	ID                 string     `json:"id"`
-	EditionID          string     `json:"editionId"`
-	AssetType          string     `json:"assetType"`
-	OriginalFilename   string     `json:"originalFilename"`
-	DisplayName        string     `json:"displayName"`
-	MediaType          string     `json:"mediaType"`
-	ByteSize           int64      `json:"byteSize"`
-	SHA256             string     `json:"sha256"`
-	SourceURL          string     `json:"sourceUrl,omitempty"`
-	RightsNote         string     `json:"rightsNote"`
-	PlaybackCapable    bool       `json:"playbackCapable"`
-	ArchivedAt         *time.Time `json:"archivedAt,omitempty"`
-	ReplacesAssetID    *string    `json:"replacesAssetId,omitempty"`
-	DerivedFromAssetID *string    `json:"derivedFromAssetId,omitempty"`
-	VerificationState  string     `json:"verificationState"`
-	CreatedAt          time.Time  `json:"createdAt"`
-	ContentURL         string     `json:"contentUrl"`
+	ID                 string             `json:"id"`
+	EditionID          string             `json:"editionId"`
+	AssetType          string             `json:"assetType"`
+	OriginalFilename   string             `json:"originalFilename"`
+	DisplayName        string             `json:"displayName"`
+	MediaType          string             `json:"mediaType"`
+	ByteSize           int64              `json:"byteSize"`
+	SHA256             string             `json:"sha256"`
+	SourceURL          string             `json:"sourceUrl,omitempty"`
+	RightsNote         string             `json:"rightsNote"`
+	PlaybackCapable    bool               `json:"playbackCapable"`
+	ArchivedAt         *time.Time         `json:"archivedAt,omitempty"`
+	ReplacesAssetID    *string            `json:"replacesAssetId,omitempty"`
+	DerivedFromAssetID *string            `json:"derivedFromAssetId,omitempty"`
+	VerificationState  string             `json:"verificationState"`
+	CreatedAt          time.Time          `json:"createdAt"`
+	ContentURL         string             `json:"contentUrl"`
+	DownloadURL        string             `json:"downloadUrl"`
+	PlaybackValidation PlaybackValidation `json:"playbackValidation"`
 }
 
 type Edition struct {

@@ -16,7 +16,13 @@ export class SettingsComponent implements OnInit {
   protected readonly saving = signal(false);
   protected readonly error = signal('');
   protected readonly success = signal('');
-  protected preferences: Preferences = { weekStartsOn: 1, metronomeBpm: 96, metronomeAccent: true };
+  protected preferences: Preferences = {
+    weekStartsOn: 1,
+    metronomeBpm: 96,
+    metronomeAccent: true,
+    metronomeBeatsPerBar: 4,
+    metronomeSound: 'classic',
+  };
 
   constructor(private readonly api: ApiService) {}
 

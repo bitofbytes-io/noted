@@ -110,3 +110,21 @@ func TestReadMultipartUploadRejectsOversizeAndCleansPartialFile(t *testing.T) {
 		t.Fatalf("oversize upload left partial staging files: %v", entries)
 	}
 }
+
+func TestDownloadFilenamePreservesTheOriginalExtension(t *testing.T) {
+	tests := []struct {
+		displayName, originalName, want string
+	}{
+		{displayName: "Moonlight corrected", originalName: "recognized.mxl", want: "Moonlight corrected.mxl"},
+		{displayName: "Moonlight.musicxml", originalName: "recognized.musicxml", want: "Moonlight.musicxml"},
+		{displayName: "", originalName: "score.pdf", want: "score.pdf"},
+	}
+	for _, test := range tests {
+		if got := downloadFilename(test.displayName, test.originalName); got != test.want {
+			t.Errorf("downloadFilename(%q, %q) = %q, want %q", test.displayName, test.originalName, got, test.want)
+		}
+	}
+	if got := safeFilename("folder/score\n.mxl"); got != "folder_score_.mxl" {
+		t.Fatalf("safeFilename sanitized value = %q", got)
+	}
+}

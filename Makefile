@@ -10,7 +10,7 @@ OMR_PLATFORMS ?= linux/amd64
 OMR_DOCKERFILE ?= omr/Dockerfile
 LOCAL_AUDIVERIS_IMAGE ?= noted-audiveris:5.10.2
 
-.PHONY: setup db-up db-down migrate seed omr-build omr-build-container api-run web-start local test test-api test-web test-migrations test-e2e lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-build-omr docker-push docker-push-api docker-push-ui docker-push-omr docker-publish docker-buildx docker-buildx-api docker-buildx-ui docker-buildx-omr
+.PHONY: setup db-up db-down migrate seed revalidate-musicxml omr-build omr-build-container api-run web-start local test test-api test-web test-migrations test-e2e test-ui-container-mime lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-build-omr docker-push docker-push-api docker-push-ui docker-push-omr docker-publish docker-buildx docker-buildx-api docker-buildx-ui docker-buildx-omr
 
 configure-image:
 	$(eval SHORT_SHA := $(shell git rev-parse --short=7 HEAD 2>/dev/null))
@@ -43,6 +43,9 @@ migrate:
 
 seed:
 	go run ./cmd/seed
+
+revalidate-musicxml:
+	go run ./cmd/revalidate-musicxml
 
 api-run:
 	go run ./cmd/api
@@ -161,6 +164,9 @@ test-migrations:
 
 test-e2e:
 	./scripts/with-test-database.sh e2e ./scripts/run-playwright.sh
+
+test-ui-container-mime:
+	./scripts/verify-ui-worker-mime.sh
 
 lint:
 	test -z "$$(gofmt -l cmd internal)"

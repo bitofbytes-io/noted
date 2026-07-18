@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import path from 'node:path';
 
-const seededWork = 'Noted POC Exercise in C';
+const seededWork = 'Noted Exercise in C';
 const fixtureRoot = path.resolve(process.cwd(), '../testdata/fixtures');
 
-test.describe.serial('Noted core POC flows', () => {
+test.describe.serial('Noted core flows', () => {
   test('Flow A: open a seeded PDF and render/play a measure range', async ({ page }, testInfo) => {
     await page.goto('/home');
     await expect(page.getByRole('heading', { name: 'Pick up where you left off.' })).toBeVisible();

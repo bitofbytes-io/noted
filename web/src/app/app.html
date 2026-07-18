@@ -35,10 +35,6 @@
           <span class="wordmark-mark" aria-hidden="true">N</span>
           <span>noted</span>
         </a>
-        <div class="mode-switch" aria-label="Application mode">
-          <span class="active">Play</span>
-          <span aria-disabled="true" title="Learn mode comes later">Learn</span>
-        </div>
         <div class="profile" [title]="session()?.user?.email ?? 'Learner'">
           <span class="profile-dot" aria-hidden="true"></span>
           <span class="profile-name">{{ session()?.user?.displayName ?? 'Local learner' }}</span>

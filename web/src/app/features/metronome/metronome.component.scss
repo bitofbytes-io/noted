@@ -135,6 +135,47 @@
   gap: 12px;
   padding: 16px 0;
 }
+.meter-control,
+.sound-control {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+.meter-control strong,
+.meter-control small,
+.sound-control strong,
+.sound-control small {
+  display: block;
+}
+.meter-control small,
+.sound-control small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+.meter-options {
+  display: grid;
+  grid-template-columns: repeat(4, 36px);
+}
+.meter-options button {
+  background: white;
+  border: 1px solid var(--line-strong);
+  font-weight: 800;
+  min-height: 36px;
+}
+.meter-options button + button {
+  border-left: 0;
+}
+.meter-options button.active {
+  background: var(--ink);
+  color: white;
+}
+.sound-control select {
+  background: white;
+  border: 1px solid var(--line-strong);
+  min-height: 40px;
+  padding: 0 10px;
+}
 .accent-toggle input {
   accent-color: var(--blue);
   height: 20px;

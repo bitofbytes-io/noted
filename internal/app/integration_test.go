@@ -892,8 +892,38 @@ func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asset.AssetType != "musicxml" || asset.VerificationState != "unverified_ocr" || asset.DerivedFromAssetID == nil || *asset.DerivedFromAssetID != fixture.AssetID {
+	if asset.AssetType != "musicxml" || asset.VerificationState != "unverified_ocr" || asset.DerivedFromAssetID == nil || *asset.DerivedFromAssetID != fixture.AssetID || asset.PlaybackValidation.Status != "ready" || !asset.PlaybackCapable {
 		t.Fatalf("derived asset = %+v", asset)
+	}
+}
+
+func TestIntegrationMetronomePreferences(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+	want := Preferences{
+		WeekStartsOn: 1, MetronomeBPM: 112, MetronomeAccent: true,
+		MetronomeBeatsPerBar: 3, MetronomeSound: "woodblock",
+	}
+	if _, err := service.UpdatePreferences(ctx, fixture.UserID, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.GetPreferences(ctx, fixture.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("preferences = %+v, want %+v", got, want)
+	}
+	invalid := want
+	invalid.MetronomeBeatsPerBar = 5
+	if _, err := service.UpdatePreferences(ctx, fixture.UserID, invalid); err == nil {
+		t.Fatal("expected invalid meter to be rejected")
+	}
+	invalid = want
+	invalid.MetronomeSound = "bell"
+	if _, err := service.UpdatePreferences(ctx, fixture.UserID, invalid); err == nil {
+		t.Fatal("expected invalid sound to be rejected")
 	}
 }
 

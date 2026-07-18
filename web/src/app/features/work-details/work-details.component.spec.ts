@@ -50,6 +50,8 @@ describe('WorkDetailsComponent capability states', () => {
               playbackCapable: false,
               createdAt: '2026-07-13T00:00:00Z',
               contentUrl: '/api/assets/pdf-1/content',
+              downloadUrl: '/api/assets/pdf-1/download',
+              playbackValidation: { status: 'not_checked', issues: [] },
             },
           ],
         },
@@ -90,7 +92,7 @@ describe('WorkDetailsComponent capability states', () => {
     const assetActions = Array.from(
       fixture.nativeElement.querySelectorAll('.asset-row a') as NodeListOf<Element>,
     ).map((node) => node.textContent?.trim());
-    expect(assetActions).toEqual(['Read']);
+    expect(assetActions).toEqual(['score.pdf', 'Read', 'Download']);
     const upload = fixture.nativeElement.querySelector('#upload-file') as HTMLInputElement;
     expect(upload.accept).toContain('.mxl');
     await fixture.componentInstance.startPractice();

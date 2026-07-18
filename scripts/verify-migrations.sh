@@ -7,6 +7,8 @@ go run ./cmd/migrate
 # migration must reject case-colliding legacy accounts before changing either row.
 go run ./cmd/migrate down
 go run ./cmd/migrate down
+go run ./cmd/migrate down
+go run ./cmd/migrate down
 docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO users (email, display_name) VALUES
     ('Migration.Collision@example.test', 'Migration collision upper'),

@@ -12,7 +12,8 @@ COPY internal ./internal
 COPY migrations ./migrations
 
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-api ./cmd/api \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-migrate ./cmd/migrate
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-migrate ./cmd/migrate \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-revalidate-musicxml ./cmd/revalidate-musicxml
 
 FROM alpine:3.23
 
@@ -30,6 +31,7 @@ WORKDIR /app
 
 COPY --from=builder --chown=noted:noted /out/noted-api /app/noted-api
 COPY --from=builder --chown=noted:noted /out/noted-migrate /app/noted-migrate
+COPY --from=builder --chown=noted:noted /out/noted-revalidate-musicxml /app/noted-revalidate-musicxml
 
 LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${REVISION}" \

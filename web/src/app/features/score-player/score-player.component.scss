@@ -41,6 +41,7 @@
   text-transform: uppercase;
 }
 .score-header > div strong,
+.score-header > div .score-download,
 .score-header > div span {
   display: block;
 }
@@ -228,37 +229,14 @@
 .practice-control.running {
   color: #b9ffda !important;
 }
-.pencil-button {
-  align-items: center;
-  background: white;
-  border: 1px solid #a8a8a3;
-  bottom: calc(23px + env(safe-area-inset-bottom));
-  color: var(--ink);
-  display: flex;
-  flex-direction: column;
-  font-size: 21px;
-  height: 52px;
-  justify-content: center;
-  left: max(24px, env(safe-area-inset-left));
-  opacity: 0.7;
-  position: absolute;
-  width: 52px;
-  z-index: 7;
-}
-.pencil-button span {
-  font-size: 8px;
-  text-transform: uppercase;
-}
 .controls-hidden .score-header,
 .controls-hidden .floating-player,
-.controls-hidden .pencil-button,
 .controls-hidden .measure-legend {
   opacity: 0;
   pointer-events: none;
 }
 .score-header,
 .floating-player,
-.pencil-button,
 .measure-legend {
   transition: opacity 180ms ease;
 }
@@ -289,7 +267,6 @@
 }
 .reduced-motion .score-header,
 .reduced-motion .floating-player,
-.reduced-motion .pencil-button,
 .reduced-motion .measure-legend {
   transition: none;
 }
@@ -321,10 +298,6 @@
     bottom: calc(12px + env(safe-area-inset-bottom));
     max-width: calc(100% - 20px);
     overflow-x: auto;
-  }
-  .pencil-button {
-    bottom: calc(76px + env(safe-area-inset-bottom));
-    left: max(10px, env(safe-area-inset-left));
   }
   .score-header {
     padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0

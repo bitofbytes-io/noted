@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
-  <work><work-title>Noted POC Exercise in C</work-title></work>
+	<work><work-title>Noted Exercise in C</work-title></work>
   <identification>
     <creator type="composer">Noted Project</creator>
-    <rights>CC0-1.0; created for the Noted proof of concept</rights>
+	<rights>CC0-1.0; created for the Noted project</rights>
     <encoding><software>Noted fixture generator</software></encoding>
   </identification>
   <part-list>

@@ -33,6 +33,8 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   protected readonly playbackReady = signal(false);
   protected readonly playing = signal(false);
   protected readonly error = signal('');
+  protected readonly validationMessage = signal('');
+  protected readonly validationBlocked = signal(false);
   protected readonly workId = this.route.snapshot.queryParamMap.get('workId') ?? '';
   protected measureCount = Number(this.route.snapshot.queryParamMap.get('measures')) || 1;
   protected bpm = 96;
@@ -51,6 +53,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   private readonly adapter = new NotationPlaybackAdapter();
   private controlsFocused = false;
   private controlsTimer?: ReturnType<typeof setTimeout>;
+  private playbackReadinessTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly api: ApiService,
@@ -64,6 +67,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.clearControlsTimer();
+    this.clearPlaybackReadinessTimer();
     this.adapter.dispose();
   }
 
@@ -97,14 +101,37 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
 
   async load(): Promise<void> {
     const assetId = this.route.snapshot.paramMap.get('assetId') ?? '';
+    this.clearPlaybackReadinessTimer();
+    this.adapter.dispose();
+    this.loading.set(true);
+    this.error.set('');
+    this.validationMessage.set('');
+    this.validationBlocked.set(false);
+    this.scoreReady.set(false);
+    this.playbackReady.set(false);
     try {
       const asset = await firstValueFrom(this.api.asset(assetId));
-      if (!asset.playbackCapable || asset.assetType !== 'musicxml') {
+      this.asset.set(asset);
+      if (asset.assetType !== 'musicxml') {
         throw new Error(
           'This score has no structured playback representation. Open its PDF instead.',
         );
       }
-      this.asset.set(asset);
+      const validation = asset.playbackValidation;
+      if (
+        !validation ||
+        validation.status === 'not_checked' ||
+        validation.status === 'blocked' ||
+        !asset.playbackCapable
+      ) {
+        this.validationBlocked.set(true);
+        this.validationMessage.set(this.playbackValidationMessage(asset));
+        return;
+      }
+      if (validation.status === 'needs_review') {
+        this.validationMessage.set(this.playbackValidationMessage(asset));
+      }
+      this.startPlaybackReadinessWatchdog();
       await this.adapter.load(
         asset.contentUrl,
         this.notation.nativeElement,
@@ -122,6 +149,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
             this.scheduleControlsHide();
           },
           onPlaybackReady: () => {
+            this.clearPlaybackReadinessTimer();
             this.playbackReady.set(true);
             this.scheduleControlsHide();
           },
@@ -131,11 +159,16 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
         this.reducedMotion,
       );
     } catch (error) {
+      this.clearPlaybackReadinessTimer();
       this.setPlayerError(error);
     } finally {
       this.loading.set(false);
       this.scheduleControlsHide();
     }
+  }
+
+  retry(): void {
+    void this.load();
   }
 
   updateBpm(): void {
@@ -226,9 +259,24 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private setPlayerError(error: unknown): void {
+    this.clearPlaybackReadinessTimer();
     this.error.set(errorMessage(error));
     this.controlsVisible.set(true);
     this.clearControlsTimer();
+  }
+
+  private playbackValidationMessage(asset: Asset): string {
+    if (asset.playbackValidation?.status === 'not_checked') {
+      return 'This score is waiting for playback validation. Download it now or try again after validation completes.';
+    }
+    const issues = asset.playbackValidation?.issues ?? [];
+    if (!issues.length) return 'This score needs correction before playback.';
+    return issues
+      .map((issue) => {
+        const measures = issue.measures?.length ? ` Measures ${issue.measures.join(', ')}.` : '';
+        return `${issue.message}${measures}`;
+      })
+      .join(' ');
   }
 
   private scheduleControlsHide(): void {
@@ -256,5 +304,23 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   private clearControlsTimer(): void {
     if (this.controlsTimer) clearTimeout(this.controlsTimer);
     this.controlsTimer = undefined;
+  }
+
+  private clearPlaybackReadinessTimer(): void {
+    if (this.playbackReadinessTimer) clearTimeout(this.playbackReadinessTimer);
+    this.playbackReadinessTimer = undefined;
+  }
+
+  private startPlaybackReadinessWatchdog(): void {
+    this.clearPlaybackReadinessTimer();
+    this.playbackReadinessTimer = setTimeout(() => {
+      if (!this.playbackReady() && !this.error()) {
+        this.setPlayerError(
+          new Error(
+            'The playback engine did not become ready. Retry the player or download the score.',
+          ),
+        );
+      }
+    }, 15_000);
   }
 }

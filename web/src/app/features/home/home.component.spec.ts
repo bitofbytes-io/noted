@@ -33,6 +33,8 @@ const dashboard: Dashboard = {
       playbackCapable: true,
       createdAt: '2026-07-13T00:00:00Z',
       contentUrl: '/api/assets/asset-1/content',
+      downloadUrl: '/api/assets/asset-1/download',
+      playbackValidation: { status: 'ready', issues: [] },
     },
   ],
   week: {

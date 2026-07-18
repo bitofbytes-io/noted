@@ -68,6 +68,23 @@ func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, hea
 			_ = s.Store.Delete(context.Background(), key)
 		}
 	}()
+	playbackValidation := assetstore.PlaybackValidation{Status: "not_checked", Issues: []assetstore.PlaybackIssue{}}
+	playbackCapable := false
+	if format.AssetType == "musicxml" {
+		storedReader, _, openErr := s.Store.Open(ctx, key)
+		if openErr != nil {
+			return Asset{}, fmt.Errorf("open stored MusicXML for validation: %w", openErr)
+		}
+		playbackValidation, err = assetstore.ValidateMusicXML(storedReader, header.Filename)
+		closeErr := storedReader.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return Asset{}, fmt.Errorf("validate stored MusicXML: %w", err)
+		}
+		playbackCapable = playbackValidation.Status == "ready" || playbackValidation.Status == "needs_review"
+	}
 
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -76,17 +93,17 @@ func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, hea
 	defer tx.Rollback(ctx) //nolint:errcheck -- a committed transaction makes rollback a no-op
 	var asset Asset
 	err = tx.QueryRow(ctx, `
-		INSERT INTO score_assets(edition_id,asset_type,storage_key,original_filename,display_name,media_type,byte_size,sha256,source_url,rights_note,playback_capable,uploaded_by_user_id,replaces_asset_id,derived_from_asset_id,verification_state)
-		SELECT e.id,$3,$4,$5,$5,$6,$7,$8,NULLIF($9,''),$10,$11,$1,NULLIF($12,'')::uuid,NULLIF($13,'')::uuid,$14
+		INSERT INTO score_assets(edition_id,asset_type,storage_key,original_filename,display_name,media_type,byte_size,sha256,source_url,rights_note,playback_capable,uploaded_by_user_id,replaces_asset_id,derived_from_asset_id,verification_state,playback_validation_status,playback_validation_issues)
+		SELECT e.id,$3,$4,$5,$5,$6,$7,$8,NULLIF($9,''),$10,$11,$1,NULLIF($12,'')::uuid,NULLIF($13,'')::uuid,$14,$15,$16
 		FROM editions e JOIN learner_works lw ON lw.work_id=e.work_id
 		WHERE lw.user_id=$1 AND e.id=$2 AND e.archived_at IS NULL
 		  AND ($12='' OR EXISTS(SELECT 1 FROM score_assets old WHERE old.id=NULLIF($12,'')::uuid AND old.edition_id=e.id AND old.uploaded_by_user_id=$1))
 		  AND ($13='' OR EXISTS(SELECT 1 FROM score_assets source WHERE source.id=NULLIF($13,'')::uuid AND source.edition_id=e.id AND source.uploaded_by_user_id=$1))
-		RETURNING id::text,edition_id::text,asset_type,original_filename,COALESCE(display_name,original_filename),media_type,byte_size,sha256,COALESCE(source_url,''),rights_note,playback_capable,archived_at,replaces_asset_id::text,derived_from_asset_id::text,verification_state,created_at`,
+		RETURNING id::text,edition_id::text,asset_type,original_filename,COALESCE(display_name,original_filename),media_type,byte_size,sha256,COALESCE(source_url,''),rights_note,playback_capable,archived_at,replaces_asset_id::text,derived_from_asset_id::text,verification_state,playback_validation_status,playback_validation_issues,created_at`,
 		userID, editionID, format.AssetType, key, header.Filename, format.MediaType, stored.Size, stored.Checksum,
-		metadata.SourceURL, metadata.RightsNote, format.AssetType == "musicxml", metadata.ReplacesAssetID,
-		metadata.DerivedFromAssetID, metadata.VerificationState,
-	).Scan(&asset.ID, &asset.EditionID, &asset.AssetType, &asset.OriginalFilename, &asset.DisplayName, &asset.MediaType, &asset.ByteSize, &asset.SHA256, &asset.SourceURL, &asset.RightsNote, &asset.PlaybackCapable, &asset.ArchivedAt, &asset.ReplacesAssetID, &asset.DerivedFromAssetID, &asset.VerificationState, &asset.CreatedAt)
+		metadata.SourceURL, metadata.RightsNote, playbackCapable, metadata.ReplacesAssetID,
+		metadata.DerivedFromAssetID, metadata.VerificationState, playbackValidation.Status, playbackValidation.Issues,
+	).Scan(&asset.ID, &asset.EditionID, &asset.AssetType, &asset.OriginalFilename, &asset.DisplayName, &asset.MediaType, &asset.ByteSize, &asset.SHA256, &asset.SourceURL, &asset.RightsNote, &asset.PlaybackCapable, &asset.ArchivedAt, &asset.ReplacesAssetID, &asset.DerivedFromAssetID, &asset.VerificationState, &asset.PlaybackValidation.Status, &asset.PlaybackValidation.Issues, &asset.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Asset{}, ErrNotFound
 	}
@@ -102,7 +119,7 @@ func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, hea
 		return Asset{}, err
 	}
 	cleanup = false
-	asset.ContentURL = "/api/assets/" + asset.ID + "/content"
+	setAssetURLs(&asset)
 	return asset, nil
 }
 
@@ -111,7 +128,7 @@ func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID strin
 		return nil, err
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.created_at
+		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.playback_validation_status,a.playback_validation_issues,a.created_at
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
 		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.edition_id=$2 ORDER BY a.created_at`, userID, editionID)
 	if err != nil {
@@ -121,10 +138,10 @@ func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID strin
 	items := []Asset{}
 	for rows.Next() {
 		var item Asset
-		if err := rows.Scan(&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.DisplayName, &item.MediaType, &item.ByteSize, &item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.DisplayName, &item.MediaType, &item.ByteSize, &item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.PlaybackValidation.Status, &item.PlaybackValidation.Issues, &item.CreatedAt); err != nil {
 			return nil, err
 		}
-		item.ContentURL = "/api/assets/" + item.ID + "/content"
+		setAssetURLs(&item)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -136,16 +153,21 @@ func (s *Service) getAssetRecord(ctx context.Context, userID, assetID string) (a
 	}
 	var item assetRecord
 	err := s.Pool.QueryRow(ctx, `
-		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.created_at,a.storage_key
+		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.playback_validation_status,a.playback_validation_issues,a.created_at,a.storage_key
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
 		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.id=$2`, userID, assetID).Scan(
 		&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.DisplayName, &item.MediaType, &item.ByteSize,
-		&item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.CreatedAt, &item.StorageKey)
+		&item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.PlaybackValidation.Status, &item.PlaybackValidation.Issues, &item.CreatedAt, &item.StorageKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return assetRecord{}, ErrNotFound
 	}
-	item.ContentURL = "/api/assets/" + item.ID + "/content"
+	setAssetURLs(&item.Asset)
 	return item, err
+}
+
+func setAssetURLs(item *Asset) {
+	item.ContentURL = "/api/assets/" + item.ID + "/content"
+	item.DownloadURL = "/api/assets/" + item.ID + "/download"
 }
 
 func (s *Service) UpdateAsset(ctx context.Context, userID, assetID string, input AssetPatchInput) (Asset, error) {

@@ -260,13 +260,26 @@
                 <div class="asset-row" [class.archived]="asset.archivedAt">
                   <span class="asset-icon">{{ asset.assetType === 'pdf' ? 'PDF' : 'XML' }}</span>
                   <div>
-                    <strong>{{ asset.displayName || asset.originalFilename }}</strong
+                    <a class="asset-name" [href]="asset.downloadUrl"
+                      ><strong>{{ asset.displayName || asset.originalFilename }}</strong></a
                     ><span
                       >{{ (asset.byteSize / 1024).toFixed(1) }} KB · SHA-256
                       {{ asset.sha256.slice(0, 10) }}…</span
                     ><small>{{ asset.rightsNote }}</small>
                     @if (asset.verificationState === 'unverified_ocr') {
                       <span class="ocr-warning">Unverified OCR · compare against the PDF</span>
+                    }
+                    @if (asset.playbackValidation.status === 'blocked') {
+                      <span class="playback-blocked"
+                        >Playback blocked · download and correct this score</span
+                      >
+                    } @else if (asset.playbackValidation.status === 'needs_review') {
+                      <span class="ocr-warning"
+                        >Playback available · review validation warnings</span
+                      >
+                    }
+                    @if (asset.verificationState === 'corrected') {
+                      <span class="corrected-label">Corrected score</span>
                     }
                     @if (asset.archivedAt) {
                       <span class="archived-label">Archived</span>
@@ -293,19 +306,29 @@
                         </button>
                       }
                     } @else {
-                      <a
-                        class="button small"
-                        [routerLink]="['/player', asset.id]"
-                        [queryParams]="{
-                          workId: item.id,
-                          measures: item.movements[0]?.measureCount || 1,
-                        }"
-                        >Play</a
-                      >
+                      @if (asset.playbackCapable) {
+                        <a
+                          class="button small"
+                          [routerLink]="['/player', asset.id]"
+                          [queryParams]="{
+                            workId: item.id,
+                            measures: item.movements[0]?.measureCount || 1,
+                          }"
+                          >Play</a
+                        >
+                      } @else {
+                        <button class="button small" disabled>Play unavailable</button>
+                      }
                     }
+                    <a class="button secondary small" [href]="asset.downloadUrl">Download</a>
                     <button class="button secondary small" (click)="editAsset(asset)">Edit</button>
                     <label class="button secondary small replace-button"
-                      >Replace<input
+                      >{{
+                        asset.assetType === 'musicxml' &&
+                        (asset.derivedFromAssetId || asset.verificationState === 'unverified_ocr')
+                          ? 'Upload corrected score'
+                          : 'Replace'
+                      }}<input
                         type="file"
                         [accept]="
                           asset.assetType === 'pdf' ? '.pdf,application/pdf' : '.musicxml,.xml,.mxl'
@@ -367,6 +390,13 @@
                     <span>Audiveris {{ job.engineVersion }}</span>
                     @if (job.failureMessage) {
                       <span>{{ job.failureMessage }}</span>
+                    }
+                    @if (job.status === 'succeeded' && recognitionOutput(job); as output) {
+                      <span>{{
+                        output.playbackValidation.status === 'blocked'
+                          ? 'Conversion finished — score needs correction'
+                          : 'Conversion finished'
+                      }}</span>
                     }
                     @if (job.status === 'queued' || job.status === 'processing') {
                       <button

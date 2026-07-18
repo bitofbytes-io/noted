@@ -56,6 +56,7 @@ func NewRouter(service *app.Service, authService *auth.Service, cfg config.Confi
 		r.Patch("/api/assets/{assetId}", h.updateAsset)
 		r.Post("/api/assets/{assetId}/replacement", h.replaceAsset)
 		r.Get("/api/assets/{assetId}/content", h.assetContent)
+		r.Get("/api/assets/{assetId}/download", h.assetDownload)
 		r.Delete("/api/assets/{assetId}", h.deleteAsset)
 		r.Post("/api/assets/{assetId}/recognition-jobs", h.createRecognitionJob)
 		r.Get("/api/assets/{assetId}/recognition-jobs", h.listRecognitionJobs)
