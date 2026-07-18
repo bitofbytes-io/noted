@@ -5,7 +5,8 @@ Date: 2026-07-18
 This record is the release ledger for the dual-engine OMR worker described by
 [ADR 0002](../decisions/0002-audiveris-ocr-pipeline.md). It deliberately separates a
 predeclared decision rule from the subsequently observed representative-score
-results.
+results. This is separately authorized post-POC production-readiness work; it
+does not add OMR or production deployment to the POC scope.
 
 ## Owner decision recorded before representative evaluation
 
@@ -115,8 +116,10 @@ and adds a focused regression test. The final reviewed local image is:
 - uncompressed image size: 1,592,240,630 bytes; and
 - embedded tests: 13 Python repair/fusion tests and three alphaTab tests pass.
 
-Candidate 5 is the promotion artifact. The representative corpus was rerun
-from the frozen input hashes after that review fix.
+Candidate 5 is the post-POC OMR promotion artifact. The representative corpus
+was rerun from the frozen input hashes after that review fix. Its activation
+remains governed by the production gates in this record rather than the POC
+acceptance criteria.
 
 ### Representative result
 
