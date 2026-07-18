@@ -18,6 +18,8 @@ import { NotationPlaybackAdapter, validateMeasureRange } from './notation-playba
 
 const playbackReadinessError =
   'The playback engine did not become ready. Retry the player or download the score.';
+const scoreLoadReadinessError =
+  'The notation engine did not finish loading the score. Retry the player or download the score.';
 
 @Component({
   selector: 'app-score-player',
@@ -57,7 +59,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   private controlsFocused = false;
   private controlsTimer?: ReturnType<typeof setTimeout>;
   private playbackReadinessTimer?: ReturnType<typeof setTimeout>;
-  private playbackReadinessTimedOut = false;
+  private readinessTimeoutMessage = '';
 
   constructor(
     private readonly api: ApiService,
@@ -113,7 +115,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     this.validationBlocked.set(false);
     this.scoreReady.set(false);
     this.playbackReady.set(false);
-    this.playbackReadinessTimedOut = false;
+    this.readinessTimeoutMessage = '';
     try {
       const asset = await firstValueFrom(this.api.asset(assetId));
       this.asset.set(asset);
@@ -142,6 +144,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
         this.viewport.nativeElement,
         {
           onScoreLoaded: (measureCount, originalBpm) => {
+            this.clearReadinessTimeoutError(scoreLoadReadinessError);
             this.measureCount = measureCount;
             this.rangeEnd = measureCount;
             this.draftRangeStart = 1;
@@ -161,6 +164,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
         },
         this.reducedMotion,
       );
+      if (!this.scoreReady() && !this.error()) this.startScoreLoadReadinessWatchdog();
     } catch (error) {
       this.clearPlaybackReadinessTimer();
       this.setPlayerError(error);
@@ -261,9 +265,9 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private setPlayerError(error: unknown, readinessTimeout = false): void {
+  private setPlayerError(error: unknown, readinessTimeoutMessage = ''): void {
     this.clearPlaybackReadinessTimer();
-    this.playbackReadinessTimedOut = readinessTimeout;
+    this.readinessTimeoutMessage = readinessTimeoutMessage;
     this.error.set(errorMessage(error));
     this.controlsVisible.set(true);
     this.clearControlsTimer();
@@ -316,20 +320,31 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private markPlaybackReady(): void {
-    this.clearPlaybackReadinessTimer();
-    if (this.playbackReadinessTimedOut && this.error() === playbackReadinessError) {
-      this.error.set('');
-    }
-    this.playbackReadinessTimedOut = false;
+    this.clearReadinessTimeoutError(playbackReadinessError);
     this.playbackReady.set(true);
     this.scheduleControlsHide();
+  }
+
+  private clearReadinessTimeoutError(message: string): void {
+    this.clearPlaybackReadinessTimer();
+    if (this.readinessTimeoutMessage === message && this.error() === message) this.error.set('');
+    this.readinessTimeoutMessage = '';
+  }
+
+  private startScoreLoadReadinessWatchdog(): void {
+    this.clearPlaybackReadinessTimer();
+    this.playbackReadinessTimer = setTimeout(() => {
+      if (!this.scoreReady() && !this.error()) {
+        this.setPlayerError(new Error(scoreLoadReadinessError), scoreLoadReadinessError);
+      }
+    }, 15_000);
   }
 
   private startPlaybackReadinessWatchdog(): void {
     this.clearPlaybackReadinessTimer();
     this.playbackReadinessTimer = setTimeout(() => {
       if (!this.playbackReady() && !this.error()) {
-        this.setPlayerError(new Error(playbackReadinessError), true);
+        this.setPlayerError(new Error(playbackReadinessError), playbackReadinessError);
       }
     }, 15_000);
   }

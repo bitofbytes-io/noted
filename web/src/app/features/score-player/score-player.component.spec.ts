@@ -122,29 +122,25 @@ describe('ScorePlayerComponent controls', () => {
 });
 
 describe('ScorePlayerComponent readiness lifecycle', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  const readyAsset = {
+    id: 'asset-1',
+    editionId: 'edition-1',
+    assetType: 'musicxml',
+    originalFilename: 'exercise.musicxml',
+    displayName: 'Exercise',
+    mediaType: 'application/vnd.recordare.musicxml+xml',
+    byteSize: 100,
+    sha256: 'a'.repeat(64),
+    rightsNote: 'CC0',
+    playbackCapable: true,
+    verificationState: 'verified',
+    createdAt: '2026-07-18T00:00:00Z',
+    contentUrl: '/api/assets/asset-1/content',
+    downloadUrl: '/api/assets/asset-1/download',
+    playbackValidation: { status: 'ready', issues: [] },
+  } as const;
 
-  it('starts the playback watchdog after score loading rather than before it', async () => {
-    vi.useFakeTimers();
-    const readyAsset = {
-      id: 'asset-1',
-      editionId: 'edition-1',
-      assetType: 'musicxml',
-      originalFilename: 'exercise.musicxml',
-      displayName: 'Exercise',
-      mediaType: 'application/vnd.recordare.musicxml+xml',
-      byteSize: 100,
-      sha256: 'a'.repeat(64),
-      rightsNote: 'CC0',
-      playbackCapable: true,
-      verificationState: 'verified',
-      createdAt: '2026-07-18T00:00:00Z',
-      contentUrl: '/api/assets/asset-1/content',
-      downloadUrl: '/api/assets/asset-1/download',
-      playbackValidation: { status: 'ready', issues: [] },
-    } as const;
+  async function createReadyPlayer() {
     await TestBed.configureTestingModule({
       imports: [ScorePlayerComponent],
       providers: [
@@ -171,6 +167,16 @@ describe('ScorePlayerComponent readiness lifecycle', () => {
     state.shell = { nativeElement: document.createElement('section') };
     state.notation = { nativeElement: document.createElement('section') };
     state.viewport = { nativeElement: document.createElement('section') };
+    return { component, fixture, state };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('times score loading and playback readiness as separate phases', async () => {
+    vi.useFakeTimers();
+    const { component, fixture, state } = await createReadyPlayer();
     let callbacks: any;
     state.adapter.load = vi.fn(
       (_url, _notation, _viewport, nextCallbacks) =>
@@ -196,6 +202,23 @@ describe('ScorePlayerComponent readiness lifecycle', () => {
     callbacks.onPlaybackReady();
     expect(state.error()).toBe('');
     expect(state.playbackReady()).toBe(true);
+    fixture.destroy();
+  });
+
+  it('reports a score-load timeout when alphaTab never emits scoreLoaded', async () => {
+    vi.useFakeTimers();
+    const { component, fixture, state } = await createReadyPlayer();
+    state.adapter.load = vi.fn().mockResolvedValue(undefined);
+
+    await component.load();
+    expect(state.error()).toBe('');
+    expect(state.scoreReady()).toBe(false);
+    expect(state.playbackReadinessTimer).toBeDefined();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(state.error()).toBe('');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(state.error()).toContain('did not finish loading');
+    expect(state.scoreReady()).toBe(false);
     fixture.destroy();
   });
 });
