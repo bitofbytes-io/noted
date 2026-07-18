@@ -267,7 +267,7 @@
                       {{ asset.sha256.slice(0, 10) }}…</span
                     ><small>{{ asset.rightsNote }}</small>
                     @if (asset.verificationState === 'unverified_ocr') {
-                      <span class="ocr-warning">Unverified OCR · compare against the PDF</span>
+                      <span class="ocr-warning">{{ recognitionQualitySummary(asset) }}</span>
                     }
                     @if (asset.playbackValidation.status === 'blocked') {
                       <span class="playback-blocked"
@@ -390,7 +390,7 @@
                 @if (recognitionJobs()[asset.id]; as job) {
                   <div class="recognition-status" [class.failed]="job.status === 'failed'">
                     <strong>Conversion {{ job.status }}</strong>
-                    <span>Audiveris {{ job.engineVersion }}</span>
+                    <span>{{ job.engine }} {{ job.engineVersion }}</span>
                     @if (job.failureMessage) {
                       <span>{{ job.failureMessage }}</span>
                     }

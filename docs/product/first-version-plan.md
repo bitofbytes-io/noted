@@ -1,13 +1,13 @@
 # Noted: First-Version Stand-Up Plan
 
-Status: Production-oriented follow-up; local POC scope is defined in `poc-requirements.md`
-Last updated: 2026-07-13
+Status: Historical first stand-up plan with active post-POC OCR milestone
+Last updated: 2026-07-18
 
 ## Objective
 
 Stand up a private, deployable web application that lets two learners sign in separately, maintain personal repertoire, upload and view scores, play structured scores, use a metronome, and record basic practice activity.
 
-This plan deliberately avoids requiring automatic PDF-to-notation conversion for the first usable stand-up. The selected post-stand-up OCR direction is a separate Audiveris batch-worker increment described below.
+This plan deliberately did not require automatic PDF-to-notation conversion for the first usable stand-up. That historical boundary is unchanged. The post-stand-up OCR milestone described below is now active development as a dual-engine batch-worker pipeline.
 
 ## Recommended first-version boundary
 
@@ -30,7 +30,7 @@ This plan deliberately avoids requiring automatic PDF-to-notation conversion for
 
 ### Excluded from the first stand-up
 
-- Automatic optical music recognition from arbitrary PDFs (deferred to the post-stand-up Audiveris increment).
+- Automatic optical music recognition from arbitrary PDFs (excluded from the historical first stand-up; an eligible-PDF pipeline is now active post-POC work).
 - A built-in notation correction editor.
 - Guaranteed automated IMSLP download/import.
 - ISBN table-of-contents recognition.
@@ -153,7 +153,7 @@ No real secret values belong in this repository.
 - Practice session
 - Playback preference or last-used state
 
-Annotation, lesson, assignment, physical-book, and recognition-job records can be designed later unless a small placeholder is needed to prevent a known migration problem.
+Annotation, lesson, assignment, and physical-book records remain later work. Recognition-job, lease, lineage, project-artifact, failure-code, and quality-report records have since been added through post-POC migrations.
 
 ## Decisions required before scaffolding
 
@@ -258,17 +258,20 @@ Until this research is complete, the safe first workflow is to retain a source U
 - Privacy, account deletion, and data export behavior appropriate for the initial audience.
 - End-to-end tests for sign-in, upload, playback, and practice logging.
 
-### M6: OCR-assisted upload
+### M6: OCR-assisted upload (implemented direction; production acceptance pending)
 
-- Run a pinned Audiveris release as an asynchronous worker, not in the Go API request process.
-- Let a learner explicitly request recognition for an eligible printed PDF/image asset.
-- Export and validate MusicXML, store it as a derived score asset, and preserve source lineage plus engine/configuration provenance.
-- Show queued/running/succeeded/failed job state and actionable failure feedback.
+- Run Audiveris 5.10.2 and homr 0.7.0 sequentially in a private asynchronous worker, outside the Go API request process and behind the same resource/security boundary.
+- Let a learner explicitly request recognition for an eligible printed PDF asset. Image uploads remain a later input extension.
+- Render at controlled 300 DPI, repair surviving engine outputs with music21 10.3.0, align/arbitrate measures, and fall back to one engine when the other fails.
+- Validate structure and measure timing, then require a headless alphaTab 1.8.4 load/timing pass. Record `unplayable_output` and import no result when the final gate fails.
+- Store successful MusicXML as a separate derived asset with source/job/engine provenance and a strict schema-v1 report containing repair totals, per-engine summaries, per-measure source/agreement/confidence/issues, and playability ticks.
+- Show `queued`/`processing`/`succeeded`/`failed`/`cancelled` state, stable failure feedback, corrected/suspect totals, and medium/low-confidence measure markers.
 - Label generated output `Unverified OCR`; allow explicit playback, rerun, replacement, and deletion while preserving the original.
-- Retain the private `.omr` project artifact when practical to support later correction outside Noted.
-- Add representative-score quality/resource tests, tenant-isolation tests, output-validation tests, and an AGPL-3.0 compliance record.
+- Retain the bounded private `.omr` project artifact when available to support later correction outside Noted.
+- Maintain the CC0 synthetic fixture corpus and evaluation harness for parse, alphaTab, measure integrity/count, and pitch/rhythm/event comparison.
+- The committed synthetic-corpus benchmark records Audiveris-only versus homr/repaired/fused results and an emulated production-image resource observation. Before production promotion, add a rights-cleared representative real-score benchmark and NAS-native resource/failure-path results, then record owner acceptance of AGPL, homr/RapidOCR model-weight, notice, corresponding-source, private-network, backup, and operations obligations.
 
-M6 does not include a Noted correction editor or handwritten-score recognition. It can begin only after the first stand-up definition of done is met and the technical/licensing spike is accepted.
+M6 still does not include a Noted correction editor, handwritten-score recognition, or guaranteed transcription accuracy. The technical pipeline and four-fixture benchmark exist; the benchmark shows an overall playability/event improvement with a dense-polyphony fidelity tradeoff. Production promotion remains blocked on representative real-score, NAS-resource/failure-path, dependency-inventory, and legal/operational acceptance gates.
 
 ## First-version definition of done
 
@@ -293,7 +296,7 @@ The first version is stood up when:
 4. **iPad browser constraints:** audio, large documents, touch interaction, and memory behavior must be tested on the real device.
 5. **Scope pressure:** OMR, annotations, lessons, book recognition, and learning content can each become substantial products of their own.
 6. **Rights and privacy:** uploaded scans and separate family accounts require clear storage, access, deletion, and provenance rules.
-7. **OMR accuracy and licensing:** Audiveris cannot guarantee perfect recognition, and its AGPL-3.0 obligations must be reviewed for the exact worker/deployment model before release.
+7. **OMR accuracy and licensing:** Dual-engine agreement and repair do not guarantee correctness. Audiveris/homr AGPL obligations, homr/RapidOCR weight provenance/redistribution, music21 corpus contents, and alphaTab package assets must be reviewed for the exact worker/deployment model before release.
 
 ## Recommended immediate next step
 

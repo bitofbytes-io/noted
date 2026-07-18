@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/bitofbytes-io/noted/internal/omrreport"
 )
 
 const (
@@ -126,49 +128,55 @@ func (r HTTPRecognizer) recognizeOnce(ctx context.Context, inputPath, outputDire
 
 	engine := sanitizeRemoteError(response.Header.Get("X-Noted-OMR-Engine"), 100)
 	version := sanitizeRemoteError(response.Header.Get("X-Noted-OMR-Version"), 100)
-	if !strings.EqualFold(engine, "audiveris") || version == "" {
+	if (!strings.EqualFold(engine, "audiveris") && !strings.EqualFold(engine, "audiveris+homr")) || version == "" {
 		return RecognitionOutput{}, errors.New("recognition worker returned invalid engine metadata")
 	}
 	if err := os.MkdirAll(outputDirectory, 0o750); err != nil {
 		return RecognitionOutput{}, fmt.Errorf("create recognition output directory: %w", err)
 	}
-	scorePath, projectPath, err := receiveRecognitionArtifacts(response, outputDirectory)
+	scorePath, projectPath, report, err := receiveRecognitionArtifacts(response, outputDirectory)
 	if err != nil {
 		return RecognitionOutput{}, err
 	}
-	return RecognitionOutput{Path: scorePath, ProjectPath: projectPath, EngineVersion: version}, nil
+	if strings.EqualFold(engine, "audiveris+homr") && report == nil {
+		_ = os.Remove(scorePath)
+		_ = os.Remove(projectPath)
+		return RecognitionOutput{}, errors.New("dual-engine recognition worker returned no quality report")
+	}
+	return RecognitionOutput{Path: scorePath, ProjectPath: projectPath, Engine: strings.ToLower(engine), EngineVersion: version, Report: report}, nil
 }
 
-func receiveRecognitionArtifacts(response *http.Response, outputDirectory string) (string, string, error) {
+func receiveRecognitionArtifacts(response *http.Response, outputDirectory string) (string, string, *omrreport.Report, error) {
 	mediaType, parameters, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil {
-		return "", "", errors.New("recognition worker returned an invalid content type")
+		return "", "", nil, errors.New("recognition worker returned an invalid content type")
 	}
 	if !strings.EqualFold(mediaType, "multipart/mixed") {
 		extension, err := remoteOutputExtension(response.Header.Get("Content-Type"))
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		if response.ContentLength > maxRecognitionOutputBytes {
-			return "", "", errors.New("recognition output is too large")
+			return "", "", nil, errors.New("recognition output is too large")
 		}
 		path, err := writeRecognitionArtifact(response.Body, outputDirectory, "recognized-*"+extension, maxRecognitionOutputBytes)
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		if err := validateRecognitionScore(path); err != nil {
 			_ = os.Remove(path)
-			return "", "", fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
+			return "", "", nil, fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
 		}
-		return path, "", nil
+		return path, "", nil, nil
 	}
 
 	boundary := parameters["boundary"]
 	if boundary == "" {
-		return "", "", errors.New("recognition worker returned multipart output without a boundary")
+		return "", "", nil, errors.New("recognition worker returned multipart output without a boundary")
 	}
 	reader := multipart.NewReader(response.Body, boundary)
 	var scorePath, projectPath string
+	var report *omrreport.Report
 	keep := false
 	defer func() {
 		if !keep {
@@ -182,51 +190,67 @@ func receiveRecognitionArtifacts(response *http.Response, outputDirectory string
 			break
 		}
 		if err != nil {
-			return "", "", fmt.Errorf("read recognition multipart output: %w", err)
+			return "", "", nil, fmt.Errorf("read recognition multipart output: %w", err)
 		}
 		artifact := strings.ToLower(strings.TrimSpace(part.Header.Get("X-Noted-Artifact")))
 		switch artifact {
 		case "score":
 			if scorePath != "" {
 				_ = part.Close()
-				return "", "", errors.New("recognition worker returned multiple score artifacts")
+				return "", "", nil, errors.New("recognition worker returned multiple score artifacts")
 			}
 			extension, extensionErr := remoteOutputExtension(part.Header.Get("Content-Type"))
 			if extensionErr != nil {
 				_ = part.Close()
-				return "", "", extensionErr
+				return "", "", nil, extensionErr
 			}
 			scorePath, err = writeRecognitionArtifact(part, outputDirectory, "recognized-*"+extension, maxRecognitionOutputBytes)
 		case "project":
 			if projectPath != "" {
 				_ = part.Close()
-				return "", "", errors.New("recognition worker returned multiple project artifacts")
+				return "", "", nil, errors.New("recognition worker returned multiple project artifacts")
 			}
 			projectPath, err = writeRecognitionArtifact(part, outputDirectory, "recognized-*.omr", maxRecognitionProjectBytes)
+		case "report":
+			if report != nil {
+				_ = part.Close()
+				return "", "", nil, errors.New("recognition worker returned multiple quality reports")
+			}
+			partMediaType, _, mediaErr := mime.ParseMediaType(part.Header.Get("Content-Type"))
+			if mediaErr != nil || !strings.EqualFold(partMediaType, "application/json") {
+				err = errors.New("recognition worker returned an invalid quality report content type")
+				break
+			}
+			decoded, decodeErr := omrreport.Decode(part)
+			if decodeErr != nil {
+				err = fmt.Errorf("recognition worker returned an invalid quality report: %w", decodeErr)
+				break
+			}
+			report = &decoded
 		default:
 			err = fmt.Errorf("recognition worker returned unknown artifact %q", artifact)
 		}
 		closeErr := part.Close()
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		if closeErr != nil {
-			return "", "", fmt.Errorf("close recognition artifact: %w", closeErr)
+			return "", "", nil, fmt.Errorf("close recognition artifact: %w", closeErr)
 		}
 	}
 	if scorePath == "" {
-		return "", "", errors.New("recognition worker returned no score artifact")
+		return "", "", nil, errors.New("recognition worker returned no score artifact")
 	}
 	if err := validateRecognitionScore(scorePath); err != nil {
-		return "", "", fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
+		return "", "", nil, fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
 	}
 	if projectPath != "" {
 		if err := validateRecognitionProject(projectPath); err != nil {
-			return "", "", fmt.Errorf("recognition worker produced unusable Audiveris project: %w", err)
+			return "", "", nil, fmt.Errorf("recognition worker produced unusable Audiveris project: %w", err)
 		}
 	}
 	keep = true
-	return scorePath, projectPath, nil
+	return scorePath, projectPath, report, nil
 }
 
 func writeRecognitionArtifact(reader io.Reader, outputDirectory, pattern string, limit int64) (string, error) {

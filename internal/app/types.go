@@ -4,10 +4,14 @@ import (
 	"time"
 
 	assetstore "github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/bitofbytes-io/noted/internal/omrreport"
 )
 
 type PlaybackIssue = assetstore.PlaybackIssue
 type PlaybackValidation = assetstore.PlaybackValidation
+type OMRQualityReport = omrreport.Report
+type OMRMeasureQuality = omrreport.Measure
+type OMRPlayability = omrreport.Playability
 
 type User struct {
 	ID              string `json:"id"`
@@ -53,18 +57,22 @@ type Edition struct {
 }
 
 type RecognitionJob struct {
-	ID                 string     `json:"id"`
-	SourceAssetID      string     `json:"sourceAssetId"`
-	OutputAssetID      *string    `json:"outputAssetId,omitempty"`
-	Status             string     `json:"status"`
-	Engine             string     `json:"engine"`
-	EngineVersion      string     `json:"engineVersion"`
-	FailureMessage     string     `json:"failureMessage,omitempty"`
-	ProjectDownloadURL string     `json:"projectDownloadUrl,omitempty"`
-	CreatedAt          time.Time  `json:"createdAt"`
-	StartedAt          *time.Time `json:"startedAt,omitempty"`
-	FinishedAt         *time.Time `json:"finishedAt,omitempty"`
-	UpdatedAt          time.Time  `json:"updatedAt"`
+	ID                 string            `json:"id"`
+	SourceAssetID      string            `json:"sourceAssetId"`
+	OutputAssetID      *string           `json:"outputAssetId,omitempty"`
+	Status             string            `json:"status"`
+	Engine             string            `json:"engine"`
+	EngineVersion      string            `json:"engineVersion"`
+	ErrorCode          string            `json:"errorCode,omitempty"`
+	FailureMessage     string            `json:"failureMessage,omitempty"`
+	FlaggedMeasures    *int              `json:"flaggedMeasures,omitempty"`
+	CorrectedMeasures  *int              `json:"correctedMeasures,omitempty"`
+	Report             *OMRQualityReport `json:"report,omitempty"`
+	ProjectDownloadURL string            `json:"projectDownloadUrl,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	StartedAt          *time.Time        `json:"startedAt,omitempty"`
+	FinishedAt         *time.Time        `json:"finishedAt,omitempty"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
 	projectStorageKey  *string
 }
 

@@ -48,6 +48,9 @@ var playbackIssueDefinitions = map[string]playbackIssueDefinition{
 	"measure_duration_overflow": {
 		message: "Rhythmic content extends beyond the expected measure duration.", blocked: false,
 	},
+	"measure_duration_underflow": {
+		message: "Rhythmic content does not fill the expected measure duration.", blocked: false,
+	},
 	"measure_number_gap": {
 		message: "The score has gaps in its numeric measure sequence.", blocked: false,
 	},
@@ -176,14 +179,18 @@ type scoreDuration struct {
 }
 
 type partPlaybackState struct {
-	divisions int
-	meter     *big.Rat
+	divisions        int
+	meter            *big.Rat
+	measureCount     int
+	pendingUnderflow string
 }
 
 type measurePlaybackState struct {
-	number string
-	cursor *big.Rat
-	max    *big.Rat
+	number   string
+	implicit bool
+	ordinal  int
+	cursor   *big.Rat
+	max      *big.Rat
 }
 
 func validateScoreXML(data []byte) PlaybackValidation {
@@ -226,9 +233,20 @@ func validateScoreXML(data []byte) PlaybackValidation {
 					parts[partID] = currentPart
 				}
 			case "measure":
+				if currentPart != nil {
+					if currentPart.pendingUnderflow != "" {
+						issues.add("measure_duration_underflow", currentPart.pendingUnderflow)
+						currentPart.pendingUnderflow = ""
+					}
+					currentPart.measureCount++
+				}
 				currentMeasure = &measurePlaybackState{
-					number: attributeValue(value.Attr, "number"),
-					cursor: new(big.Rat), max: new(big.Rat),
+					number:   attributeValue(value.Attr, "number"),
+					implicit: strings.EqualFold(attributeValue(value.Attr, "implicit"), "yes"),
+					cursor:   new(big.Rat), max: new(big.Rat),
+				}
+				if currentPart != nil {
+					currentMeasure.ordinal = currentPart.measureCount
 				}
 				if partIndex == 1 {
 					if number, parseErr := strconv.Atoi(strings.TrimSpace(currentMeasure.number)); parseErr == nil {
@@ -286,8 +304,17 @@ func validateScoreXML(data []byte) PlaybackValidation {
 			}
 		case xml.EndElement:
 			if value.Name.Local == "measure" && currentMeasure != nil && currentPart != nil {
-				if currentPart.meter != nil && currentMeasure.max.Cmp(currentPart.meter) > 0 {
-					issues.add("measure_duration_overflow", currentMeasure.number)
+				if currentPart.meter != nil {
+					switch currentMeasure.max.Cmp(currentPart.meter) {
+					case 1:
+						issues.add("measure_duration_overflow", currentMeasure.number)
+					case -1:
+						// Pickups and final incomplete measures are valid MusicXML. Delay
+						// reporting until another measure proves this one was not final.
+						if currentMeasure.ordinal > 1 && !currentMeasure.implicit {
+							currentPart.pendingUnderflow = currentMeasure.number
+						}
+					}
 				}
 				currentMeasure = nil
 			}

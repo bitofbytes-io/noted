@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
@@ -43,7 +44,36 @@ func (fixtureRecognizer) Recognize(_ context.Context, _ string, outputDirectory 
 	if err := output.Close(); err != nil {
 		return RecognitionOutput{}, err
 	}
-	return RecognitionOutput{Path: path, EngineVersion: "test"}, nil
+	report := fixtureOMRReport()
+	return RecognitionOutput{Path: path, Engine: "audiveris+homr", EngineVersion: "test", Report: &report}, nil
+}
+
+func fixtureOMRReport() OMRQualityReport {
+	measures := make([]OMRMeasureQuality, 8)
+	for index := range measures {
+		measures[index] = OMRMeasureQuality{
+			PartID: "P1", Number: fmt.Sprint(index + 1), MeasureIndex: index + 1,
+			SourceEngine: "audiveris", Agreement: true, Confidence: "high", Issues: []string{},
+		}
+	}
+	measures[2].Agreement = false
+	measures[2].Confidence = "medium"
+	measures[2].Corrected = true
+	measures[2].SourceEngine = "homr"
+	measures[2].Issues = []string{"duration_repaired"}
+	measures[6].Agreement = false
+	measures[6].Confidence = "low"
+	measures[6].Issues = []string{"engine_disagreement"}
+	return OMRQualityReport{
+		SchemaVersion: 1, TotalMeasures: 8, FlaggedMeasures: 2, CorrectedMeasures: 1,
+		SuspectMeasures: 2, SelectedEngine: "fusion",
+		Engines: map[string]json.RawMessage{
+			"audiveris": json.RawMessage(`{"status":"passed"}`),
+			"homr":      json.RawMessage(`{"status":"passed"}`),
+		},
+		Measures:    measures,
+		Playability: OMRPlayability{Status: "passed", MeasureCount: 8, TotalTicks: 30720},
+	}
 }
 
 type fixtureProjectRecognizer struct{}
@@ -919,6 +949,9 @@ func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
 	if job.Status != "succeeded" || job.OutputAssetID == nil || job.ProjectDownloadURL == "" {
 		t.Fatalf("recognition job = %+v", job)
 	}
+	if job.Engine != "audiveris+homr" || job.Report == nil || job.Report.TotalMeasures != 8 || job.FlaggedMeasures == nil || *job.FlaggedMeasures != 2 || job.CorrectedMeasures == nil || *job.CorrectedMeasures != 1 {
+		t.Fatalf("recognition quality report was not persisted: %+v", job)
+	}
 	project, _, err := service.OpenRecognitionProject(ctx, fixture.UserID, job.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1129,7 +1162,7 @@ func TestIntegrationCancelledRecognitionDiscardsLateOutput(t *testing.T) {
 		VALUES($1,$2,'musicxml',$3,'late.musicxml','application/vnd.recordare.musicxml+xml',8,$4,'Generated OCR',true,$5,$6,'unverified_ocr')`, assetID, fixture.EditionID, "musicxml/"+uuid.NewString(), strings.Repeat("c", 64), fixture.UserID, fixture.AssetID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test", service.recognitionWorkerID, ""); err != nil {
+	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "audiveris", "test", nil, service.recognitionWorkerID, ""); err != nil {
 		t.Fatal(err)
 	}
 	var exists bool

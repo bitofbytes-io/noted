@@ -86,6 +86,38 @@ export interface Edition {
   assets: Asset[];
 }
 
+export type RecognitionMeasureConfidence = 'high' | 'medium' | 'low';
+
+export interface RecognitionMeasureReport {
+  partId: string;
+  number: string;
+  /** One-based index in the final normalized MusicXML consumed by the player. */
+  measureIndex: number;
+  sourceEngine: string;
+  agreement: boolean;
+  confidence: RecognitionMeasureConfidence;
+  corrected: boolean;
+  issues: string[];
+}
+
+export interface RecognitionPlayabilityReport {
+  status: 'passed';
+  measureCount: number;
+  totalTicks?: number;
+}
+
+export interface RecognitionReport {
+  schemaVersion: 1;
+  totalMeasures: number;
+  flaggedMeasures: number;
+  correctedMeasures: number;
+  suspectMeasures: number;
+  selectedEngine: string;
+  engines: Record<string, unknown>;
+  measures: RecognitionMeasureReport[];
+  playability: RecognitionPlayabilityReport;
+}
+
 export interface RecognitionJob {
   id: string;
   sourceAssetId: string;
@@ -93,8 +125,12 @@ export interface RecognitionJob {
   status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
   engine: string;
   engineVersion: string;
+  errorCode?: string;
   failureMessage?: string;
   projectDownloadUrl?: string;
+  flaggedMeasures?: number;
+  correctedMeasures?: number;
+  report?: RecognitionReport;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;

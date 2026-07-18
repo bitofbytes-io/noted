@@ -21,6 +21,7 @@ func TestValidateMusicXMLPlaybackSemantics(t *testing.T) {
 		{name: "ready with chord grace and pickup", measures: validMeasure + `<measure number="2" implicit="yes"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "ready"},
 		{name: "measure number gap warns", measures: validMeasure + `<measure number="3"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "measure_number_gap"},
 		{name: "duration overflow warns", measures: `<measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>` + fiveQuarterNotes() + `</measure>`, wantStatus: "needs_review", wantCode: "measure_duration_overflow"},
+		{name: "middle measure duration underflow warns", measures: validMeasure + `<measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note></measure><measure number="3">` + quarterNotes(4) + `</measure>`, wantStatus: "needs_review", wantCode: "measure_duration_underflow"},
 		{name: "negative cursor warns", measures: `<measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><backup><duration>4</duration></backup><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "cursor_before_measure"},
 		{name: "invalid divisions warn", measures: `<measure number="1"><attributes><divisions>0</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "invalid_divisions"},
 		{name: "no playable notes warn", measures: `<measure number="1"><attributes><divisions>4</divisions></attributes><note><rest/><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "no_playable_notes"},
@@ -68,8 +69,12 @@ func TestValidateMusicXMLRejectsMalformedDocument(t *testing.T) {
 }
 
 func fiveQuarterNotes() string {
+	return quarterNotes(5)
+}
+
+func quarterNotes(count int) string {
 	result := ""
-	for index := 0; index < 5; index++ {
+	for index := 0; index < count; index++ {
 		result += fmt.Sprintf(`<note><pitch><step>C</step><octave>%d</octave></pitch><duration>4</duration></note>`, index+2)
 	}
 	return result

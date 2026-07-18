@@ -7,6 +7,8 @@ on:
       - 'omr/**'
       - 'cmd/omr-worker/**'
       - 'internal/omrworker/**'
+      - 'internal/omrreport/**'
+      - 'testdata/fixtures/noted-exercise.musicxml'
       - 'go.mod'
       - 'go.sum'
       - 'Makefile'

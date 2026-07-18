@@ -1,7 +1,7 @@
 # Noted: Provisional Product Requirements
 
 Status: Long-term working requirements; POC scope is defined in `poc-requirements.md`
-Last updated: 2026-07-13
+Last updated: 2026-07-18
 
 This document translates product discovery into testable requirements. Everything remains subject to prioritization and technical research.
 
@@ -131,14 +131,18 @@ Automatic performance listening, instrument-sound selection, and Bluetooth pedal
 ### Optical music recognition
 
 - FR-090: When a learner uploads an eligible printed PDF or score image without structured notation, the learner can explicitly request optical music recognition.
-- FR-091: The first recognition implementation uses a pinned release of [Audiveris](https://github.com/Audiveris/audiveris) in batch mode to transcribe the source and export MusicXML.
+- FR-091: Recognition uses pinned Audiveris and homr releases in a private batch worker, repairs surviving outputs with pinned music21, and uses validity/agreement-based measure arbitration with single-engine fallback.
 - FR-092: Recognition preserves the original source asset and creates a separate derived MusicXML asset linked to that exact source, edition, user, engine version, and job.
-- FR-093: Recognition is asynchronous and exposes queued, running, succeeded, and failed states with useful retryable/non-retryable error feedback.
-- FR-094: Machine-generated notation is labeled `Unverified OCR` and retains the Audiveris version, processing time, and relevant configuration/provenance.
+- FR-093: Recognition is asynchronous and exposes `queued`, `processing`, `succeeded`, `failed`, and `cancelled` states with useful retryable/non-retryable error feedback.
+- FR-094: Machine-generated notation is labeled `Unverified OCR` and retains the worker contract version, per-engine versions/status, processing time, relevant configuration/provenance, repair totals, per-measure source/agreement/confidence/issues, and final playability result.
 - FR-095: The first OCR increment does not include a Noted notation-correction interface. A learner may inspect and play the unverified result with a visible accuracy warning, replace it with independently corrected MusicXML, rerun recognition, or delete the derived result without deleting the original.
 - FR-096: The first OCR increment targets printed Common Western Music Notation. Handwritten scores and unsupported notation are rejected or reported as unsupported rather than presented as trustworthy conversions.
 - FR-097: The system may retain the private Audiveris `.omr` project artifact so a future correction workflow can resume from the recognition result without rerunning the entire source.
 - FR-098: A future correction increment may use Audiveris's interactive editor or a compatible external notation editor. Building a notation editor inside Noted is not required.
+- FR-099: Recognition renders input pages at controlled resolution, applies conservative automatic rhythmic repair, and never upgrades repaired output from `Unverified OCR` merely because it became playable.
+- FR-100: The final MusicXML must pass structural/rhythmic validation and a headless load/timing check using the same pinned alphaTab version as the player. A failure produces `unplayable_output` and no derived asset.
+- FR-101: A successful dual-engine job persists a strict versioned quality report and surfaces corrected/suspect totals plus medium/low-confidence measures to the learner.
+- FR-102: A non-cancellation failure of one engine may fall back to the other; failure of both engines ends the job without importing partial output.
 
 ## Provisional non-functional requirements
 
@@ -151,10 +155,12 @@ Automatic performance listening, instrument-sound selection, and Bluetooth pedal
 - NFR-007: The initial interface uses a light theme and keeps score pages visually white.
 - NFR-008: The visual language is simple, utilitarian, structured, and based on crisp boundaries rather than ornamental styling.
 - NFR-009: Dashboard information density preserves intentional whitespace and avoids a cramped presentation.
-- NFR-010: Audiveris runs outside the synchronous upload request in an isolated, resource-limited worker with bounded input size, page count, execution time, memory, CPU, temporary storage, and concurrency.
+- NFR-010: Audiveris, homr/ONNX, music21, and the alphaTab gate run outside the synchronous upload request in an isolated, resource-limited worker with bounded input/output size, page count, upload/execution time, memory, CPU, temporary storage, logs, archive expansion, and concurrency.
 - NFR-011: The OMR worker has no public route and no direct authority over learner data; the Go API authorizes the source, owns job state, and imports only validated outputs.
 - NFR-012: Recognition artifacts use opaque storage keys, are private by default, and follow the same authorization, checksum, retention, backup, and deletion rules as original assets.
-- NFR-013: Before distribution or deployment, the implementation must complete and record an AGPL-3.0 compliance review for the exact Audiveris integration, including notices, corresponding-source obligations, modifications, and network use. Process isolation must not be treated as a substitute for that review.
+- NFR-013: Before distribution or deployment, the implementation must complete and record a dependency/model review for the exact image: Audiveris and homr AGPL notices/corresponding source/modifications/network use; each homr/RapidOCR weight's source, hash, license, training-data terms, citation, and redistribution permission; music21 BSD/corpus contents; and alphaTab MPL/package assets. Process isolation must not be treated as a substitute for that review.
+- NFR-014: Production runtime denies outbound worker network access; all dependencies and model artifacts are present in the immutable image and readiness fails on pinned version or model-checksum drift.
+- NFR-015: Production promotion requires recorded before/after quality results and representative runtime/memory/scratch/failure cleanup evidence from the exact pinned image. Reference self-comparison is only harness smoke evidence.
 
 Offline use is a potential later enhancement rather than an initial requirement.
 
@@ -162,8 +168,8 @@ Offline use is a potential later enhancement rather than an initial requirement.
 
 - IMSLP and alternative catalog/search integration, rights, attribution, download, caching, and redistribution constraints.
 - Bibliographic and table-of-contents sources available from ISBNs.
-- Audiveris spike using representative clean, noisy, multi-page, and complex piano scores; measure/rhythm accuracy, failure modes, CLI behavior, resource use, and MusicXML compatibility with the selected player.
-- Audiveris AGPL-3.0 integration and distribution/compliance review before committing the production topology.
+- Dual-engine evaluation using rights-safe clean, noisy, multi-page, and complex piano scores; Audiveris-only, homr-only, repaired, and fused measure/rhythm/pitch/event results; failure/fallback behavior; resource use; and alphaTab compatibility.
+- Exact-image Audiveris/homr AGPL, homr/RapidOCR weight, music21, and alphaTab distribution/compliance review before production promotion.
 - MusicXML versus MEI as storage/interchange formats.
 - Browser-based notation rendering and synthesized playback options.
 - Apple Pencil annotation performance, persistence, coordinate mapping, and PDF compatibility on iPad browsers.
@@ -171,4 +177,4 @@ Offline use is a potential later enhancement rather than an initial requirement.
 
 ## POC boundary
 
-The release sequence and local POC boundary are now established. See `poc-requirements.md` for the authoritative implementation-planning scope. The Audiveris OCR requirements above describe a post-POC increment and do not retroactively expand the completed POC. Search/import automation, annotation, OCR correction, lessons, and learning remain later work unless explicitly included by a future requirements revision.
+The release sequence and local POC boundary are established. See `poc-requirements.md` for the authoritative historical POC scope. The OCR requirements above describe active post-POC development and do not retroactively expand what the completed POC claimed. Automated conservative repair is part of that OMR pipeline; a learner-facing notation editor, search/import automation, annotations, lessons, and learning remain later work unless explicitly included by a future requirements revision.

@@ -1,7 +1,7 @@
 # Noted: POC System Design
 
-Status: Architecture input for implementation planning
-Last updated: 2026-07-13
+Status: Implemented POC architecture with active post-POC extensions
+Last updated: 2026-07-18
 
 ## Architecture goals
 
@@ -104,51 +104,58 @@ Required implementations:
 
 An S3 implementation is not required but must remain possible without changing HTTP or domain contracts.
 
-## Post-POC Audiveris recognition extension
+## Active post-POC OMR extension
 
-Audiveris is the selected engine candidate for the first OCR-assisted upload increment. It is a Java/AGPL-3.0 Optical Music Recognition application that accepts printed score images/PDFs and can run headlessly with batch transcription and MusicXML export. The completed POC remains PDF/MusicXML upload-only; this extension is not part of its runtime or migration set.
+The historical POC remains PDF/MusicXML upload-only. Active development after that boundary implements OCR as a separate derived-asset pipeline using Audiveris 5.10.2, homr 0.7.0, music21 10.3.0, and the same alphaTab 1.8.4 importer pinned by the web player. See [ADR 0002](../decisions/0002-audiveris-ocr-pipeline.md) for arbitration, benchmark, and release-acceptance details.
 
 ### Component boundary
 
-Add a private `omr-worker` process rather than embedding Java or Audiveris APIs into the Go request process:
+Use a private `omr-worker` process rather than embedding Java, Python/ONNX, or alphaTab APIs into the Go request process:
 
 ```text
 Angular UI
     |
     | request/status
     v
-Go API ---- PostgreSQL recognition_jobs
+Go API ---- PostgreSQL recognition_jobs + quality report
     |
-    | bounded job + opaque source/output paths
+    | authenticated bounded PDF request
     v
-Audiveris worker ---- private temporary/derived asset storage
+OMR worker ---- isolated temporary storage
     |
-    `---- .mxl output + optional .omr project artifact
+    `---- MusicXML + report + optional private .omr artifact
 ```
 
 - The Go API authenticates the learner, verifies access to the source asset, creates job state, and imports validated results.
-- The worker has no public HTTP route and does not decide authorization. It receives one opaque job at a time through an internal queue/runner contract.
-- The worker uses a pinned Audiveris release and its batch CLI (`-batch -transcribe -export -output`) without shell interpolation of user-controlled names.
-- Each job gets a private temporary directory, execution deadline, page/size limit, memory/CPU limit, concurrency limit, and cleanup on every terminal state.
-- Network access should be disabled unless a documented Audiveris runtime prerequisite requires it. Inputs and outputs are treated as untrusted files.
-- Only validated MusicXML output becomes a `score_asset`. Prefer Audiveris plain MusicXML export initially; if compressed `.mxl` is accepted, enforce archive entry/count/expanded-size limits, safe paths, and expected score content. The `.omr` book remains a private job artifact exposed only through an authenticated owner download; logs and intermediate files are never browser-addressable.
+- The API owns the PostgreSQL claim/lease loop and sends one PDF to the internal worker over a bearer-authenticated private HTTP route. The worker has no public route, database credentials, OAuth/session secrets, NFS credentials, or authorization role.
+- The worker accepts one request at a time. Inputs/outputs are capped at 25 MiB and 25 pages; upload and conversion deadlines are two and ten minutes; logs and archive expansion are bounded; the post-conversion job footprint is capped at 512 MiB. The container supplies the two-CPU, 4-GiB, and scratch-volume ceilings.
+- Each job receives private HOME/XDG/cache/temp directories, bounded native-library thread counts, process-group cancellation, and cleanup on every terminal state. Stale job directories are removed on worker startup.
+- Production runtime has no outbound network access. The image build pre-fetches engines, Python/Node dependencies, and model weights, then readiness checks exact Python/npm versions and the generated ONNX checksum manifest.
+- The worker invokes Audiveris with fixed arguments (`-batch -transcribe -save -export -output ... -- input`) and homr with a fixed CPU command; no user-controlled value is shell-interpolated.
+- Only validated plain MusicXML becomes a `score_asset`. Compressed MusicXML and `.omr` projects are treated as untrusted archives with entry/count/expanded-size/path checks. The `.omr` book remains a private job artifact exposed only through an authenticated owner download; logs and intermediates are never browser-addressable.
 
-### Recognition workflow
+### Recognition pipeline
 
-1. Finish the normal PDF/image upload and make the original immediately readable.
-2. Let the learner explicitly request OCR; upload does not silently start an expensive job.
-3. Authorize the source and create a `queued` recognition job with engine/version/configuration provenance.
-4. Materialize the authorized source into an isolated job directory and run Audiveris asynchronously.
-5. Capture bounded logs and transition to `failed` with a stable, sanitized error when the process fails, times out, exceeds limits, or produces no valid score.
-6. Validate the MusicXML structure and size, calculate its checksum, store it under an opaque derived key, and link it to the source asset and edition.
-7. Mark the result `Unverified OCR`. The learner can explicitly inspect/play it despite musical-quality warnings, download the linked `.omr` correction project, rerun recognition, replace it with corrected MusicXML, or delete it independently of the original.
-8. Retain the `.omr` project artifact when configured so a later Audiveris/external-editor correction workflow can resume without redefining Noted as a notation editor.
+1. Render each authorized PDF page to PNG at controlled 300 DPI, validate the PNG signature, and assemble a grayscale multi-page TIFF for Audiveris. homr receives the same rendered pages individually.
+2. Run Audiveris and homr sequentially to stay within the CPU/memory budget. A non-cancellation failure of one engine is recorded and the other may continue; both failing returns `conversion_failed`.
+3. Parse each surviving output through music21. Attempt `ScoreCorrector` on duration-flagged measures, pad underfull non-pickup measures with rests, rebuild notation when possible, combine homr page outputs, and re-export normalized MusicXML with a bounded repair report.
+4. Prefer Audiveris as the structural backbone when available, otherwise use homr. Align measures by Needleman-Wunsch scoring over measure hashes/numbers. Keep agreement as high confidence; replace an invalid backbone measure with an aligned valid homr measure; retain valid disagreement as medium confidence; mark invalid disagreement low/suspect.
+5. In the worker, validate final XML structure/size and archive rules before loading the bytes headlessly with alphaTab 1.8.4. Require tracks, master bars with positive safe tick durations, equal bar counts across staves, bounded beat timing, and at least one timed beat. A failure is `unplayable_output`, and the API imports no derived asset.
+6. Complete and validate the schema-v1 quality report and return score/report/optional `.omr` as bounded multipart artifacts. At the API trust boundary, validate MusicXML again, including playable notes, divisions, `backup`/`forward` cursor motion, and measure durations. `<backup>` and `<forward>` are supported MusicXML timing constructs; only invalid cursor/timing behavior is a recognition blocker.
+7. Calculate checksums, persist opaque objects, and link the successful MusicXML to the source and job as `Unverified OCR`.
+8. Surface corrected/suspect totals and medium/low measure confidence in work details and the score-player measure strip. Playback never upgrades OCR to trusted or corrected notation.
 
-The first increment targets printed Common Western Music Notation. Audiveris documents that handwritten music is unsupported and that recognition is not perfectly accurate; the UI and data model must not imply otherwise.
+The implemented increment targets printed Common Western Music Notation in PDF form. Handwritten recognition, guaranteed accuracy, and an in-app notation editor remain out of scope.
 
-### Licensing gate
+### Production release gate
 
-Audiveris is licensed under AGPL-3.0. Before code or deployment work begins, record a review of the exact version, packaging, modifications, user/network interaction, notices, and corresponding-source delivery. Keeping Audiveris in a separate process is an architectural and operational boundary, not a conclusion about license obligations.
+Implementation does not equal production acceptance. The committed synthetic-corpus before/after
+result is recorded in the [OMR benchmark](../implementation/omr-benchmark.md). Promotion still
+requires a rights-cleared representative real-score benchmark, NAS-native resource/failure
+evidence, and owner acceptance of the exact Audiveris/homr AGPL packaging and network interaction,
+homr/RapidOCR model-weight provenance and redistribution terms, music21 BSD/corpus notices, and
+alphaTab MPL/package-asset notices. Keeping the worker separate is an architectural and security
+boundary, not a conclusion about license obligations.
 
 ## Local authentication mode
 
@@ -251,4 +258,4 @@ Exact command implementation belongs to the implementation plan, but a clean che
 | Local Go process | `noted-api` Swarm service |
 | Direct local ports | Traefik at `noted.bitofbytes.io` |
 
-The future `omr-worker` is an additional private production component with shared access only to its bounded input/output area. It must not be exposed through Traefik or receive database/OAuth credentials.
+The `omr-worker` is an implemented but not yet production-accepted private component. It must not be exposed through Traefik or receive database/OAuth/NFS credentials; production promotion follows ADR 0002's benchmark, resource, model-license, and owner-acceptance gates.

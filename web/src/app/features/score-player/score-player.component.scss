@@ -101,6 +101,14 @@
   border-color: var(--blue);
   color: white;
 }
+.measure-legend button.confidence-medium {
+  border-color: #a76000;
+  box-shadow: inset 0 -3px #d58a20;
+}
+.measure-legend button.confidence-low {
+  border-color: var(--danger);
+  box-shadow: inset 0 -3px var(--danger);
+}
 .floating-player {
   align-items: center;
   background: #101217;

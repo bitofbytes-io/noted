@@ -19,6 +19,7 @@ import (
 )
 
 const validRemoteMusicXML = `<score-partwise><part><measure><note><pitch><step>C</step><octave>4</octave></pitch></note></measure></part></score-partwise>`
+const validRemoteReport = `{"schemaVersion":1,"totalMeasures":1,"flaggedMeasures":0,"correctedMeasures":0,"suspectMeasures":0,"selectedEngine":"audiveris","engines":{"audiveris":{"status":"passed"},"homr":{"status":"passed"}},"measures":[{"partId":"P1","number":"1","measureIndex":1,"sourceEngine":"audiveris","agreement":true,"confidence":"high","corrected":false,"issues":[]}],"playability":{"status":"passed","measureCount":1,"totalTicks":3840}}`
 
 func TestHTTPRecognizerStreamsPDFAndPersistsValidatedMusicXML(t *testing.T) {
 	input := writeRecognitionInput(t, []byte("%PDF-1.7\nscore"))
@@ -120,6 +121,87 @@ func TestHTTPRecognizerPersistsLinkedMusicXMLAndOMRProject(t *testing.T) {
 	}
 	if !bytes.Equal(storedProject, project) {
 		t.Fatal("stored correction project differs from the worker artifact")
+	}
+}
+
+func TestHTTPRecognizerAcceptsDualEngineQualityReport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("X-Noted-OMR-Engine", "audiveris+homr")
+		response.Header().Set("X-Noted-OMR-Version", "audiveris-5.10.2+homr-0.7.0")
+		writer := multipart.NewWriter(response)
+		response.Header().Set("Content-Type", "multipart/mixed; boundary="+writer.Boundary())
+		scoreHeader := make(textproto.MIMEHeader)
+		scoreHeader.Set("Content-Type", "application/vnd.recordare.musicxml+xml")
+		scoreHeader.Set("X-Noted-Artifact", "score")
+		score, _ := writer.CreatePart(scoreHeader)
+		_, _ = io.WriteString(score, validRemoteMusicXML)
+		reportHeader := make(textproto.MIMEHeader)
+		reportHeader.Set("Content-Type", "application/json")
+		reportHeader.Set("X-Noted-Artifact", "report")
+		report, _ := writer.CreatePart(reportHeader)
+		_, _ = io.WriteString(report, validRemoteReport)
+		_ = writer.Close()
+	}))
+	defer server.Close()
+
+	result, err := (HTTPRecognizer{BaseURL: server.URL, Token: "token"}).Recognize(
+		context.Background(), writeRecognitionInput(t, []byte("%PDF-1.7")), t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Engine != "audiveris+homr" || result.Report == nil || result.Report.TotalMeasures != 1 {
+		t.Fatalf("recognition result = %+v", result)
+	}
+}
+
+func TestHTTPRecognizerRejectsDualEngineResponseWithoutValidReport(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		includeReport bool
+		report        string
+	}{
+		{name: "missing"},
+		{name: "malformed", includeReport: true, report: `{"schemaVersion":1}`},
+		{name: "oversized", includeReport: true, report: strings.Repeat("x", 1<<20+1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("X-Noted-OMR-Engine", "audiveris+homr")
+				response.Header().Set("X-Noted-OMR-Version", "audiveris-5.10.2+homr-0.7.0")
+				writer := multipart.NewWriter(response)
+				response.Header().Set("Content-Type", "multipart/mixed; boundary="+writer.Boundary())
+				scoreHeader := make(textproto.MIMEHeader)
+				scoreHeader.Set("Content-Type", "application/vnd.recordare.musicxml+xml")
+				scoreHeader.Set("X-Noted-Artifact", "score")
+				score, _ := writer.CreatePart(scoreHeader)
+				_, _ = io.WriteString(score, validRemoteMusicXML)
+				if test.includeReport {
+					reportHeader := make(textproto.MIMEHeader)
+					reportHeader.Set("Content-Type", "application/json")
+					reportHeader.Set("X-Noted-Artifact", "report")
+					report, _ := writer.CreatePart(reportHeader)
+					_, _ = io.WriteString(report, test.report)
+				}
+				_ = writer.Close()
+			}))
+			defer server.Close()
+
+			outputDirectory := t.TempDir()
+			_, err := (HTTPRecognizer{BaseURL: server.URL, Token: "token"}).Recognize(
+				context.Background(), writeRecognitionInput(t, []byte("%PDF-1.7")), outputDirectory,
+			)
+			if err == nil {
+				t.Fatal("expected invalid report error")
+			}
+			entries, readErr := os.ReadDir(outputDirectory)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("invalid response left artifacts: %v", entries)
+			}
+		})
 	}
 }
 
@@ -262,6 +344,13 @@ func compressedRemoteMusicXML(t *testing.T) []byte {
 	t.Helper()
 	var output bytes.Buffer
 	archive := zip.NewWriter(&output)
+	container, err := archive.Create("META-INF/container.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(container, `<container><rootfiles><rootfile full-path="score.xml"/></rootfiles></container>`); err != nil {
+		t.Fatal(err)
+	}
 	entry, err := archive.Create("score.xml")
 	if err != nil {
 		t.Fatal(err)
