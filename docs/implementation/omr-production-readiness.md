@@ -105,6 +105,19 @@ The review-hardening rebuild is
 are identical to the evaluated image; the rebuild adds the checked-in manifest
 and build-time filename/hash enforcement. All embedded tests pass again.
 
+A subsequent review found that restoring source time signatures after
+probabilistic repair also removed a useful inferred meter when the source had
+no explicit signature in that later measure. Candidate 5 restores only meters
+that were explicit in the recognizer output, preserves inferred later changes,
+and adds a focused regression test. The final reviewed local image is:
+
+- image: `sha256:829e0a50f101f3a2757bebc7eb5cbef9709b8a8da6feb6e76ec46692d90a9295`;
+- uncompressed image size: 1,592,240,630 bytes; and
+- embedded tests: 13 Python repair/fusion tests and three alphaTab tests pass.
+
+Candidate 5 is the promotion artifact. The representative corpus was rerun
+from the frozen input hashes after that review fix.
+
 ### Representative result
 
 Every input produced parseable MusicXML and passed alphaTab 1.8.4 with valid
@@ -113,16 +126,19 @@ candidate.
 
 | Input | Result | Selected output | Measures | Stable ticks | Elapsed | Peak memory | Peak request scratch |
 |---|---|---|---:|---:|---:|---:|---:|
-| Private real scan A | Pass | Audiveris | 43 | 165,120 | 320 s | 1,345.5 MiB | 20,340,977 B |
-| Private real scan B | Pass | Fusion | 67 | 257,280 | 349 s | 1,184.8 MiB | 21,024,080 B |
-| Greensleeves | Pass | Fusion | 33 | 95,040 | 110 s | 1,181.7 MiB | 16,235,520 B |
-| Bach Invention 12 | Pass | Fusion | 21 | 120,960 | 386 s | 1,484.8 MiB | 18,750,716 B |
-| Chopin Prelude Op. 28 No. 4 | Pass | Fusion | 26 | 99,840 | 154 s | 1,303.6 MiB | 17,358,604 B |
+| Private real scan A | Pass | Audiveris | 43 | 165,120 | 318 s | 1,444.9 MiB | 20,340,977 B |
+| Private real scan B | Pass | Fusion | 67 | 257,280 | 356 s | 1,035.3 MiB | 21,024,080 B |
+| Greensleeves | Pass | Fusion | 33 | 95,040 | 114 s | 1,237.0 MiB | 16,235,520 B |
+| Bach Invention 12 | Pass | Fusion | 21 | 120,960 | 392 s | 1,419.3 MiB | 18,750,716 B |
+| Chopin Prelude Op. 28 No. 4 | Pass | Fusion | 26 | 99,840 | 150 s | 1,280.0 MiB | 17,358,604 B |
 
-The fixed-corpus structural/playability gate is therefore 5/5 (100%). Peak
-memory was 1,484.8 MiB of 4 GiB and peak request scratch was 21,024,080 bytes
-of 1 GiB. The longest observation was 386 seconds. No speed optimization was
-performed.
+The fixed-corpus structural/playability gate is therefore 5/5 (100%) on the
+final candidate. Candidate-5 peak memory was 1,444.9 MiB of 4 GiB. The scratch
+figures shown are the candidate-3 per-request trace; candidate 5 completed every
+item inside the same hard 1-GiB tmpfs bound, and its only runtime change occurs
+after engine scratch artifacts are produced. The highest measured request
+scratch remains 21,024,080 bytes. The longest candidate-5 observation was 392
+seconds. No speed optimization was performed or used as a selection signal.
 
 The reference-qualified synthetic benchmark remains the accuracy evidence:
 aggregate event F1 improved from 94.7% for raw Audiveris to 95.9% for the final

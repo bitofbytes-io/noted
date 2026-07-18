@@ -281,9 +281,14 @@ def _restore_explicit_meters(
 ) -> None:
     """Prevent probabilistic note repair from rewriting the source meter."""
     for part_id, index, measure in _measure_rows(score):
+        source_signatures = captured.get((part_id, index), [])
+        if not source_signatures:
+            # A corrector may infer a missing later meter change. Only source
+            # signatures are authoritative enough to overwrite that result.
+            continue
         for signature in list(measure.getElementsByClass(meter.TimeSignature)):
             measure.remove(signature)
-        for offset, signature in captured.get((part_id, index), []):
+        for offset, signature in source_signatures:
             measure.insert(float(offset), copy.deepcopy(signature))
 
 

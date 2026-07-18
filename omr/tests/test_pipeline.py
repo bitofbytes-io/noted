@@ -88,6 +88,23 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(repair._expected_duration(measures[1]), 6)
         self.assertEqual(report["suspect"], [])
 
+    def test_probabilistic_correction_can_infer_missing_later_meter(self) -> None:
+        score = score_with_durations([4, 3])
+        second = list(score.parts[0].getElementsByClass(stream.Measure))[1]
+
+        def infer_meter() -> stream.Score:
+            second.timeSignature = meter.TimeSignature("3/4")
+            return score
+
+        with mock.patch.object(
+            repair.correctors.ScoreCorrector, "run", side_effect=infer_meter
+        ):
+            repaired, report = repair.repair_score(score, "test")
+        measures = list(repaired.parts[0].getElementsByClass(stream.Measure))
+        self.assertEqual(measures[1].timeSignature.ratioString, "3/4")
+        self.assertEqual(repair._actual_duration(measures[1]), 3)
+        self.assertEqual(report["suspect"], [])
+
     def test_pickup_is_preserved_and_regular_underflow_is_padded(self) -> None:
         score = score_with_durations([1, 3])
         with mock.patch.object(repair.correctors.ScoreCorrector, "run", return_value=score):
