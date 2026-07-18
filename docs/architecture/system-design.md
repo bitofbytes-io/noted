@@ -154,11 +154,11 @@ Implementation does not equal production acceptance. The committed synthetic-cor
 result is recorded in the [OMR benchmark](../implementation/omr-benchmark.md). Promotion still
 requires the gates in the [production-readiness record](../implementation/omr-production-readiness.md).
 The rights-cleared representative run and dependency/model inventory are recorded; NAS-native
-resource/cancellation evidence and final informed owner acceptance remain outstanding. Acceptance
-must cover the exact Audiveris/homr AGPL packaging and network interaction, residual homr model
+resource/cancellation evidence remains outstanding. On 2026-07-18 the owner accepted for private
+use only the exact Audiveris/homr AGPL packaging and network interaction, residual homr model
 provenance limitations, RapidOCR terms, music21 BSD/corpus notices, and alphaTab MPL/package-asset
 notices. Keeping the worker separate is an architectural and security boundary, not a conclusion
-about license obligations.
+about license obligations; public or commercial distribution requires a fresh review.
 
 ## Local authentication mode
 

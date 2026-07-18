@@ -28,8 +28,9 @@ Audiveris-only, homr/repaired, and fused results: playability and aggregate even
 with a disclosed dense-polyphony fidelity tradeoff. Rights-cleared representative real scans also
 pass the fixed structural/playability gate under production-like limits, and the exact dependency
 and model inventory is recorded. Before activation, complete NAS-native resource/cancellation
-verification and obtain final informed owner acceptance of the residual model provenance risk,
-AGPL/corresponding-source duties, private-network boundary, backup, and operations obligations.
+verification plus the private-network, backup, and operations checks. On 2026-07-18 the owner
+explicitly accepted the residual model-provenance risk and AGPL/corresponding-source duties for
+private use only; public or commercial distribution requires a fresh review.
 
 ## Phase 2: Tracking, Lessons, and Progress
 

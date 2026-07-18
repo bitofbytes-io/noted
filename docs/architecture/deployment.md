@@ -142,8 +142,9 @@ Active post-POC development adds a private, asynchronous `noted-omr-worker` imag
 [synthetic-corpus benchmark](../implementation/omr-benchmark.md) are implemented. The
 rights-cleared representative run and exact dependency/model inventory are recorded in the
 [production-readiness ledger](../implementation/omr-production-readiness.md), but the worker is not
-production-accepted until NAS-native resource/cancellation checks and final informed owner
-acceptance are recorded.
+production-accepted until NAS-native resource/cancellation and operational-boundary checks are
+recorded. The owner accepted the inventoried obligations and residual model-provenance risk for
+private use only on 2026-07-18.
 
 - Do not expose the worker through Traefik or grant it OAuth/session secrets.
 - Run the worker on `bahamut` through Synology Container Manager. Do not schedule Audiveris, homr, or the repair/fusion pipeline on the ARM Raspberry Pi Crystal Swarm; those nodes keep the lightweight API/UI and job-orchestration responsibilities.
@@ -155,5 +156,5 @@ acceptance are recorded.
 - Use a non-root UID, `no-new-privileges`, read-only application/dependency paths, isolated per-job HOME/XDG/temp/cache directories, and cleanup after terminal requests and process restart. The bounded NAS scratch mount must permit execution because Audiveris/JavaCPP extracts native libraries there; application and dependency paths remain read-only.
 - Preserve image revision, engine/dependency versions, bounded logs, Audiveris package checksum, homr model manifest, quality report, output checksums, and optional `.omr` project artifacts for troubleshooting/future correction.
 - Include derived MusicXML, retained `.omr` artifacts, and job state in backup/restore and reconciliation policy.
-- Complete and accept the exact Audiveris/homr AGPL packaging/network review, every bundled model's source/hash/license/citation/redistribution inventory, music21 BSD/corpus review, and alphaTab MPL/subasset notices before the worker is released.
+- Retain the accepted private-use record for the exact Audiveris/homr AGPL packaging/network review, every bundled model's source/hash/license/citation/redistribution inventory, music21 BSD/corpus review, and alphaTab MPL/subasset notices. Public or commercial distribution requires a fresh review and owner decision.
 - Attach actual pinned-image before/after harness output and representative runtime/memory/scratch/cancellation evidence to the release. A reference self-check alone does not satisfy this gate.

@@ -170,5 +170,8 @@ scores are not represented as note-perfect.
 The concrete inventory is in `omr/THIRD_PARTY_NOTICES.md`. It records the direct
 runtime licenses and exact model files/checksums, plus the upstream gaps in
 model-card/training-data provenance. The inventory is an engineering record,
-not legal advice. Final activation remains limited to the private, non-public
-worker topology; public/commercial image distribution requires a fresh review.
+not legal advice. On 2026-07-18 the product/production owner explicitly accepted
+the inventoried AGPL obligations and residual homr model-provenance risk for
+private use only. This satisfies the informed owner-decision gate for the
+private, non-public worker topology; public/commercial image distribution
+requires a fresh review and owner decision.

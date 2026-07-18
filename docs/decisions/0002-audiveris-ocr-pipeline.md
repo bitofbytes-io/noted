@@ -10,7 +10,7 @@ Noted preserves and reads source PDFs and renders/plays structured MusicXML. The
 
 No recognizer is reliable enough to make its output trusted notation. Audiveris is strong at score structure and produces a private `.omr` correction project; homr has a different, learned recognition path and different failure modes. A useful result must also have coherent measure timing and load in the exact alphaTab importer used by Noted. XML well-formedness alone is insufficient.
 
-The earlier form of this ADR selected only Audiveris and gated all implementation on a future spike. That direction has been superseded. The worker and application integration are implemented as a dual-engine, repair, fusion, and playability pipeline. Benchmark evidence and legal/operational owner acceptance still gate production promotion.
+The earlier form of this ADR selected only Audiveris and gated all implementation on a future spike. That direction has been superseded. The worker and application integration are implemented as a dual-engine, repair, fusion, and playability pipeline. Benchmark and inventory evidence are recorded, and the owner has accepted the residual risk for private use only; NAS-native verification still gates production activation.
 
 ## Decision
 
@@ -87,11 +87,11 @@ current evidence and remaining gates are tracked in the
 2. A recorded acceptance threshold chosen by the product/production owner before reviewing the candidate results, plus no regression relative to the Audiveris-only baseline on the reference-qualified measures. The predeclared rule and candidate result are recorded.
 3. Resource evidence for the two-CPU, 4-GiB, one-job topology: runtime, peak memory, scratch use, timeout/cancellation, and cleanup on representative multi-page scores. Constrained exact-image evidence exists locally; NAS-native confirmation remains outstanding.
 4. Failure-path evidence for one-engine fallback, both-engine failure, malformed/oversized output, report rejection, and `unplayable_output`. Automated coverage and a real local client-disconnect cancellation pass are recorded; NAS-native cancellation/cleanup confirmation remains outstanding.
-5. Completed dependency/model license inventory and owner acceptance of AGPL, model-weight, notice, corresponding-source, and distribution/network obligations. The inventory is complete; final informed private-use owner acceptance remains outstanding.
+5. Completed dependency/model license inventory and owner acceptance of AGPL, model-weight, notice, corresponding-source, and distribution/network obligations. The inventory is complete, and on 2026-07-18 the owner explicitly accepted the recorded obligations and residual homr model-provenance risk for private use only.
 
-The pipeline is implemented, reviewed, merged, and published as a private AMD64 image. It is not
-approved for production activation until the remaining NAS-native resource/cancellation checks and
-the final informed owner acceptance are recorded.
+The pipeline is implemented, reviewed, merged, published as a private AMD64 image, and accepted by
+the owner for private use only. It is not approved for production activation until the remaining
+NAS-native resource/cancellation checks are recorded.
 
 ## Security and operational invariants
 
