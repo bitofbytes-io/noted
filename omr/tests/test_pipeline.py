@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from music21 import meter, note, stream
+from music21 import dynamics, meter, note, stream
 
 PIPELINE = Path(__file__).resolve().parents[1] / "pipeline"
 sys.path.insert(0, str(PIPELINE))
@@ -30,7 +30,64 @@ def score_with_durations(durations: list[float], pitches: list[str] | None = Non
     return score
 
 
+def score_without_meter(durations: list[float], pitches: list[str] | None = None) -> stream.Score:
+    score = score_with_durations(durations, pitches)
+    first = list(score.parts[0].getElementsByClass(stream.Measure))[0]
+    for signature in list(first.getElementsByClass(meter.TimeSignature)):
+        first.remove(signature)
+    return score
+
+
 class RepairTests(unittest.TestCase):
+    def test_missing_initial_meter_is_made_explicit_and_reported(self) -> None:
+        score = score_without_meter([4])
+        with mock.patch.object(repair.correctors.ScoreCorrector, "run", return_value=score):
+            repaired, report = repair.repair_score(score, "test")
+        first = list(repaired.parts[0].getElementsByClass(stream.Measure))[0]
+        self.assertEqual(first.timeSignature.ratioString, "4/4")
+        self.assertEqual(report["flagged"], [{"partId": "P1", "measureIndex": 1}])
+        self.assertEqual(report["corrected"], [{"partId": "P1", "measureIndex": 1}])
+        self.assertIn("missing_time_signature_defaulted", report["issues"]["P1|1"])
+
+    def test_missing_meter_uses_alphatab_common_time_default(self) -> None:
+        score = score_without_meter([4, 8])
+        measures = list(score.parts[0].getElementsByClass(stream.Measure))
+        self.assertEqual(repair._measure_issues(measures[0], 1), [])
+        self.assertEqual(repair._measure_issues(measures[1], 2), ["measure_duration_overflow"])
+
+    def test_non_rhythmic_direction_beyond_bar_does_not_create_overflow(self) -> None:
+        score = score_with_durations([4])
+        measure = list(score.parts[0].getElementsByClass(stream.Measure))[0]
+        measure.insert(6, dynamics.Dynamic("p"))
+        self.assertEqual(float(measure.highestTime), 6.0)
+        self.assertEqual(repair._actual_duration(measure), 4)
+        self.assertEqual(repair._measure_issues(measure, 1), ["non_rhythmic_offset_overflow"])
+        with mock.patch.object(repair.correctors.ScoreCorrector, "run", return_value=score):
+            repaired, report = repair.repair_score(score, "test")
+        repaired_measure = list(repaired.parts[0].getElementsByClass(stream.Measure))[0]
+        repaired_dynamic = repaired_measure.getElementsByClass(dynamics.Dynamic)[0]
+        self.assertEqual(float(repaired_dynamic.getOffsetBySite(repaired_measure)), 0.0)
+        self.assertIn("non_rhythmic_offset_rebased", report["issues"]["P1|1"])
+        self.assertEqual(report["suspect"], [])
+
+    def test_probabilistic_correction_cannot_rewrite_source_meter(self) -> None:
+        score = score_with_durations([6, 5])
+        first = list(score.parts[0].getElementsByClass(stream.Measure))[0]
+        first.timeSignature = meter.TimeSignature("12/8")
+
+        def rewrite_meter() -> stream.Score:
+            first.timeSignature = meter.TimeSignature("4/4")
+            return score
+
+        with mock.patch.object(
+            repair.correctors.ScoreCorrector, "run", side_effect=rewrite_meter
+        ):
+            repaired, report = repair.repair_score(score, "test")
+        measures = list(repaired.parts[0].getElementsByClass(stream.Measure))
+        self.assertEqual(measures[0].timeSignature.ratioString, "12/8")
+        self.assertEqual(repair._expected_duration(measures[1]), 6)
+        self.assertEqual(report["suspect"], [])
+
     def test_pickup_is_preserved_and_regular_underflow_is_padded(self) -> None:
         score = score_with_durations([1, 3])
         with mock.patch.object(repair.correctors.ScoreCorrector, "run", return_value=score):
@@ -69,6 +126,15 @@ class RepairTests(unittest.TestCase):
 
 
 class FuseTests(unittest.TestCase):
+    def test_missing_meter_overflow_uses_valid_homr_measure(self) -> None:
+        audiveris = score_without_meter([4, 8], ["C4", "D4"])
+        homr = score_without_meter([4, 4], ["C4", "E4"])
+        selected, report = fuse.fuse(audiveris, homr, {}, {}, {})
+        self.assertEqual(report["measures"][1]["sourceEngine"], "homr")
+        self.assertIn("measure_replaced_by_valid_engine", report["measures"][1]["issues"])
+        replacement = list(selected.parts[0].getElementsByClass(stream.Measure))[1]
+        self.assertEqual(float(replacement.highestTime), 4.0)
+
     def test_agreement_and_valid_disagreement_are_reported(self) -> None:
         audiveris = score_with_durations([4, 4], ["C4", "D4"])
         homr = score_with_durations([4, 4], ["C4", "E4"])
