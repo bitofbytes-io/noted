@@ -4,6 +4,25 @@ import path from 'node:path';
 const seededWork = 'Noted Exercise in C';
 const fixtureRoot = path.resolve(process.cwd(), '../testdata/fixtures');
 
+test('score asset actions stay inside the mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/home');
+  await page.getByRole('link', { name: seededWork }).click();
+
+  const actionGroups = page.locator('.asset-actions');
+  await expect(actionGroups.first()).toBeVisible();
+  const bounds = await actionGroups.evaluateAll((groups) =>
+    groups.map((group) => {
+      const box = group.getBoundingClientRect();
+      return { left: box.left, right: box.right };
+    }),
+  );
+
+  const viewportWidth = page.viewportSize()?.width ?? 0;
+  expect(bounds.length).toBeGreaterThan(0);
+  expect(bounds.every(({ left, right }) => left >= 0 && right <= viewportWidth)).toBe(true);
+});
+
 test.describe.serial('Noted core flows', () => {
   test('Flow A: open a seeded PDF and render/play a measure range', async ({ page }, testInfo) => {
     await page.goto('/home');
