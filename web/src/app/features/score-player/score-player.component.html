@@ -15,8 +15,14 @@
       >← <span>Back</span></a
     >
     <div>
-      <strong>{{ asset()?.originalFilename || 'Structured score' }}</strong
-      ><span>MusicXML · rendered notation + synthesized playback</span>
+      @if (asset(); as scoreAsset) {
+        <a class="score-download" [href]="scoreAsset.downloadUrl">{{
+          scoreAsset.displayName || scoreAsset.originalFilename
+        }}</a>
+      } @else {
+        <strong>Structured score</strong>
+      }
+      <span>MusicXML · rendered notation + synthesized playback</span>
     </div>
     <span class="immersive-label">Immersive player</span>
   </header>
@@ -24,8 +30,21 @@
   @if (error()) {
     <div class="player-error" role="alert">
       <strong>Score player unavailable</strong><span>{{ error() }}</span>
-      @if (asset()) {
-        <a [href]="asset()?.contentUrl">Download MusicXML</a>
+      <div class="error-actions">
+        <button type="button" (click)="retry()">Retry player</button>
+        @if (asset(); as scoreAsset) {
+          <a [href]="scoreAsset.downloadUrl">Download score</a>
+        }
+        <a [routerLink]="workId ? ['/works', workId] : ['/library']">Back</a>
+      </div>
+    </div>
+  }
+  @if (validationMessage() && !error()) {
+    <div class="player-validation" [class.blocked]="validationBlocked()" role="status">
+      <strong>{{ validationBlocked() ? 'Score needs correction' : 'Review recommended' }}</strong>
+      <span>{{ validationMessage() }}</span>
+      @if (asset(); as scoreAsset) {
+        <a [href]="scoreAsset.downloadUrl">Download and fix in MuseScore</a>
       }
     </div>
   }
@@ -48,98 +67,91 @@
     <div #notation class="notation-canvas"></div>
   </section>
 
-  <button
-    class="pencil-button"
-    disabled
-    title="Annotations come in a later phase"
-    aria-label="Annotations coming later"
-  >
-    ✎<span>Later</span>
-  </button>
-
-  <section class="floating-player" aria-label="Score playback controls">
-    <button
-      class="icon-control"
-      (click)="restart()"
-      [disabled]="!playbackReady()"
-      aria-label="Restart"
-    >
-      ↺
-    </button>
-    <button
-      class="play-control"
-      (click)="playPause()"
-      [disabled]="!playbackReady()"
-      [attr.aria-label]="playing() ? 'Pause' : 'Play'"
-    >
-      {{ playing() ? 'Ⅱ' : '▶' }}
-    </button>
-    <div class="bpm-control">
-      <label for="player-bpm">BPM</label
-      ><input
-        id="player-bpm"
-        type="number"
-        min="30"
-        max="240"
-        [(ngModel)]="bpm"
-        (change)="updateBpm()"
-      />
-    </div>
-    <div class="zoom-control" aria-label="Score zoom">
-      <button (click)="changeZoom(-25)" [disabled]="zoom <= 75" aria-label="Zoom out">−</button>
-      <span>{{ zoom }}%</span>
-      <button (click)="changeZoom(25)" [disabled]="zoom >= 200" aria-label="Zoom in">+</button>
-    </div>
-    <div class="range-wrap">
-      <button class="range-control" (click)="toggleRangeEditor()">
-        Measures {{ rangeStart }}–{{ rangeEnd }} <span>⌄</span>
+  @if (!validationBlocked()) {
+    <section class="floating-player" aria-label="Score playback controls">
+      <button
+        class="icon-control"
+        (click)="restart()"
+        [disabled]="!playbackReady()"
+        aria-label="Restart"
+      >
+        ↺
       </button>
-      @if (rangeOpen) {
-        <form class="range-popover" (ngSubmit)="applyRange()">
-          <strong>Loop range</strong>
-          <div>
-            <label for="range-start">Start</label
-            ><input
-              id="range-start"
-              name="start"
-              type="number"
-              min="1"
-              [max]="measureCount"
-              [(ngModel)]="draftRangeStart"
-            />
-          </div>
-          <div>
-            <label for="range-end">End</label
-            ><input
-              id="range-end"
-              name="end"
-              type="number"
-              min="1"
-              [max]="measureCount"
-              [(ngModel)]="draftRangeEnd"
-            />
-          </div>
-          @if (rangeError) {
-            <span class="range-error">{{ rangeError }}</span>
-          }
-          <button class="apply-range" type="submit">Apply</button>
-          <button class="cancel-range" type="button" (click)="closeRangeEditor()">Cancel</button>
-        </form>
+      <button
+        class="play-control"
+        (click)="playPause()"
+        [disabled]="!playbackReady()"
+        [attr.aria-label]="playing() ? 'Pause' : 'Play'"
+      >
+        {{ playing() ? 'Ⅱ' : '▶' }}
+      </button>
+      <div class="bpm-control">
+        <label for="player-bpm">BPM</label
+        ><input
+          id="player-bpm"
+          type="number"
+          min="30"
+          max="240"
+          [(ngModel)]="bpm"
+          (change)="updateBpm()"
+        />
+      </div>
+      <div class="zoom-control" aria-label="Score zoom">
+        <button (click)="changeZoom(-25)" [disabled]="zoom <= 75" aria-label="Zoom out">−</button>
+        <span>{{ zoom }}%</span>
+        <button (click)="changeZoom(25)" [disabled]="zoom >= 200" aria-label="Zoom in">+</button>
+      </div>
+      <div class="range-wrap">
+        <button class="range-control" (click)="toggleRangeEditor()">
+          Measures {{ rangeStart }}–{{ rangeEnd }} <span>⌄</span>
+        </button>
+        @if (rangeOpen) {
+          <form class="range-popover" (ngSubmit)="applyRange()">
+            <strong>Loop range</strong>
+            <div>
+              <label for="range-start">Start</label
+              ><input
+                id="range-start"
+                name="start"
+                type="number"
+                min="1"
+                [max]="measureCount"
+                [(ngModel)]="draftRangeStart"
+              />
+            </div>
+            <div>
+              <label for="range-end">End</label
+              ><input
+                id="range-end"
+                name="end"
+                type="number"
+                min="1"
+                [max]="measureCount"
+                [(ngModel)]="draftRangeEnd"
+              />
+            </div>
+            @if (rangeError) {
+              <span class="range-error">{{ rangeError }}</span>
+            }
+            <button class="apply-range" type="submit">Apply</button>
+            <button class="cancel-range" type="button" (click)="closeRangeEditor()">Cancel</button>
+          </form>
+        }
+      </div>
+      <button
+        class="loop-control"
+        [class.active]="looping"
+        (click)="toggleLoop()"
+        [attr.aria-pressed]="looping"
+      >
+        ↻ Loop
+      </button>
+      @if (workId && !timer.running()) {
+        <button class="practice-control" (click)="startPractice()">Start Practice</button>
       }
-    </div>
-    <button
-      class="loop-control"
-      [class.active]="looping"
-      (click)="toggleLoop()"
-      [attr.aria-pressed]="looping"
-    >
-      ↻ Loop
-    </button>
-    @if (workId && !timer.running()) {
-      <button class="practice-control" (click)="startPractice()">Start Practice</button>
-    }
-    @if (timer.running()?.workId === workId) {
-      <a class="practice-control running" routerLink="/practice">● {{ timer.formatElapsed() }}</a>
-    }
-  </section>
+      @if (timer.running()?.workId === workId) {
+        <a class="practice-control running" routerLink="/practice">● {{ timer.formatElapsed() }}</a>
+      }
+    </section>
+  }
 </section>

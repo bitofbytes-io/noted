@@ -55,7 +55,10 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
 
   async load(): Promise<void> {
     const assetId = this.route.snapshot.paramMap.get('assetId') ?? '';
+    this.loading.set(true);
+    this.error.set('');
     try {
+      await this.adapter.dispose();
       const asset = await firstValueFrom(this.api.asset(assetId));
       if (asset.assetType !== 'pdf') throw new Error('This asset is not a PDF');
       this.asset.set(asset);
@@ -66,6 +69,10 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  retry(): void {
+    void this.load();
   }
 
   async render(): Promise<void> {
@@ -82,7 +89,7 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
       );
     } catch (error) {
       if (!(error instanceof Error) || error.name !== 'RenderingCancelledException')
-        this.error.set(errorMessage(error));
+        this.error.set(`The PDF could not be rendered. ${errorMessage(error)}`);
     }
   }
 

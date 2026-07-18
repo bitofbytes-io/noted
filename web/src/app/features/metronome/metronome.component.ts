@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { MetronomeService } from '../../core/metronome.service';
+import { MetronomeSound } from '../../core/models';
 
 @Component({
   selector: 'app-metronome',
@@ -15,6 +16,8 @@ export class MetronomeComponent implements OnInit, OnDestroy {
   protected readonly saved = signal(false);
   protected bpm = 96;
   protected accent = true;
+  protected beatsPerBar: 1 | 2 | 3 | 4 = 4;
+  protected sound: MetronomeSound = 'classic';
 
   constructor(
     private readonly api: ApiService,
@@ -26,8 +29,12 @@ export class MetronomeComponent implements OnInit, OnDestroy {
       const preferences = await firstValueFrom(this.api.preferences());
       this.bpm = preferences.metronomeBpm;
       this.accent = preferences.metronomeAccent;
+      this.beatsPerBar = preferences.metronomeBeatsPerBar;
+      this.sound = preferences.metronomeSound;
       this.metronome.setBpm(this.bpm);
       this.metronome.setAccent(this.accent);
+      this.metronome.setBeatsPerBar(this.beatsPerBar);
+      this.metronome.setSound(this.sound);
     } catch (error) {
       this.error.set(errorMessage(error));
     }
@@ -58,6 +65,20 @@ export class MetronomeComponent implements OnInit, OnDestroy {
     this.metronome.setAccent(value);
   }
 
+  updateBeatsPerBar(value: number): void {
+    this.beatsPerBar = Math.min(4, Math.max(1, Math.round(value))) as 1 | 2 | 3 | 4;
+    this.metronome.setBeatsPerBar(this.beatsPerBar);
+  }
+
+  updateSound(value: MetronomeSound): void {
+    this.sound = value;
+    this.metronome.setSound(value);
+  }
+
+  beatNumbers(): number[] {
+    return Array.from({ length: this.beatsPerBar }, (_, index) => index + 1);
+  }
+
   async save(): Promise<void> {
     try {
       await firstValueFrom(
@@ -65,6 +86,8 @@ export class MetronomeComponent implements OnInit, OnDestroy {
           weekStartsOn: 1,
           metronomeBpm: this.bpm,
           metronomeAccent: this.accent,
+          metronomeBeatsPerBar: this.beatsPerBar,
+          metronomeSound: this.sound,
         }),
       );
       this.saved.set(true);

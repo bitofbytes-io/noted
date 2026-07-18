@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/config"
 )
 
@@ -108,5 +109,37 @@ func TestReadMultipartUploadRejectsOversizeAndCleansPartialFile(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("oversize upload left partial staging files: %v", entries)
+	}
+}
+
+func TestDownloadFilenamePreservesTheOriginalExtension(t *testing.T) {
+	tests := []struct {
+		displayName, originalName, want string
+	}{
+		{displayName: "Moonlight corrected", originalName: "recognized.mxl", want: "Moonlight corrected.mxl"},
+		{displayName: "Moonlight.musicxml", originalName: "recognized.musicxml", want: "Moonlight.musicxml"},
+		{displayName: "", originalName: "score.pdf", want: "score.pdf"},
+	}
+	for _, test := range tests {
+		if got := downloadFilename(test.displayName, test.originalName); got != test.want {
+			t.Errorf("downloadFilename(%q, %q) = %q, want %q", test.displayName, test.originalName, got, test.want)
+		}
+	}
+	if got := safeFilename("folder/score\n.mxl"); got != "folder_score_.mxl" {
+		t.Fatalf("safeFilename sanitized value = %q", got)
+	}
+}
+
+func TestReplacementMetadataPreservesOCRLineage(t *testing.T) {
+	sourceID := "10000000-0000-4000-8000-000000000007"
+	old := app.Asset{
+		ID:                 "10000000-0000-4000-8000-000000000008",
+		AssetType:          "musicxml",
+		DerivedFromAssetID: &sourceID,
+		VerificationState:  "unverified_ocr",
+	}
+	metadata := replacementMetadata(old, app.UploadMetadata{})
+	if metadata.ReplacesAssetID != old.ID || metadata.DerivedFromAssetID != sourceID || metadata.VerificationState != "corrected" {
+		t.Fatalf("replacement metadata = %+v", metadata)
 	}
 }

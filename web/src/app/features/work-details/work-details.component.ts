@@ -421,14 +421,24 @@ export class WorkDetailsComponent implements OnInit {
           this.pollRecognition(assetId, jobId);
         else if (job.status === 'succeeded') {
           await this.load();
+          const output = this.recognitionOutput(job);
           this.success.set(
-            'PDF converted. Review the new Unverified OCR score before relying on it.',
+            output?.playbackValidation.status === 'blocked'
+              ? 'Conversion finished — score needs correction. Download it to fix in MuseScore.'
+              : 'PDF converted. Review the new score against the PDF before relying on it.',
           );
         }
       } catch (error) {
         this.error.set(errorMessage(error));
       }
     }, 1500);
+  }
+
+  protected recognitionOutput(job: RecognitionJob): Asset | undefined {
+    if (!job.outputAssetId) return undefined;
+    return this.work()
+      ?.editions.flatMap((edition) => edition.assets)
+      .find((asset) => asset.id === job.outputAssetId);
   }
 
   chooseFile(event: Event): void {

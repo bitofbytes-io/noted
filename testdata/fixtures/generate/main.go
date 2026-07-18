@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	content := `BT /F1 24 Tf 72 740 Td (Noted POC Exercise in C) Tj /F1 11 Tf 0 -20 Td (Original CC0 piano fixture - 8 measures - quarter note = 96) Tj ET
+	content := `BT /F1 24 Tf 72 740 Td (Noted Exercise in C) Tj /F1 11 Tf 0 -20 Td (Original CC0 piano fixture - 8 measures - quarter note = 96) Tj ET
 0.7 w
 72 650 m 540 650 l S 72 642 m 540 642 l S 72 634 m 540 634 l S 72 626 m 540 626 l S 72 618 m 540 618 l S
 72 560 m 540 560 l S 72 552 m 540 552 l S 72 544 m 540 544 l S 72 536 m 540 536 l S 72 528 m 540 528 l S

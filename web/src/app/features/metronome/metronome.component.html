@@ -2,10 +2,7 @@
   <div>
     <p class="eyebrow">Standalone tool</p>
     <h1>Metronome</h1>
-    <p class="lede">
-      A clear, audible pulse that keeps running until you stop it. Starting it requires a tap so
-      mobile Safari can unlock audio safely.
-    </p>
+    <p class="lede">A clear, audible pulse that keeps running until you stop it.</p>
   </div>
 </div>
 @if (error()) {
@@ -19,8 +16,8 @@
     [class.pendulum-right]="metronome.side() === 'right'"
     [style.--tempo]="metronome.bpm()"
   >
-    <div class="beat-dots" aria-label="Four beat accent pattern">
-      @for (beat of [1, 2, 3, 4]; track beat) {
+    <div class="beat-dots" [attr.aria-label]="beatsPerBar + ' beat accent pattern'">
+      @for (beat of beatNumbers(); track beat) {
         <span [class.active]="metronome.beat() === beat"></span>
       }
     </div>
@@ -55,15 +52,42 @@
       aria-label="BPM"
     />
     <div class="tempo-marks"><span>30</span><span>120</span><span>240</span></div>
+    <div class="meter-control">
+      <div>
+        <strong>Beats per measure</strong><small>Choose a pulse from one to four beats.</small>
+      </div>
+      <div class="meter-options" role="group" aria-label="Beats per measure">
+        @for (beatCount of [1, 2, 3, 4]; track beatCount) {
+          <button
+            type="button"
+            [class.active]="beatsPerBar === beatCount"
+            [attr.aria-pressed]="beatsPerBar === beatCount"
+            (click)="updateBeatsPerBar(beatCount)"
+          >
+            {{ beatCount }}
+          </button>
+        }
+      </div>
+    </div>
+    <label class="sound-control">
+      <span
+        ><strong>Click sound</strong><small>Choose the tone that cuts through best.</small></span
+      >
+      <select [(ngModel)]="sound" (ngModelChange)="updateSound($event)">
+        <option value="classic">Classic click</option>
+        <option value="woodblock">Woodblock</option>
+        <option value="soft_tick">Soft tick</option>
+      </select>
+    </label>
     <label class="accent-toggle"
       ><input type="checkbox" [(ngModel)]="accent" (change)="updateAccent(accent)" /><span
-        ><strong>Accent beat one</strong><small>Higher click every four beats</small></span
+        ><strong>Accent beat one</strong><small>Higher click on the first beat</small></span
       ></label
     >
     <button class="button secondary" (click)="save()">Save as default</button>
     @if (saved()) {
       <div class="success">Metronome preference saved.</div>
     }
-    <p class="meta">Supported range: 30–240 BPM. One sound is used in this POC.</p>
+    <p class="meta">Supported range: 30–240 BPM.</p>
   </aside>
 </div>

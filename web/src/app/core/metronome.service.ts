@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { MetronomeSound } from './models';
 
 export type PendulumSide = 'center' | 'left' | 'right';
 
@@ -10,6 +11,42 @@ export interface MetronomeBeat {
   side: Exclude<PendulumSide, 'center'>;
 }
 
+interface SoundProfile {
+  wave: OscillatorType;
+  regularFrequency: number;
+  accentFrequency: number;
+  regularGain: number;
+  accentGain: number;
+  duration: number;
+}
+
+const SOUND_PROFILES: Record<MetronomeSound, SoundProfile> = {
+  classic: {
+    wave: 'square',
+    regularFrequency: 880,
+    accentFrequency: 1320,
+    regularGain: 0.13,
+    accentGain: 0.22,
+    duration: 0.045,
+  },
+  woodblock: {
+    wave: 'triangle',
+    regularFrequency: 620,
+    accentFrequency: 920,
+    regularGain: 0.2,
+    accentGain: 0.3,
+    duration: 0.07,
+  },
+  soft_tick: {
+    wave: 'sine',
+    regularFrequency: 520,
+    accentFrequency: 720,
+    regularGain: 0.08,
+    accentGain: 0.12,
+    duration: 0.035,
+  },
+};
+
 const LOOK_AHEAD_SECONDS = 0.1;
 const SCHEDULER_INTERVAL_MS = 25;
 const START_DELAY_SECONDS = 0.05;
@@ -19,6 +56,8 @@ export class MetronomeService {
   readonly running = signal(false);
   readonly bpm = signal(96);
   readonly accent = signal(true);
+  readonly beatsPerBar = signal<1 | 2 | 3 | 4>(4);
+  readonly sound = signal<MetronomeSound>('classic');
   readonly beat = signal(0);
   readonly side = signal<PendulumSide>('center');
   readonly lastBeat = signal<MetronomeBeat | null>(null);
@@ -77,7 +116,9 @@ export class MetronomeService {
 
     this.cancelScheduledBeats();
     const lastBeat = this.lastBeat();
-    this.nextBeatNumber = lastBeat ? (((lastBeat.number % 4) + 1) as 1 | 2 | 3 | 4) : 1;
+    this.nextBeatNumber = lastBeat
+      ? (((lastBeat.number % this.beatsPerBar()) + 1) as 1 | 2 | 3 | 4)
+      : 1;
     this.nextSide = lastBeat?.side === 'left' ? 'right' : 'left';
     this.nextBeatTime = context.currentTime + 60 / bpm;
     this.scheduleAhead();
@@ -85,6 +126,23 @@ export class MetronomeService {
 
   setAccent(value: boolean): void {
     this.accent.set(value);
+  }
+
+  setBeatsPerBar(value: number): void {
+    const beats = Math.min(4, Math.max(1, Math.round(value || 4))) as 1 | 2 | 3 | 4;
+    this.beatsPerBar.set(beats);
+    const context = this.context;
+    if (!context || !this.running()) return;
+    this.cancelScheduledBeats();
+    this.nextBeatNumber = 1;
+    this.nextBeatTime = context.currentTime + START_DELAY_SECONDS;
+    this.beat.set(0);
+    this.lastBeat.set(null);
+    this.scheduleAhead();
+  }
+
+  setSound(value: MetronomeSound): void {
+    this.sound.set(value in SOUND_PROFILES ? value : 'classic');
   }
 
   private scheduleAhead(): void {
@@ -109,7 +167,7 @@ export class MetronomeService {
 
   private advance(duration: number): void {
     this.nextBeatTime += duration;
-    this.nextBeatNumber = ((this.nextBeatNumber % 4) + 1) as 1 | 2 | 3 | 4;
+    this.nextBeatNumber = ((this.nextBeatNumber % this.beatsPerBar()) + 1) as 1 | 2 | 3 | 4;
     this.nextSide = this.nextSide === 'left' ? 'right' : 'left';
   }
 
@@ -121,16 +179,18 @@ export class MetronomeService {
     bpm: number,
   ): void {
     const accented = this.accent() && number === 1;
+    const profile = SOUND_PROFILES[this.sound()];
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    oscillator.frequency.value = accented ? 1320 : 880;
-    gain.gain.setValueAtTime(accented ? 0.28 : 0.16, audioTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioTime + 0.045);
+    oscillator.type = profile.wave;
+    oscillator.frequency.value = accented ? profile.accentFrequency : profile.regularFrequency;
+    gain.gain.setValueAtTime(accented ? profile.accentGain : profile.regularGain, audioTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioTime + profile.duration);
     oscillator.connect(gain).connect(context.destination);
     oscillator.onended = () => this.scheduledOscillators.delete(oscillator);
     this.scheduledOscillators.add(oscillator);
     oscillator.start(audioTime);
-    oscillator.stop(audioTime + 0.05);
+    oscillator.stop(audioTime + profile.duration + 0.005);
 
     const delay = Math.max(0, (audioTime - context.currentTime) * 1000);
     const timer = setTimeout(() => {

@@ -51,10 +51,28 @@ export interface Asset {
   archivedAt?: string;
   replacesAssetId?: string;
   derivedFromAssetId?: string;
-  verificationState?: 'original' | 'unverified_ocr' | 'verified';
+  verificationState?: 'original' | 'unverified_ocr' | 'verified' | 'corrected';
   createdAt: string;
   contentUrl: string;
+  downloadUrl: string;
+  playbackValidation: PlaybackValidation;
 }
+
+export type PlaybackValidationStatus = 'not_checked' | 'ready' | 'needs_review' | 'blocked';
+
+export interface PlaybackIssue {
+  code: string;
+  message: string;
+  count: number;
+  measures?: string[];
+}
+
+export interface PlaybackValidation {
+  status: PlaybackValidationStatus;
+  issues: PlaybackIssue[];
+}
+
+export type MetronomeSound = 'classic' | 'woodblock' | 'soft_tick';
 
 export interface Edition {
   id: string;
@@ -184,6 +202,8 @@ export interface Preferences {
   weekStartsOn: number;
   metronomeBpm: number;
   metronomeAccent: boolean;
+  metronomeBeatsPerBar: 1 | 2 | 3 | 4;
+  metronomeSound: MetronomeSound;
 }
 
 export interface Tag {

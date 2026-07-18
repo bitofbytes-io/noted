@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -374,7 +375,7 @@ func (h *Handler) replaceAsset(w http.ResponseWriter, r *http.Request) {
 		h.handleError(w, err)
 		return
 	}
-	metadata.ReplacesAssetID = assetID
+	metadata = replacementMetadata(old, metadata)
 	value, err := h.Service.UploadAsset(r.Context(), currentUser(r).ID, old.EditionID, header, file, metadata)
 	if err != nil {
 		h.handleError(w, err)
@@ -383,7 +384,26 @@ func (h *Handler) replaceAsset(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, value)
 }
 
+func replacementMetadata(old app.Asset, metadata app.UploadMetadata) app.UploadMetadata {
+	metadata.ReplacesAssetID = old.ID
+	if old.AssetType == "musicxml" && (old.DerivedFromAssetID != nil || old.VerificationState == "unverified_ocr") {
+		metadata.VerificationState = "corrected"
+		if old.DerivedFromAssetID != nil {
+			metadata.DerivedFromAssetID = *old.DerivedFromAssetID
+		}
+	}
+	return metadata
+}
+
 func (h *Handler) assetContent(w http.ResponseWriter, r *http.Request) {
+	h.serveAsset(w, r, "inline")
+}
+
+func (h *Handler) assetDownload(w http.ResponseWriter, r *http.Request) {
+	h.serveAsset(w, r, "attachment")
+}
+
+func (h *Handler) serveAsset(w http.ResponseWriter, r *http.Request, disposition string) {
 	item, file, err := h.Service.OpenAsset(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"))
 	if err != nil {
 		h.handleError(w, err)
@@ -391,10 +411,26 @@ func (h *Handler) assetContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	w.Header().Set("Content-Type", item.MediaType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": safeFilename(item.OriginalFilename)}))
+	filename := item.OriginalFilename
+	if disposition == "attachment" {
+		filename = downloadFilename(item.DisplayName, item.OriginalFilename)
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": safeFilename(filename)}))
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, item.OriginalFilename, item.CreatedAt, file)
+	http.ServeContent(w, r, filename, item.CreatedAt, file)
+}
+
+func downloadFilename(displayName, originalFilename string) string {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		displayName = originalFilename
+	}
+	originalExtension := filepath.Ext(originalFilename)
+	if originalExtension != "" && !strings.EqualFold(filepath.Ext(displayName), originalExtension) {
+		displayName += originalExtension
+	}
+	return displayName
 }
 
 func safeFilename(value string) string {

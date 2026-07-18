@@ -327,6 +327,63 @@ a {
   background: #e8eaf0;
   height: 18px;
 }
+
+.player-shell .score-download {
+  color: var(--ink);
+  font-weight: 800;
+  overflow: hidden;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-shell .error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 7px;
+}
+.player-shell .error-actions a,
+.player-shell .error-actions button,
+.player-shell .player-validation a {
+  background: white;
+  border: 1px solid currentColor;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+.player-shell .player-validation {
+  background: #fff9df;
+  border: 1px solid #d5bd61;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  left: 50%;
+  max-width: 660px;
+  padding: 16px;
+  position: absolute;
+  top: 76px;
+  transform: translateX(-50%);
+  width: calc(100% - 30px);
+  z-index: 11;
+}
+.player-shell .player-validation.blocked {
+  background: #fff0ee;
+  border-color: #d9a5a0;
+}
+.player-shell .player-validation span {
+  color: #5d5130;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.player-shell .player-validation.blocked span {
+  color: #7c1e16;
+}
+.player-shell .player-validation a {
+  align-self: flex-start;
+}
 @keyframes pulse {
   to {
     opacity: 0.45;

@@ -139,8 +139,21 @@
 .replace-button input {
   display: none;
 }
+.asset-name {
+  color: var(--ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
 .asset-row .ocr-warning {
   color: #8a4b00;
+  font-weight: 800;
+}
+.asset-row .playback-blocked {
+  color: var(--danger);
+  font-weight: 800;
+}
+.asset-row .corrected-label {
+  color: #2f6b3a;
   font-weight: 800;
 }
 .asset-row .archived-label {

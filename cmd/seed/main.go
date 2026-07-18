@@ -63,7 +63,7 @@ func main() {
 		args []any
 	}{
 		{`INSERT INTO composers(id,canonical_name,sort_name) VALUES($1,'Noted Project','Noted Project') ON CONFLICT(id) DO NOTHING`, []any{composerID}},
-		{`INSERT INTO works(id,composer_id,title,subtitle,catalog_number,key_signature,form,period,published_difficulty_label,notes,created_by_user_id) VALUES($1,$2,'Noted POC Exercise in C','Eight-measure hands-together study','NPE 1','C major','Exercise','Contemporary','Early intermediate','Original rights-safe demonstration work',$3) ON CONFLICT(id) DO NOTHING`, []any{workID, composerID, userID}},
+		{`INSERT INTO works(id,composer_id,title,subtitle,catalog_number,key_signature,form,period,published_difficulty_label,notes,created_by_user_id) VALUES($1,$2,'Noted Exercise in C','Eight-measure hands-together study','NPE 1','C major','Exercise','Contemporary','Early intermediate','Original rights-safe demonstration work',$3) ON CONFLICT(id) DO NOTHING`, []any{workID, composerID, userID}},
 		{`INSERT INTO movements(id,work_id,sequence_number,title,tempo_marking,measure_count) VALUES($1,$2,1,'Complete exercise','Moderato',8) ON CONFLICT(id) DO NOTHING`, []any{movementID, workID}},
 		{`INSERT INTO editions(id,work_id,name,editor,publisher,source_url,rights_note,created_by_user_id) VALUES($1,$2,'Noted reference edition','Noted Project','Noted','https://github.com/bitofbytes-io/noted','Original fixture dedicated to the public domain under CC0-1.0',$3) ON CONFLICT(id) DO NOTHING`, []any{editionID, workID, userID}},
 		{`INSERT INTO learner_works(id,user_id,work_id,status,is_favorite,last_bpm) VALUES($1,$2,$3,'Learning',true,96) ON CONFLICT(user_id,work_id) DO UPDATE SET status='Learning',is_favorite=true`, []any{learnerID, userID, workID}},
@@ -103,7 +103,11 @@ func seedAsset(ctx context.Context, conn *pgx.Conn, store assets.AssetStore, id,
 		log.Fatal(err)
 	}
 	hash := sha256.Sum256(data)
-	_, err = conn.Exec(ctx, `INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,source_url,rights_note,playback_capable,uploaded_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'https://github.com/bitofbytes-io/noted','Original fixture dedicated to the public domain under CC0-1.0',$9,$10) ON CONFLICT(id) DO UPDATE SET byte_size=EXCLUDED.byte_size,sha256=EXCLUDED.sha256`, id, edition, assetType, key, filepath.Base(path), mediaType, len(data), hex.EncodeToString(hash[:]), playable, user)
+	validationStatus := "not_checked"
+	if playable {
+		validationStatus = "ready"
+	}
+	_, err = conn.Exec(ctx, `INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,source_url,rights_note,playback_capable,uploaded_by_user_id,playback_validation_status,playback_validation_issues) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'https://github.com/bitofbytes-io/noted','Original fixture dedicated to the public domain under CC0-1.0',$9,$10,$11,'[]'::jsonb) ON CONFLICT(id) DO UPDATE SET byte_size=EXCLUDED.byte_size,sha256=EXCLUDED.sha256,playback_capable=EXCLUDED.playback_capable,playback_validation_status=EXCLUDED.playback_validation_status,playback_validation_issues=EXCLUDED.playback_validation_issues`, id, edition, assetType, key, filepath.Base(path), mediaType, len(data), hex.EncodeToString(hash[:]), playable, user, validationStatus)
 	if err != nil {
 		log.Fatal(err)
 	}
