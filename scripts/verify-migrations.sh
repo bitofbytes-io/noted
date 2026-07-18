@@ -3,10 +3,33 @@ set -eu
 
 go run ./cmd/migrate
 
+# A rollback from the validation-aware application must leave MusicXML playable
+# for the preceding file-type-based application.
+docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -v ON_ERROR_STOP=1 <<'SQL'
+WITH learner AS (
+    INSERT INTO users(id,email,display_name) VALUES ('30000000-0000-4000-8000-000000000001','migration-playback@example.test','Migration playback') RETURNING id
+), composer AS (
+    INSERT INTO composers(id,canonical_name,sort_name) VALUES ('30000000-0000-4000-8000-000000000002','Migration Composer','Migration Composer') RETURNING id
+), work AS (
+    INSERT INTO works(id,composer_id,title,created_by_user_id)
+    SELECT '30000000-0000-4000-8000-000000000003', composer.id, 'Migration score', learner.id FROM composer, learner RETURNING id, created_by_user_id
+), edition AS (
+    INSERT INTO editions(id,work_id,name,created_by_user_id)
+    SELECT '30000000-0000-4000-8000-000000000004', work.id, 'Migration edition', work.created_by_user_id FROM work RETURNING id, created_by_user_id
+)
+INSERT INTO score_assets(id,edition_id,asset_type,storage_key,original_filename,media_type,byte_size,sha256,rights_note,playback_capable,uploaded_by_user_id,playback_validation_status)
+SELECT '30000000-0000-4000-8000-000000000005', edition.id, 'musicxml', 'musicxml/30000000-0000-4000-8000-000000000005', 'migration.musicxml', 'application/vnd.recordare.musicxml+xml', 1, repeat('a',64), 'CC0', false, edition.created_by_user_id, 'blocked' FROM edition;
+SQL
+go run ./cmd/migrate down
+go run ./cmd/migrate down
+restored_playback=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT playback_capable FROM score_assets WHERE id='30000000-0000-4000-8000-000000000005'")
+if [ "$restored_playback" != "t" ]; then
+	echo "migration 000006 rollback did not restore MusicXML playability" >&2
+	exit 1
+fi
+
 # Exercise the production-auth upgrade from the immediately preceding schema. The
 # migration must reject case-colliding legacy accounts before changing either row.
-go run ./cmd/migrate down
-go run ./cmd/migrate down
 go run ./cmd/migrate down
 go run ./cmd/migrate down
 docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -v ON_ERROR_STOP=1 <<'SQL'

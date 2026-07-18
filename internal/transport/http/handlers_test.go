@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/config"
 )
 
@@ -126,5 +127,19 @@ func TestDownloadFilenamePreservesTheOriginalExtension(t *testing.T) {
 	}
 	if got := safeFilename("folder/score\n.mxl"); got != "folder_score_.mxl" {
 		t.Fatalf("safeFilename sanitized value = %q", got)
+	}
+}
+
+func TestReplacementMetadataPreservesOCRLineage(t *testing.T) {
+	sourceID := "10000000-0000-4000-8000-000000000007"
+	old := app.Asset{
+		ID:                 "10000000-0000-4000-8000-000000000008",
+		AssetType:          "musicxml",
+		DerivedFromAssetID: &sourceID,
+		VerificationState:  "unverified_ocr",
+	}
+	metadata := replacementMetadata(old, app.UploadMetadata{})
+	if metadata.ReplacesAssetID != old.ID || metadata.DerivedFromAssetID != sourceID || metadata.VerificationState != "corrected" {
+		t.Fatalf("replacement metadata = %+v", metadata)
 	}
 }

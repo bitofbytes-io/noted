@@ -375,16 +375,24 @@ func (h *Handler) replaceAsset(w http.ResponseWriter, r *http.Request) {
 		h.handleError(w, err)
 		return
 	}
-	metadata.ReplacesAssetID = assetID
-	if old.AssetType == "musicxml" && (old.DerivedFromAssetID != nil || old.VerificationState == "unverified_ocr") {
-		metadata.VerificationState = "corrected"
-	}
+	metadata = replacementMetadata(old, metadata)
 	value, err := h.Service.UploadAsset(r.Context(), currentUser(r).ID, old.EditionID, header, file, metadata)
 	if err != nil {
 		h.handleError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusCreated, value)
+}
+
+func replacementMetadata(old app.Asset, metadata app.UploadMetadata) app.UploadMetadata {
+	metadata.ReplacesAssetID = old.ID
+	if old.AssetType == "musicxml" && (old.DerivedFromAssetID != nil || old.VerificationState == "unverified_ocr") {
+		metadata.VerificationState = "corrected"
+		if old.DerivedFromAssetID != nil {
+			metadata.DerivedFromAssetID = *old.DerivedFromAssetID
+		}
+	}
+	return metadata
 }
 
 func (h *Handler) assetContent(w http.ResponseWriter, r *http.Request) {
