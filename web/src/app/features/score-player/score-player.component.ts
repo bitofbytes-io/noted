@@ -40,6 +40,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   protected readonly error = signal('');
   protected readonly validationMessage = signal('');
   protected readonly validationBlocked = signal(false);
+  protected readonly validationNoticeVisible = signal(false);
   protected readonly workId = this.route.snapshot.queryParamMap.get('workId') ?? '';
   protected measureCount = Number(this.route.snapshot.queryParamMap.get('measures')) || 1;
   protected bpm = 96;
@@ -113,6 +114,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     this.error.set('');
     this.validationMessage.set('');
     this.validationBlocked.set(false);
+    this.validationNoticeVisible.set(false);
     this.scoreReady.set(false);
     this.playbackReady.set(false);
     this.readinessTimeoutMessage = '';
@@ -133,10 +135,12 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
       ) {
         this.validationBlocked.set(true);
         this.validationMessage.set(this.playbackValidationMessage(asset));
+        this.validationNoticeVisible.set(true);
         return;
       }
       if (validation.status === 'needs_review') {
         this.validationMessage.set(this.playbackValidationMessage(asset));
+        this.validationNoticeVisible.set(true);
       }
       await this.adapter.load(
         asset.contentUrl,
@@ -176,6 +180,10 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
 
   retry(): void {
     void this.load();
+  }
+
+  dismissValidationNotice(): void {
+    this.validationNoticeVisible.set(false);
   }
 
   updateBpm(): void {
