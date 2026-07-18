@@ -362,7 +362,7 @@ a {
   gap: 7px;
   left: 50%;
   max-width: 660px;
-  padding: 16px;
+  padding: 16px 56px 16px 16px;
   position: absolute;
   top: 76px;
   transform: translateX(-50%);
@@ -383,6 +383,29 @@ a {
 }
 .player-shell .player-validation a {
   align-self: flex-start;
+}
+.player-shell .validation-dismiss {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 24px;
+  height: 44px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 44px;
+}
+.player-shell .validation-dismiss:hover,
+.player-shell .validation-dismiss:focus-visible {
+  background: rgba(0, 0, 0, 0.07);
+  outline-offset: -3px;
 }
 @keyframes pulse {
   to {

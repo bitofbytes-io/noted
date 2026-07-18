@@ -39,8 +39,18 @@
       </div>
     </div>
   }
-  @if (validationMessage() && !error()) {
+  @if (validationNoticeVisible() && validationMessage() && !error()) {
     <div class="player-validation" [class.blocked]="validationBlocked()" role="status">
+      <button
+        type="button"
+        class="validation-dismiss"
+        (click)="dismissValidationNotice()"
+        [attr.aria-label]="
+          validationBlocked() ? 'Dismiss correction notice' : 'Dismiss review warning'
+        "
+      >
+        ×
+      </button>
       <strong>{{ validationBlocked() ? 'Score needs correction' : 'Review recommended' }}</strong>
       <span>{{ validationMessage() }}</span>
       @if (asset(); as scoreAsset) {

@@ -288,6 +288,15 @@ describe('ScorePlayerComponent validation gate', () => {
     expect(fixture.nativeElement.querySelector('.player-validation.blocked')).toBeNull();
     expect(fixture.nativeElement.querySelector('.floating-player')).toBeTruthy();
     expect(fixture.nativeElement.textContent).toContain('Review recommended');
+    const dismiss = fixture.nativeElement.querySelector(
+      'button[aria-label="Dismiss review warning"]',
+    ) as HTMLButtonElement;
+    expect(dismiss).toBeTruthy();
+    dismiss.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.player-validation')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.floating-player')).toBeTruthy();
+    expect(state.adapter.load).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
 
@@ -348,6 +357,14 @@ describe('ScorePlayerComponent validation gate', () => {
     expect(fixture.nativeElement.querySelector('.player-validation a').getAttribute('href')).toBe(
       blockedAsset.downloadUrl,
     );
+    expect(fixture.nativeElement.querySelector('.floating-player')).toBeNull();
+    const dismiss = fixture.nativeElement.querySelector(
+      'button[aria-label="Dismiss correction notice"]',
+    ) as HTMLButtonElement;
+    expect(dismiss).toBeTruthy();
+    dismiss.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.player-validation')).toBeNull();
     expect(fixture.nativeElement.querySelector('.floating-player')).toBeNull();
     fixture.destroy();
   });
