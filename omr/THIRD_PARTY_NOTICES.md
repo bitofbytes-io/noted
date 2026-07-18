@@ -26,7 +26,9 @@ exception to that obligation.
 ## ONNX artifacts
 
 Every file below is downloaded during the image build and covered by the
-readiness checksum manifest at `/opt/noted-omr/homr-models.sha256`.
+reviewed, checked-in `omr/homr-models.sha256` manifest. The build fails if the
+downloaded ONNX filename set or any checksum differs. The same manifest is
+installed at `/opt/noted-omr/homr-models.sha256` for offline readiness.
 
 | Artifact | Build source | SHA-256 | Publisher terms / provenance record |
 |---|---|---|---|

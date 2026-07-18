@@ -90,7 +90,7 @@ repositions out-of-bar non-rhythmic directions to the nearest valid musical
 onset, and restores every explicit source meter after probabilistic repair.
 Focused replays passed before the complete from-PDF rerun.
 
-Locked local image:
+Evaluated local image:
 
 - image: `sha256:36e453957ee292c8b55c96e7f81cb25dcb2a8a336f29be65f423b3972c62e927`
 - uncompressed image size: 1,592,238,908 bytes;
@@ -98,6 +98,12 @@ Locked local image:
   dropped, no-new-privileges, two CPUs, 4 GiB memory with no swap headroom,
   512 PID ceiling, 1-GiB executable tmpfs, and an internal Docker network; and
 - embedded tests: 12 Python repair/fusion tests and three alphaTab tests pass.
+
+The review-hardening rebuild is
+`sha256:0750ec50ff7268327f3dd1e0e55cccff7e671cdeb7b14c4545e038d0847a8a64`
+(1,592,239,285 bytes). Its worker binary, pipeline files, and every ONNX byte
+are identical to the evaluated image; the rebuild adds the checked-in manifest
+and build-time filename/hash enforcement. All embedded tests pass again.
 
 ### Representative result
 
@@ -135,7 +141,8 @@ scores are not represented as note-perfect.
   worker tests and were also exercised against the candidate runtime.
 - Offline readiness verified Audiveris 5.10.2, HOMR 0.7.0, music21 10.3.0,
   alphaTab 1.8.4, a clean constrained Python environment, and all six recorded
-  ONNX checksums on a container with no network.
+  ONNX checksums on a container with no network. The checked-in model manifest
+  also rejects a changed filename set or hash during the image build.
 - AlphaTab fonts and soundfonts are absent, and music21's encoded corpus data
   is absent; required runtime modules and license files remain.
 

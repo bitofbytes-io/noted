@@ -63,10 +63,16 @@ RUN /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-che
 	&& /opt/noted-omr/venv/bin/pip check \
 	&& /opt/noted-omr/venv/bin/python -c "import importlib.metadata as m; from music21 import corpus, meter, note, stream; assert m.version('homr') == '0.7.0'; assert m.version('music21') == '10.3.0'; assert not list(__import__('pathlib').Path('/opt/noted-omr/venv/lib/python3.11/site-packages/music21/corpus').glob('_metadataCache'))"
 
+COPY omr/homr-models.sha256 /opt/noted-omr/homr-models.sha256
 RUN /opt/noted-omr/venv/bin/homr --gpu no --init \
-	&& find /opt/noted-omr/venv/lib/python3.11/site-packages/homr /opt/noted-omr/venv/lib/python3.11/site-packages/rapidocr -type f -name '*.onnx' -print0 \
-		| sort -z | xargs -0 sha256sum > /opt/noted-omr/homr-models.sha256 \
-	&& test -s /opt/noted-omr/homr-models.sha256
+	&& find /opt/noted-omr/venv/lib/python3.11/site-packages/homr /opt/noted-omr/venv/lib/python3.11/site-packages/rapidocr -type f -name '*.onnx' -print \
+		| LC_ALL=C sort > /tmp/homr-models.actual \
+	&& awk 'NF == 2 && $1 !~ /^#/ {print $2}' /opt/noted-omr/homr-models.sha256 \
+		| LC_ALL=C sort > /tmp/homr-models.expected \
+	&& cmp /tmp/homr-models.expected /tmp/homr-models.actual \
+	&& cd / \
+	&& sha256sum -c /opt/noted-omr/homr-models.sha256 \
+	&& rm /tmp/homr-models.actual /tmp/homr-models.expected
 
 RUN npm install --prefix /opt/noted-omr --omit=dev --ignore-scripts --no-audit --no-fund @coderline/alphatab@1.8.4 \
 	&& test "$(node -p "require('/opt/noted-omr/node_modules/@coderline/alphatab/package.json').version")" = "1.8.4" \
