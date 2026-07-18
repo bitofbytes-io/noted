@@ -74,6 +74,7 @@ These routes are reserved for the Audiveris increment and are not implemented by
 
 - `POST /api/assets/{assetId}/recognition-jobs` — explicitly request OCR for an authorized eligible source.
 - `GET /api/recognition-jobs/{jobId}` — return learner-scoped status, engine/version, timestamps, sanitized failure details, and output asset when available.
+- `GET /api/recognition-jobs/{jobId}/project` — download the retained private Audiveris `.omr` correction project for the owning learner.
 - `POST /api/recognition-jobs/{jobId}/retry` — create a bounded retry after a terminal failure.
 - `DELETE /api/recognition-jobs/{jobId}` — cancel when possible or remove terminal job artifacts subject to retention policy; never delete the original source implicitly.
 

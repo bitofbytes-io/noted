@@ -61,6 +61,7 @@ func NewRouter(service *app.Service, authService *auth.Service, cfg config.Confi
 		r.Post("/api/assets/{assetId}/recognition-jobs", h.createRecognitionJob)
 		r.Get("/api/assets/{assetId}/recognition-jobs", h.listRecognitionJobs)
 		r.Get("/api/recognition-jobs/{jobId}", h.getRecognitionJob)
+		r.Get("/api/recognition-jobs/{jobId}/project", h.downloadRecognitionProject)
 		r.Post("/api/recognition-jobs/{jobId}/retry", h.retryRecognitionJob)
 		r.Delete("/api/recognition-jobs/{jobId}", h.cancelRecognitionJob)
 		r.Get("/api/practice-sessions", h.listPractice)

@@ -1,10 +1,12 @@
 package omrworker
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -110,6 +112,53 @@ func TestRecognizeStreamsMusicXMLAndCleansJobDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(jobRoot); !os.IsNotExist(err) {
 		t.Fatalf("job directory still exists: %s", jobRoot)
+	}
+}
+
+func TestRecognizeStreamsLinkedScoreAndCorrectionProject(t *testing.T) {
+	recognizer := &fakeRecognizer{recognize: func(ctx context.Context, input, output string) (Result, error) {
+		result, err := successfulRecognition(ctx, input, output)
+		if err != nil {
+			return Result{}, err
+		}
+		projectPath := filepath.Join(output, "score.omr")
+		if err := os.WriteFile(projectPath, validOMRProject(t), 0o600); err != nil {
+			return Result{}, err
+		}
+		result.ProjectPath = projectPath
+		return result, nil
+	}}
+	handler := newTestHandler(t, recognizer)
+	request := multipartRequest(t, minimalPDF(), true)
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	mediaType, parameters, err := mime.ParseMediaType(response.Header().Get("Content-Type"))
+	if err != nil || mediaType != "multipart/mixed" {
+		t.Fatalf("content type = %q, error = %v", response.Header().Get("Content-Type"), err)
+	}
+	reader := multipart.NewReader(response.Body, parameters["boundary"])
+	artifacts := map[string][]byte{}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifacts[part.Header.Get("X-Noted-Artifact")], err = io.ReadAll(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(artifacts["score"], validMusicXML()) {
+		t.Fatalf("score artifact = %q", artifacts["score"])
+	}
+	if !bytes.Equal(artifacts["project"], validOMRProject(t)) {
+		t.Fatal("correction project artifact was not preserved")
 	}
 }
 
@@ -312,6 +361,23 @@ func successfulRecognition(_ context.Context, _ string, output string) (Result, 
 
 func validMusicXML() []byte {
 	return []byte(`<score-partwise><part><measure><note><pitch><step>C</step></pitch></note></measure></part></score-partwise>`)
+}
+
+func validOMRProject(t *testing.T) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	archive := zip.NewWriter(&output)
+	entry, err := archive.Create("book.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(entry, `<book/>`); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
 }
 
 func minimalPDF() []byte { return []byte("%PDF-1.7\n%%EOF\n") }

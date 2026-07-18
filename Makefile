@@ -27,7 +27,7 @@ ensure-image-tag: configure-image
 	@test -n "$(strip $(SHORT_SHA))" || (echo "Unable to determine git short SHA for image tagging." >&2; exit 1)
 
 setup:
-	mkdir -p .local/noted-assets/temporary .local/noted-assets/originals/pdf .local/noted-assets/originals/musicxml
+	mkdir -p .local/noted-assets/temporary .local/noted-assets/originals/pdf .local/noted-assets/originals/musicxml .local/noted-assets/originals/omr
 	test -f .env || cp .env.example .env
 	go mod download
 	cd web && npm ci

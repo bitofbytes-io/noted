@@ -215,7 +215,7 @@ Validation and ownership rules:
 - Source, derived asset, recognition job, edition, and user scope must remain consistent.
 - Only one active job per source/user/configuration fingerprint should run at once; retries create auditable attempts.
 - Deleting a derived result does not delete the original. Original deletion must account for or cascade derived/job artifacts deliberately.
-- Worker logs and `.omr` projects are private operational artifacts with explicit retention limits and no direct public route.
+- Worker logs and `.omr` projects are private operational artifacts with explicit retention limits. Projects are available only through a learner-scoped authenticated download route.
 - If Audiveris emits compressed `.mxl`, the importer must enforce archive entry/count/expanded-size limits and reject paths or unexpected content. The initial implementation may instead configure Audiveris for plain MusicXML output.
 
 ## Dashboard query expectations

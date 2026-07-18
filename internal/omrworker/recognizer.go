@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	pathpkg "path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,7 @@ type Result struct {
 	Path        string
 	ContentType string
 	Extension   string
+	ProjectPath string
 }
 
 type Recognizer interface {
@@ -108,7 +110,7 @@ func (r *CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDire
 		jobEnvironment[directory] = path
 	}
 	command := exec.CommandContext(ctx, r.Command,
-		"-batch", "-transcribe", "-export", "-output", outputDirectory, "--", inputPath)
+		"-batch", "-transcribe", "-save", "-export", "-output", outputDirectory, "--", inputPath)
 	configureProcessGroup(command)
 	javaOptions := strings.TrimSpace(os.Getenv("JAVA_TOOL_OPTIONS"))
 	javaOptions = strings.TrimSpace(javaOptions + " -Djava.io.tmpdir=" + jobEnvironment["tmp"])
@@ -139,6 +141,11 @@ func (r *CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDire
 	if err != nil {
 		return Result{}, err
 	}
+	projectPath, err := findAndValidateProject(outputDirectory)
+	if err != nil {
+		return Result{}, err
+	}
+	result.ProjectPath = projectPath
 	return result, nil
 }
 
@@ -279,6 +286,66 @@ func findAndValidateResult(root string, maxBytes int64) (Result, error) {
 	return Result{}, workerError("invalid_output", "Audiveris produced invalid MusicXML", lastErr)
 }
 
+func findAndValidateProject(root string) (string, error) {
+	var candidates []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type().IsRegular() && strings.EqualFold(filepath.Ext(path), ".omr") {
+			candidates = append(candidates, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", workerError("invalid_output", "recognition project could not be inspected", err)
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	sort.Strings(candidates)
+	if err := validateOMR(candidates[0]); err != nil {
+		return "", workerError("invalid_output", "Audiveris produced an invalid correction project", err)
+	}
+	return candidates[0], nil
+}
+
+func validateOMR(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() < 1 || info.Size() > maxJobBytes {
+		return errors.New("Audiveris project exceeds the permitted size")
+	}
+	archive, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer archive.Close()
+	if len(archive.File) < 1 || len(archive.File) > maxJobFiles {
+		return errors.New("Audiveris project has an invalid entry count")
+	}
+	var expanded uint64
+	bookSeen := false
+	for _, entry := range archive.File {
+		if !safeArchivePath(entry.Name) {
+			return errors.New("Audiveris project contains an unsafe path")
+		}
+		expanded, err = addExpandedSize(expanded, entry.UncompressedSize64, uint64(maxJobBytes))
+		if err != nil {
+			return err
+		}
+		if entry.Name == "book.xml" {
+			bookSeen = true
+		}
+	}
+	if !bookSeen {
+		return errors.New("Audiveris project is missing book.xml")
+	}
+	return nil
+}
+
 func validateMusicXMLFile(path string, maxBytes int64) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -363,7 +430,7 @@ func addExpandedSize(current, addition, limit uint64) (uint64, error) {
 func validateMusicXML(reader io.Reader, maxBytes int64) error {
 	limited := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	decoder := xml.NewDecoder(limited)
-	var score, measure, pitch bool
+	var score, measure bool
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
@@ -381,15 +448,13 @@ func validateMusicXML(reader io.Reader, maxBytes int64) error {
 			score = true
 		case "measure":
 			measure = true
-		case "pitch":
-			pitch = true
 		}
 	}
 	if limited.N <= 0 {
 		return errors.New("MusicXML exceeds the permitted size")
 	}
-	if !score || !measure || !pitch {
-		return errors.New("output is not a playable MusicXML score")
+	if !score || !measure {
+		return errors.New("output is not a valid MusicXML score")
 	}
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"os"
 	"os/exec"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,16 +22,18 @@ import (
 )
 
 const (
-	recognitionTimeout        = 10 * time.Minute
-	maxRecognitionBytes       = 25 << 20
-	maxRecognitionOutputBytes = 25 << 20
-	recognitionLeaseDuration  = 45 * time.Second
-	recognitionLeaseHeartbeat = 15 * time.Second
-	recognitionPollInterval   = 2 * time.Second
+	recognitionTimeout         = 10 * time.Minute
+	maxRecognitionBytes        = 25 << 20
+	maxRecognitionOutputBytes  = 25 << 20
+	maxRecognitionProjectBytes = 512 << 20
+	recognitionLeaseDuration   = 45 * time.Second
+	recognitionLeaseHeartbeat  = 15 * time.Second
+	recognitionPollInterval    = 2 * time.Second
 )
 
 type RecognitionOutput struct {
 	Path          string
+	ProjectPath   string
 	EngineVersion string
 }
 
@@ -66,7 +69,18 @@ func (r CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDirec
 			if err := validateRecognitionScore(matches[0]); err != nil {
 				return RecognitionOutput{}, fmt.Errorf("Audiveris produced unusable MusicXML: %w", err)
 			}
-			return RecognitionOutput{Path: matches[0], EngineVersion: r.Version}, nil
+			projects, projectErr := filepath.Glob(filepath.Join(outputDirectory, "*.omr"))
+			if projectErr != nil {
+				return RecognitionOutput{}, projectErr
+			}
+			projectPath := ""
+			if len(projects) > 0 {
+				if err := validateRecognitionProject(projects[0]); err != nil {
+					return RecognitionOutput{}, fmt.Errorf("Audiveris produced unusable correction project: %w", err)
+				}
+				projectPath = projects[0]
+			}
+			return RecognitionOutput{Path: matches[0], ProjectPath: projectPath, EngineVersion: r.Version}, nil
 		}
 	}
 	return RecognitionOutput{}, errors.New("Audiveris completed without a MusicXML export")
@@ -106,7 +120,7 @@ func validateRecognitionScore(path string) error {
 				return nil
 			}
 		}
-		return errors.New("compressed score contains no playable pitched notes")
+		return errors.New("compressed score contains no valid MusicXML score")
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -119,7 +133,7 @@ func validateRecognitionScore(path string) error {
 func validateRecognitionXML(reader io.Reader) error {
 	limited := &io.LimitedReader{R: reader, N: maxRecognitionOutputBytes + 1}
 	decoder := xml.NewDecoder(limited)
-	var score, measure, pitch bool
+	var score, measure bool
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
@@ -137,8 +151,6 @@ func validateRecognitionXML(reader io.Reader) error {
 			score = true
 		case "measure":
 			measure = true
-		case "pitch":
-			pitch = true
 		}
 	}
 	if limited.N == 0 {
@@ -150,10 +162,51 @@ func validateRecognitionXML(reader io.Reader) error {
 	if !measure {
 		return errors.New("export contains no measures")
 	}
-	if !pitch {
-		return errors.New("export contains no pitched notes")
+	return nil
+}
+
+func validateRecognitionProject(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() < 1 || info.Size() > maxRecognitionProjectBytes {
+		return errors.New("recognition project is too large")
+	}
+	archive, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("open recognition project: %w", err)
+	}
+	defer archive.Close()
+	if len(archive.File) < 1 || len(archive.File) > 4096 {
+		return errors.New("recognition project has an invalid entry count")
+	}
+	var expanded uint64
+	bookSeen := false
+	for _, entry := range archive.File {
+		if !safeRecognitionProjectPath(entry.Name) {
+			return errors.New("recognition project contains an unsafe path")
+		}
+		if entry.UncompressedSize64 > uint64(maxRecognitionProjectBytes)-expanded {
+			return errors.New("recognition project expands beyond the permitted size")
+		}
+		expanded += entry.UncompressedSize64
+		if entry.Name == "book.xml" {
+			bookSeen = true
+		}
+	}
+	if !bookSeen {
+		return errors.New("recognition project is missing book.xml")
 	}
 	return nil
+}
+
+func safeRecognitionProjectPath(name string) bool {
+	if name == "" || strings.ContainsAny(name, "\\\x00") {
+		return false
+	}
+	clean := pathpkg.Clean(name)
+	return clean != "." && !pathpkg.IsAbs(clean) && clean != ".." && !strings.HasPrefix(clean, "../")
 }
 
 // RecoverRecognitionJobs starts the durable queue dispatcher. It deliberately
@@ -215,7 +268,7 @@ func (s *Service) CreateRecognitionJob(ctx context.Context, userID, sourceAssetI
 		INSERT INTO recognition_jobs(user_id,source_asset_id)
 		SELECT $1,a.id FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
 		WHERE a.id=$2 AND a.uploaded_by_user_id=$1 AND lw.user_id=$1 AND a.asset_type='pdf' AND a.archived_at IS NULL AND e.archived_at IS NULL AND a.byte_size<=$3
-		RETURNING id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),created_at,started_at,finished_at,updated_at`, userID, sourceAssetID, maxRecognitionBytes), &job)
+		RETURNING id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),project_storage_key,created_at,started_at,finished_at,updated_at`, userID, sourceAssetID, maxRecognitionBytes), &job)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -239,12 +292,16 @@ func (s *Service) CreateRecognitionJob(ctx context.Context, userID, sourceAssetI
 }
 
 func scanRecognitionJob(row pgx.Row, job *RecognitionJob) error {
-	return row.Scan(&job.ID, &job.SourceAssetID, &job.OutputAssetID, &job.Status, &job.Engine, &job.EngineVersion, &job.FailureMessage, &job.CreatedAt, &job.StartedAt, &job.FinishedAt, &job.UpdatedAt)
+	err := row.Scan(&job.ID, &job.SourceAssetID, &job.OutputAssetID, &job.Status, &job.Engine, &job.EngineVersion, &job.FailureMessage, &job.projectStorageKey, &job.CreatedAt, &job.StartedAt, &job.FinishedAt, &job.UpdatedAt)
+	if err == nil && job.projectStorageKey != nil {
+		job.ProjectDownloadURL = "/api/recognition-jobs/" + job.ID + "/project"
+	}
+	return err
 }
 
 func (s *Service) ActiveRecognitionJob(ctx context.Context, userID, sourceAssetID string) (RecognitionJob, error) {
 	var job RecognitionJob
-	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `SELECT id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),created_at,started_at,finished_at,updated_at FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 AND status IN ('queued','processing') ORDER BY created_at DESC LIMIT 1`, userID, sourceAssetID), &job)
+	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `SELECT id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),project_storage_key,created_at,started_at,finished_at,updated_at FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 AND status IN ('queued','processing') ORDER BY created_at DESC LIMIT 1`, userID, sourceAssetID), &job)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RecognitionJob{}, ErrNotFound
 	}
@@ -256,18 +313,40 @@ func (s *Service) GetRecognitionJob(ctx context.Context, userID, jobID string) (
 		return RecognitionJob{}, err
 	}
 	var job RecognitionJob
-	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `SELECT id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),created_at,started_at,finished_at,updated_at FROM recognition_jobs WHERE user_id=$1 AND id=$2`, userID, jobID), &job)
+	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `SELECT id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),project_storage_key,created_at,started_at,finished_at,updated_at FROM recognition_jobs WHERE user_id=$1 AND id=$2`, userID, jobID), &job)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RecognitionJob{}, ErrNotFound
 	}
 	return job, err
 }
 
+func (s *Service) OpenRecognitionProject(ctx context.Context, userID, jobID string) (io.ReadCloser, int64, error) {
+	if err := validateResourceID(jobID); err != nil {
+		return nil, 0, err
+	}
+	var storageKey string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT project_storage_key
+		FROM recognition_jobs
+		WHERE id=$1 AND user_id=$2 AND status='succeeded' AND project_storage_key IS NOT NULL`, jobID, userID).Scan(&storageKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, ErrNotFound
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	reader, info, err := s.Store.Open(ctx, storageKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return reader, info.Size, nil
+}
+
 func (s *Service) ListRecognitionJobs(ctx context.Context, userID, sourceAssetID string) ([]RecognitionJob, error) {
 	if err := validateResourceID(sourceAssetID); err != nil {
 		return nil, err
 	}
-	rows, err := s.Pool.Query(ctx, `SELECT id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),created_at,started_at,finished_at,updated_at FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 ORDER BY created_at DESC`, userID, sourceAssetID)
+	rows, err := s.Pool.Query(ctx, `SELECT id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,COALESCE(failure_message,''),project_storage_key,created_at,started_at,finished_at,updated_at FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 ORDER BY created_at DESC`, userID, sourceAssetID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +354,7 @@ func (s *Service) ListRecognitionJobs(ctx context.Context, userID, sourceAssetID
 	jobs := []RecognitionJob{}
 	for rows.Next() {
 		var job RecognitionJob
-		if err := rows.Scan(&job.ID, &job.SourceAssetID, &job.OutputAssetID, &job.Status, &job.Engine, &job.EngineVersion, &job.FailureMessage, &job.CreatedAt, &job.StartedAt, &job.FinishedAt, &job.UpdatedAt); err != nil {
+		if err := scanRecognitionJob(rows, &job); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, job)
@@ -459,6 +538,31 @@ func (s *Service) runClaimedRecognition(ctx context.Context, job claimedRecognit
 		s.failRecognition(ctx, job.id, err)
 		return
 	}
+	projectKey := ""
+	projectStored := false
+	defer func() {
+		if projectStored {
+			_ = s.Store.Delete(context.Background(), projectKey)
+		}
+	}()
+	if converted.ProjectPath != "" {
+		project, err := os.Open(converted.ProjectPath)
+		if err != nil {
+			s.failRecognition(ctx, job.id, err)
+			return
+		}
+		projectKey = "omr/" + job.id
+		_, err = s.Store.Put(ctx, projectKey, project)
+		closeErr := project.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			s.failRecognition(ctx, job.id, fmt.Errorf("store Audiveris correction project: %w", err))
+			return
+		}
+		projectStored = true
+	}
 	output, err := os.Open(converted.Path)
 	if err != nil {
 		s.failRecognition(ctx, job.id, err)
@@ -485,22 +589,31 @@ func (s *Service) runClaimedRecognition(ctx context.Context, job claimedRecognit
 		s.failRecognition(ctx, job.id, err)
 		return
 	}
-	if err := s.finishRecognition(job.id, job.userID, asset.ID, converted.EngineVersion, s.recognitionWorkerID); err != nil {
+	if err := s.finishRecognition(job.id, job.userID, asset.ID, converted.EngineVersion, s.recognitionWorkerID, projectKey); err != nil {
 		slog.Error("finish score recognition", "job_id", job.id, "asset_id", asset.ID, "error", err)
+		return
 	}
+	projectStored = false
 }
 
-func (s *Service) finishRecognition(jobID, userID, assetID, engineVersion, leaseOwner string) error {
-	result, err := s.Pool.Exec(context.Background(), `UPDATE recognition_jobs SET status='succeeded',output_asset_id=$2,engine_version=$3,lease_owner=NULL,lease_expires_at=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='processing' AND lease_owner=$4`, jobID, assetID, engineVersion, leaseOwner)
+func (s *Service) finishRecognition(jobID, userID, assetID, engineVersion, leaseOwner, projectKey string) error {
+	result, err := s.Pool.Exec(context.Background(), `UPDATE recognition_jobs SET status='succeeded',output_asset_id=$2,engine_version=$3,project_storage_key=NULLIF($5,''),lease_owner=NULL,lease_expires_at=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='processing' AND lease_owner=$4`, jobID, assetID, engineVersion, leaseOwner, projectKey)
 	if err == nil && result.RowsAffected() == 1 {
 		return nil
 	}
 	cleanupErr := s.DeleteAsset(context.Background(), userID, assetID)
+	var projectCleanupErr error
+	if projectKey != "" {
+		projectCleanupErr = s.Store.Delete(context.Background(), projectKey)
+	}
 	if err != nil {
-		return errors.Join(fmt.Errorf("record recognition output: %w", err), cleanupErr)
+		return errors.Join(fmt.Errorf("record recognition output: %w", err), cleanupErr, projectCleanupErr)
 	}
 	if cleanupErr != nil {
 		return fmt.Errorf("recognition was no longer active and output cleanup failed: %w", cleanupErr)
+	}
+	if projectCleanupErr != nil {
+		return fmt.Errorf("recognition was no longer active and project cleanup failed: %w", projectCleanupErr)
 	}
 	return nil
 }

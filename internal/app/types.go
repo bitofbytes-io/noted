@@ -53,17 +53,19 @@ type Edition struct {
 }
 
 type RecognitionJob struct {
-	ID             string     `json:"id"`
-	SourceAssetID  string     `json:"sourceAssetId"`
-	OutputAssetID  *string    `json:"outputAssetId,omitempty"`
-	Status         string     `json:"status"`
-	Engine         string     `json:"engine"`
-	EngineVersion  string     `json:"engineVersion"`
-	FailureMessage string     `json:"failureMessage,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	StartedAt      *time.Time `json:"startedAt,omitempty"`
-	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	ID                 string     `json:"id"`
+	SourceAssetID      string     `json:"sourceAssetId"`
+	OutputAssetID      *string    `json:"outputAssetId,omitempty"`
+	Status             string     `json:"status"`
+	Engine             string     `json:"engine"`
+	EngineVersion      string     `json:"engineVersion"`
+	FailureMessage     string     `json:"failureMessage,omitempty"`
+	ProjectDownloadURL string     `json:"projectDownloadUrl,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	StartedAt          *time.Time `json:"startedAt,omitempty"`
+	FinishedAt         *time.Time `json:"finishedAt,omitempty"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+	projectStorageKey  *string
 }
 
 type Movement struct {

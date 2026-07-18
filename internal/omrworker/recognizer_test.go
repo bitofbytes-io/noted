@@ -47,6 +47,13 @@ printf '<score-partwise><part><measure><note><pitch><step>C</step></pitch></note
 	}
 }
 
+func TestValidateMusicXMLAcceptsRestOnlyScore(t *testing.T) {
+	score := `<score-partwise><part><measure><note><rest/></note></measure></part></score-partwise>`
+	if err := validateMusicXML(strings.NewReader(score), DefaultMaxOutputBytes); err != nil {
+		t.Fatalf("rest-only score validation = %v", err)
+	}
+}
+
 func TestReplaceEnvironmentIsolatesAudiverisState(t *testing.T) {
 	current := []string{"HOME=/shared", "PATH=/bin", "XDG_CACHE_HOME=/shared/cache"}
 	replaced := replaceEnvironment(current, map[string]string{"HOME": "/job/home", "XDG_CACHE_HOME": "/job/cache"})
@@ -154,6 +161,30 @@ func TestFindAndValidateResultAcceptsSafeMXL(t *testing.T) {
 	}
 	if result.Path != path || result.Extension != ".mxl" {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestFindAndValidateProjectAcceptsAudiverisBook(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "score.omr")
+	var contents bytes.Buffer
+	archive := zip.NewWriter(&contents)
+	book, _ := archive.Create("book.xml")
+	_, _ = book.Write([]byte(`<book/>`))
+	sheet, _ := archive.Create("sheet#1/sheet#1.xml")
+	_, _ = sheet.Write([]byte(`<sheet/>`))
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, contents.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project, err := findAndValidateProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project != path {
+		t.Fatalf("project path = %q, want %q", project, path)
 	}
 }
 

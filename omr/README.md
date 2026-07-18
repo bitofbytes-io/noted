@@ -7,7 +7,7 @@ The OMR image runs a private, single-job HTTP wrapper around the Audiveris batch
 - `GET /healthz` checks the Go process.
 - `GET /readyz` verifies writable temporary storage and the pinned Audiveris executable/version.
 - `POST /v1/recognize` accepts one multipart field named `file` and requires `Authorization: Bearer <token>`.
-- A successful response streams `.musicxml` or `.mxl` and reports the engine in `X-Noted-OMR-Engine` and `X-Noted-OMR-Version`.
+- A successful response streams a `multipart/mixed` score/project pair when Audiveris emits its `.omr` book, or a legacy single `.musicxml`/`.mxl` score when no project is available. It reports the engine in `X-Noted-OMR-Engine` and `X-Noted-OMR-Version`.
 - Errors use `{"error":{"code":"...","message":"..."}}`. Stable codes include `unauthorized`, `invalid_request`, `invalid_pdf`, `input_too_large`, `too_many_pages`, `busy`, `timeout`, `cancelled`, `conversion_failed`, `output_too_large`, `invalid_output`, `worker_unavailable`, and `worker_version_mismatch`.
 
 The worker permits one request at a time, limits inputs and outputs to 25 MiB, limits PDFs to 25 pages, terminates stalled uploads after two minutes, and terminates conversion after 10 minutes. Each request uses a private directory under `OMR_TEMP_ROOT`; terminal requests and interrupted-job remnants found at startup are removed.

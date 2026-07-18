@@ -94,6 +94,7 @@ export interface RecognitionJob {
   engine: string;
   engineVersion: string;
   failureMessage?: string;
+  projectDownloadUrl?: string;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;

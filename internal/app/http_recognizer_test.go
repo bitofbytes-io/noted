@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +81,45 @@ func TestHTTPRecognizerAcceptsValidatedMXL(t *testing.T) {
 	}
 	if filepath.Ext(result.Path) != ".mxl" {
 		t.Fatalf("output path = %q", result.Path)
+	}
+}
+
+func TestHTTPRecognizerPersistsLinkedMusicXMLAndOMRProject(t *testing.T) {
+	project := compressedRemoteOMR(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("X-Noted-OMR-Engine", "audiveris")
+		response.Header().Set("X-Noted-OMR-Version", "5.10.2")
+		writer := multipart.NewWriter(response)
+		response.Header().Set("Content-Type", "multipart/mixed; boundary="+writer.Boundary())
+		scoreHeader := make(textproto.MIMEHeader)
+		scoreHeader.Set("Content-Type", "application/vnd.recordare.musicxml+xml")
+		scoreHeader.Set("X-Noted-Artifact", "score")
+		score, _ := writer.CreatePart(scoreHeader)
+		_, _ = io.WriteString(score, validRemoteMusicXML)
+		projectHeader := make(textproto.MIMEHeader)
+		projectHeader.Set("Content-Type", "application/octet-stream")
+		projectHeader.Set("X-Noted-Artifact", "project")
+		projectPart, _ := writer.CreatePart(projectHeader)
+		_, _ = projectPart.Write(project)
+		_ = writer.Close()
+	}))
+	defer server.Close()
+
+	result, err := (HTTPRecognizer{BaseURL: server.URL, Token: "token"}).Recognize(
+		context.Background(), writeRecognitionInput(t, []byte("%PDF-1.7")), t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(result.Path) != ".musicxml" || filepath.Ext(result.ProjectPath) != ".omr" {
+		t.Fatalf("recognition result = %+v", result)
+	}
+	storedProject, err := os.ReadFile(result.ProjectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(storedProject, project) {
+		t.Fatal("stored correction project differs from the worker artifact")
 	}
 }
 
@@ -226,6 +267,23 @@ func compressedRemoteMusicXML(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	if _, err := io.WriteString(entry, validRemoteMusicXML); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
+}
+
+func compressedRemoteOMR(t *testing.T) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	archive := zip.NewWriter(&output)
+	entry, err := archive.Create("book.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(entry, `<book/>`); err != nil {
 		t.Fatal(err)
 	}
 	if err := archive.Close(); err != nil {
