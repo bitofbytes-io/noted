@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,6 +31,9 @@ func integrationHTTPRouter(t *testing.T) http.Handler {
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !filepath.IsAbs(cfg.AssetRoot) {
+		cfg.AssetRoot = filepath.Join("../../..", cfg.AssetRoot)
 	}
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
