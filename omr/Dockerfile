@@ -46,10 +46,28 @@ RUN curl -fsSL -o /tmp/audiveris.deb "https://github.com/Audiveris/audiveris/rel
 	&& install -d -o noted-omr -g noted-omr -m 0700 /tmp/noted-omr /tmp/noted-omr/home
 
 COPY omr/requirements.txt /opt/noted-omr/requirements.txt
-RUN python3 -m venv /opt/noted-omr/venv \
+RUN python3 -m venv /opt/noted-omr/venv
+
+# Keep the large binary dependencies in separate immutable layers. Besides making
+# updates cacheable, this keeps every registry upload below the private proxy's
+# request window instead of producing one monolithic 850+ MiB filesystem layer.
+RUN /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+	"numpy>=2.4.2,<3.0.0" \
+	"onnxruntime>=1.24.1,<2.0.0"
+RUN /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+	"opencv-python-headless>=4.13.0.92,<5.0.0.0" \
+	"Pillow>=12.1.1,<13.0.0"
+RUN /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+	"rapidocr>=3.7.0,<4.0.0"
+RUN /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+	"homr==0.7.0"
+RUN /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+	"music21==10.3.0" \
 	&& /opt/noted-omr/venv/bin/pip install --no-cache-dir --disable-pip-version-check -r /opt/noted-omr/requirements.txt \
-	&& /opt/noted-omr/venv/bin/python -c "import importlib.metadata as m; assert m.version('homr') == '0.7.0'; assert m.version('music21') == '10.3.0'" \
-	&& /opt/noted-omr/venv/bin/homr --gpu no --init \
+	&& /opt/noted-omr/venv/bin/pip check \
+	&& /opt/noted-omr/venv/bin/python -c "import importlib.metadata as m; assert m.version('homr') == '0.7.0'; assert m.version('music21') == '10.3.0'"
+
+RUN /opt/noted-omr/venv/bin/homr --gpu no --init \
 	&& find /opt/noted-omr/venv/lib/python3.11/site-packages/homr /opt/noted-omr/venv/lib/python3.11/site-packages/rapidocr -type f -name '*.onnx' -print0 \
 		| sort -z | xargs -0 sha256sum > /opt/noted-omr/homr-models.sha256 \
 	&& test -s /opt/noted-omr/homr-models.sha256
@@ -59,8 +77,9 @@ RUN npm install --prefix /opt/noted-omr --omit=dev --ignore-scripts --no-audit -
 	&& npm cache clean --force
 
 COPY omr/pipeline /opt/noted-omr/pipeline
-RUN chmod -R a-w /opt/noted-omr/pipeline /opt/noted-omr/node_modules /opt/noted-omr/venv \
-	&& chown -R root:root /opt/noted-omr
+RUN chmod -R a-w /opt/noted-omr/pipeline \
+	&& find /opt/noted-omr/node_modules /opt/noted-omr/venv -xdev -perm /022 -exec chmod go-w {} + \
+	&& ! find /opt/noted-omr/pipeline /opt/noted-omr/node_modules /opt/noted-omr/venv ! -user root -print -quit | grep -q .
 
 COPY omr/tests /opt/noted-omr/tests
 COPY testdata/fixtures/noted-exercise.musicxml /opt/noted-omr/testdata/fixtures/noted-exercise.musicxml
