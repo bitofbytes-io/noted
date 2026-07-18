@@ -13,7 +13,12 @@ Browser / iPad
 Traefik on Crystal Docker Swarm
       |-- /api/* ----------> noted-api:8080
       |                         |-- NAS PostgreSQL :8432
-      |                         `-- private score storage on NAS
+      |                         |-- private score storage on NAS
+      |                         `-- private HTTP :8788
+      |                                  |
+      |                                  v
+      |                         noted-omr-worker on bahamut
+      |                         (NAS / AMD64; promotion gated)
       `-- all other paths ---> noted-ui:80
 
 CI / deployment
@@ -22,7 +27,7 @@ CI / deployment
       v
 registry.tail209cfc.ts.net
       |
-      `-- noted-api:<commit> and noted-ui:<commit>
+      `-- noted-api:<commit>, noted-ui:<commit>, and noted-omr:<commit>
 ```
 
 ## Alignment with Anthology and home_swarm
@@ -139,12 +144,13 @@ production-accepted until the representative real-score, NAS-resource/failure,
 dependency/license, and owner-acceptance gates in [ADR 0002](../decisions/0002-audiveris-ocr-pipeline.md) are recorded.
 
 - Do not expose the worker through Traefik or grant it OAuth/session secrets.
+- Run the worker on `bahamut` through Synology Container Manager. Do not schedule Audiveris, homr, or the repair/fusion pipeline on the ARM Raspberry Pi Crystal Swarm; those nodes keep the lightweight API/UI and job-orchestration responsibilities.
 - Give the worker no PostgreSQL, NFS, Google, or session credentials. The Go API streams an already-authorized PDF over private TCP with a dedicated bearer secret; the worker returns artifacts to the API rather than choosing or persisting learner objects itself.
 - Permit private TCP `8788` only from the Crystal application nodes. The browser never calls `/v1/recognize`, `/healthz`, or `/readyz` directly.
 - Run one request at a time with a two-CPU, 4-GiB container ceiling and a 1-GiB scratch ceiling. Independently retain worker limits of 25 MiB input/output, 25 pages, two-minute upload, ten-minute processing, bounded logs/archives, and 512 MiB post-conversion job footprint.
 - Keep PostgreSQL job ownership, authorization, claim/lease recovery, retries, and cancellation in the Go API. API replicas use database leases; the worker's one-slot queue returns `429 busy`, which the API retries with bounded backoff.
 - Disable outbound runtime network access. `homr --init` must run at image build time; the deployed image must contain the required weights and pass the exact-version plus ONNX-checksum readiness checks without downloading anything.
-- Use a non-root UID, `no-new-privileges`, read-only application/dependency paths, isolated per-job HOME/XDG/temp/cache directories, and cleanup after terminal requests and process restart.
+- Use a non-root UID, `no-new-privileges`, read-only application/dependency paths, isolated per-job HOME/XDG/temp/cache directories, and cleanup after terminal requests and process restart. The bounded NAS scratch mount must permit execution because Audiveris/JavaCPP extracts native libraries there; application and dependency paths remain read-only.
 - Preserve image revision, engine/dependency versions, bounded logs, Audiveris package checksum, homr model manifest, quality report, output checksums, and optional `.omr` project artifacts for troubleshooting/future correction.
 - Include derived MusicXML, retained `.omr` artifacts, and job state in backup/restore and reconciliation policy.
 - Complete and accept the exact Audiveris/homr AGPL packaging/network review, every bundled model's source/hash/license/citation/redistribution inventory, music21 BSD/corpus review, and alphaTab MPL/subasset notices before the worker is released.

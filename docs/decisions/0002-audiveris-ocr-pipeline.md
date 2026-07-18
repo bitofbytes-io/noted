@@ -94,6 +94,7 @@ exists, the pipeline is implemented but not approved for production promotion.
 ## Security and operational invariants
 
 - The worker is private: no Traefik/browser route, bearer authentication from the Go API, no PostgreSQL/OAuth/session credentials, and no authority to select learner assets.
+- The worker runs on the AMD64 `bahamut` NAS, not on the ARM Raspberry Pi Crystal Swarm. Crystal hosts the API/UI and database-backed queue orchestration; only the NAS performs recognition, repair, fusion, and the playability gate.
 - The worker accepts only bounded PDFs, processes one job at a time, and enforces 25 MiB input/output limits, 25 pages, a two-minute upload deadline, a ten-minute recognition deadline, bounded logs, archive checks, and a 512 MiB post-conversion job-footprint limit. The container runtime supplies the two-CPU, 4-GiB, and scratch-storage ceilings.
 - Every job uses isolated HOME/XDG/temp paths with thread counts capped for native math libraries. Temporary job state is removed on terminal requests and stale job directories are removed at startup.
 - Runtime outbound networking is denied. All engines, Python dependencies, npm packages, and model weights must be present and checksum-verified in the built image before deployment.

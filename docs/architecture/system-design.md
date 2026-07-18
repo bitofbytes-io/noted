@@ -121,12 +121,13 @@ Go API ---- PostgreSQL recognition_jobs + quality report
     |
     | authenticated bounded PDF request
     v
-OMR worker ---- isolated temporary storage
+OMR worker on bahamut NAS (AMD64) ---- isolated temporary storage
     |
     `---- MusicXML + report + optional private .omr artifact
 ```
 
 - The Go API authenticates the learner, verifies access to the source asset, creates job state, and imports validated results.
+- The Raspberry Pi Crystal Swarm runs the API/UI and job orchestration only. The CPU- and memory-heavy Audiveris, homr, music21, and alphaTab worker runs separately on the `bahamut` NAS through Synology Container Manager and is never scheduled as a Crystal Swarm service.
 - The API owns the PostgreSQL claim/lease loop and sends one PDF to the internal worker over a bearer-authenticated private HTTP route. The worker has no public route, database credentials, OAuth/session secrets, NFS credentials, or authorization role.
 - The worker accepts one request at a time. Inputs/outputs are capped at 25 MiB and 25 pages; upload and conversion deadlines are two and ten minutes; logs and archive expansion are bounded; the post-conversion job footprint is capped at 512 MiB. The container supplies the two-CPU, 4-GiB, and scratch-volume ceilings.
 - Each job receives private HOME/XDG/cache/temp directories, bounded native-library thread counts, process-group cancellation, and cleanup on every terminal state. Stale job directories are removed on worker startup.
