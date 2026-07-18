@@ -102,6 +102,88 @@ describe('ScorePlayerComponent controls', () => {
     expect(state.error()).toBe('');
     vi.advanceTimersByTime(1);
     expect(state.error()).toContain('did not become ready');
+    state.markPlaybackReady();
+    expect(state.error()).toBe('');
+    expect(state.playbackReady()).toBe(true);
+  });
+});
+
+describe('ScorePlayerComponent readiness lifecycle', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('starts the playback watchdog after score loading rather than before it', async () => {
+    vi.useFakeTimers();
+    const readyAsset = {
+      id: 'asset-1',
+      editionId: 'edition-1',
+      assetType: 'musicxml',
+      originalFilename: 'exercise.musicxml',
+      displayName: 'Exercise',
+      mediaType: 'application/vnd.recordare.musicxml+xml',
+      byteSize: 100,
+      sha256: 'a'.repeat(64),
+      rightsNote: 'CC0',
+      playbackCapable: true,
+      verificationState: 'verified',
+      createdAt: '2026-07-18T00:00:00Z',
+      contentUrl: '/api/assets/asset-1/content',
+      downloadUrl: '/api/assets/asset-1/download',
+      playbackValidation: { status: 'ready', issues: [] },
+    } as const;
+    await TestBed.configureTestingModule({
+      imports: [ScorePlayerComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              paramMap: convertToParamMap({ assetId: 'asset-1' }),
+              queryParamMap: convertToParamMap({ workId: 'work-1' }),
+            },
+          },
+        },
+        { provide: ApiService, useValue: { asset: () => of(readyAsset) } },
+        {
+          provide: PracticeTimerService,
+          useValue: { initialize: vi.fn(), running: () => null, formatElapsed: () => '00:00:00' },
+        },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ScorePlayerComponent);
+    const component = fixture.componentInstance;
+    const state = component as any;
+    state.shell = { nativeElement: document.createElement('section') };
+    state.notation = { nativeElement: document.createElement('section') };
+    state.viewport = { nativeElement: document.createElement('section') };
+    let callbacks: any;
+    state.adapter.load = vi.fn(
+      (_url, _notation, _viewport, nextCallbacks) =>
+        new Promise<void>((resolve) => {
+          callbacks = nextCallbacks;
+          setTimeout(() => {
+            callbacks.onScoreLoaded(8, 96);
+            resolve();
+          }, 20_000);
+        }),
+    );
+
+    const loading = component.load();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(state.error()).toBe('');
+    await vi.advanceTimersByTimeAsync(5_000);
+    await loading;
+    expect(state.scoreReady()).toBe(true);
+    expect(state.error()).toBe('');
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(state.error()).toContain('did not become ready');
+    callbacks.onPlaybackReady();
+    expect(state.error()).toBe('');
+    expect(state.playbackReady()).toBe(true);
+    fixture.destroy();
   });
 });
 
