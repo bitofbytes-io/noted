@@ -106,6 +106,19 @@ describe('ScorePlayerComponent controls', () => {
     expect(state.error()).toBe('');
     expect(state.playbackReady()).toBe(true);
   });
+
+  it('does not clear a newer error when playback becomes ready after the timeout', () => {
+    state.playbackReady.set(false);
+    state.error.set('');
+    state.startPlaybackReadinessWatchdog();
+    vi.advanceTimersByTime(15_000);
+    state.error.set('Practice could not start');
+
+    state.markPlaybackReady();
+
+    expect(state.error()).toBe('Practice could not start');
+    expect(state.playbackReady()).toBe(true);
+  });
 });
 
 describe('ScorePlayerComponent readiness lifecycle', () => {

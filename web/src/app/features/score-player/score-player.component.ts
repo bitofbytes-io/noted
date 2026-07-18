@@ -16,6 +16,9 @@ import { Asset } from '../../core/models';
 import { PracticeTimerService } from '../../core/practice-timer.service';
 import { NotationPlaybackAdapter, validateMeasureRange } from './notation-playback.adapter';
 
+const playbackReadinessError =
+  'The playback engine did not become ready. Retry the player or download the score.';
+
 @Component({
   selector: 'app-score-player',
   imports: [FormsModule, RouterLink],
@@ -314,7 +317,9 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
 
   private markPlaybackReady(): void {
     this.clearPlaybackReadinessTimer();
-    if (this.playbackReadinessTimedOut) this.error.set('');
+    if (this.playbackReadinessTimedOut && this.error() === playbackReadinessError) {
+      this.error.set('');
+    }
     this.playbackReadinessTimedOut = false;
     this.playbackReady.set(true);
     this.scheduleControlsHide();
@@ -324,12 +329,7 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
     this.clearPlaybackReadinessTimer();
     this.playbackReadinessTimer = setTimeout(() => {
       if (!this.playbackReady() && !this.error()) {
-        this.setPlayerError(
-          new Error(
-            'The playback engine did not become ready. Retry the player or download the score.',
-          ),
-          true,
-        );
+        this.setPlayerError(new Error(playbackReadinessError), true);
       }
     }, 15_000);
   }
