@@ -1,0 +1,8 @@
+# Reviewed production ONNX artifacts. Paths are absolute so the same manifest
+# can be enforced during the image build and by the offline readiness check.
+6ed36640db4ef5d223098b6d5efe4eda97c66b24a2c72faab8a018c749003a8d  /opt/noted-omr/venv/lib/python3.11/site-packages/homr/segmentation/segnet_308-3296ccd40960f90ca6ab9c035cca945675d30a0f.onnx
+3e10fd5ae52d0b86792721922fcd954c283a7ed365de7446425bdabe38f3e57d  /opt/noted-omr/venv/lib/python3.11/site-packages/homr/transformer/decoder_pytorch_model_396-f6feedb42ff90087d898b0941a55d040fa6b2903.onnx
+4c16df852b3789f2676b0d49f0545dab0740e4005f7b472c5252add642f5d5eb  /opt/noted-omr/venv/lib/python3.11/site-packages/homr/transformer/encoder_pytorch_model_396-f6feedb42ff90087d898b0941a55d040fa6b2903.onnx
+090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f  /opt/noted-omr/venv/lib/python3.11/site-packages/rapidocr/models/PP-OCRv6_det_small.onnx
+6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884  /opt/noted-omr/venv/lib/python3.11/site-packages/rapidocr/models/PP-OCRv6_rec_small.onnx
+e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c  /opt/noted-omr/venv/lib/python3.11/site-packages/rapidocr/models/ch_ppocr_mobile_v2.0_cls_mobile.onnx

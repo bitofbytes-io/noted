@@ -1,0 +1,44 @@
+# Exact Python environment shipped by the production OMR image.
+#
+# Regenerate only from a reviewed linux/amd64 image, then rebuild and run the
+# embedded pipeline tests plus `pip check`. Direct component versions are also
+# asserted by the worker readiness probe; this file prevents transitive drift.
+antlr4-python3-runtime==4.9.3
+certifi==2026.6.17
+chardet==7.4.3
+charset-normalizer==3.4.9
+colorlog==6.11.0
+contourpy==1.3.3
+cycler==0.12.1
+flatbuffers==25.12.19
+fonttools==4.63.0
+homr==0.7.0
+idna==3.18
+joblib==1.5.3
+jsonpickle==4.1.2
+kiwisolver==1.5.0
+matplotlib==3.11.1
+more-itertools==11.1.0
+music21==10.3.0
+musicxml==1.4
+numpy==2.4.6
+omegaconf==2.3.1
+onnxruntime==1.27.0
+opencv-python==5.0.0.93
+opencv-python-headless==4.13.0.92
+packaging==26.2
+pillow==12.3.0
+protobuf==7.35.1
+pyclipper==1.4.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+PyYAML==6.0.3
+rapidocr==3.9.1
+requests==2.34.2
+shapely==2.1.2
+six==1.17.0
+tqdm==4.69.0
+types-Pillow==10.2.0.20240822
+typing_extensions==4.16.0
+urllib3==2.7.0
+webcolors==25.10.0

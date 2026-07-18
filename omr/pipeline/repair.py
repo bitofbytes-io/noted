@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import music21
-from music21 import converter, note, stream
+from music21 import converter, meter, note, stream
 from music21.omr import correctors
 
 VERSION = "1"
@@ -109,18 +109,74 @@ def _measure_signature(measure: stream.Measure) -> str:
 
 
 def _expected_duration(measure: stream.Measure) -> Fraction | None:
+    # music21 derives ``Measure.barDuration`` from the measure's own contents
+    # when no time signature is present. That makes an overfull OMR measure
+    # appear valid by definition. alphaTab instead applies common time to a
+    # MusicXML score without an explicit meter, so use the effective inherited
+    # signature and the same 4/4 default here.
     try:
-        duration = _fraction(measure.barDuration.quarterLength)
+        signature = measure.timeSignature or measure.getContextByClass(meter.TimeSignature)
+        duration = _fraction(signature.barDuration.quarterLength) if signature is not None else Fraction(4)
     except Exception:
         return None
     return duration if duration > 0 else None
 
 
 def _actual_duration(measure: stream.Measure) -> Fraction:
-    try:
-        return _fraction(measure.highestTime)
-    except Exception:
-        return _fraction(measure.duration.quarterLength)
+    # ``Measure.highestTime`` includes directions and other non-rhythmic
+    # objects. OMR engines occasionally place a dynamic or expression beyond
+    # the barline; that must not make an otherwise valid voice look overfull
+    # or cause fusion to replace its notes with an inferior engine result.
+    event_ends: list[Fraction] = []
+    for event in measure.recurse().notesAndRests:
+        try:
+            offset = _fraction(event.getOffsetInHierarchy(measure))
+        except Exception:
+            offset = _fraction(event.offset)
+        event_ends.append(offset + _fraction(event.duration.quarterLength))
+    return max(event_ends, default=Fraction(0))
+
+
+def _non_rhythmic_overflow(measure: stream.Measure, expected: Fraction) -> bool:
+    for element in measure.elements:
+        if isinstance(element, (note.GeneralNote, stream.Stream)):
+            continue
+        try:
+            if _fraction(element.getOffsetBySite(measure)) > expected:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _rebase_non_rhythmic_overflow(measure: stream.Measure) -> bool:
+    """Move out-of-bar directions to the nearest valid musical onset."""
+    expected = _expected_duration(measure)
+    if expected is None:
+        return False
+    onsets: set[Fraction] = set()
+    for event in measure.recurse().notesAndRests:
+        try:
+            offset = _fraction(event.getOffsetInHierarchy(measure))
+        except Exception:
+            offset = _fraction(event.offset)
+        if 0 <= offset < expected:
+            onsets.add(offset)
+    valid_onsets = sorted(onsets) or [Fraction(0)]
+    changed = False
+    for element in list(measure.elements):
+        if isinstance(element, (note.GeneralNote, stream.Stream)):
+            continue
+        try:
+            offset = _fraction(element.getOffsetBySite(measure))
+        except Exception:
+            continue
+        if offset <= expected:
+            continue
+        target = min(valid_onsets, key=lambda onset: abs(offset - onset))
+        measure.setElementOffset(element, float(target))
+        changed = True
+    return changed
 
 
 def _is_pickup(measure: stream.Measure, measure_index: int, actual: Fraction, expected: Fraction) -> bool:
@@ -142,12 +198,15 @@ def _measure_issues(measure: stream.Measure, measure_index: int) -> list[str]:
     expected = _expected_duration(measure)
     if expected is None:
         return ["missing_time_signature"]
+    issues: list[str] = []
+    if _non_rhythmic_overflow(measure, expected):
+        issues.append("non_rhythmic_offset_overflow")
     actual = _actual_duration(measure)
     if actual > expected:
-        return ["measure_duration_overflow"]
+        issues.append("measure_duration_overflow")
     if actual < expected and not _is_pickup(measure, measure_index, actual, expected):
-        return ["measure_duration_underflow"]
-    return []
+        issues.append("measure_duration_underflow")
+    return issues
 
 
 def _pad_measure(measure: stream.Measure, measure_index: int) -> bool:
@@ -188,14 +247,63 @@ def _measure_rows(score: stream.Score) -> list[tuple[str, int, stream.Measure]]:
     return rows
 
 
+def _ensure_initial_meters(score: stream.Score) -> set[tuple[str, int]]:
+    """Make alphaTab's common-time fallback explicit for meterless OMR output."""
+    defaulted: set[tuple[str, int]] = set()
+    for part_index, part in enumerate(score.parts, start=1):
+        measures = list(part.getElementsByClass(stream.Measure))
+        if not measures:
+            continue
+        first = measures[0]
+        if first.timeSignature is None and first.getContextByClass(meter.TimeSignature) is None:
+            first.insert(0, meter.TimeSignature("4/4"))
+            defaulted.add((str(part.id or f"P{part_index}")[:100], 1))
+    return defaulted
+
+
+def _capture_explicit_meters(
+    score: stream.Score,
+) -> dict[tuple[str, int], list[tuple[Fraction, meter.TimeSignature]]]:
+    captured: dict[tuple[str, int], list[tuple[Fraction, meter.TimeSignature]]] = {}
+    for part_id, index, measure in _measure_rows(score):
+        signatures: list[tuple[Fraction, meter.TimeSignature]] = []
+        for signature in measure.getElementsByClass(meter.TimeSignature):
+            signatures.append(
+                (_fraction(signature.getOffsetBySite(measure)), copy.deepcopy(signature))
+            )
+        captured[(part_id, index)] = signatures
+    return captured
+
+
+def _restore_explicit_meters(
+    score: stream.Score,
+    captured: dict[tuple[str, int], list[tuple[Fraction, meter.TimeSignature]]],
+) -> None:
+    """Prevent probabilistic note repair from rewriting the source meter."""
+    for part_id, index, measure in _measure_rows(score):
+        source_signatures = captured.get((part_id, index), [])
+        if not source_signatures:
+            # A corrector may infer a missing later meter change. Only source
+            # signatures are authoritative enough to overwrite that result.
+            continue
+        for signature in list(measure.getElementsByClass(meter.TimeSignature)):
+            measure.remove(signature)
+        for offset, signature in source_signatures:
+            measure.insert(float(offset), copy.deepcopy(signature))
+
+
 def repair_score(score: stream.Score, engine: str) -> tuple[stream.Score, dict[str, Any]]:
     part_ids = _assign_unique_part_ids(score)
+    defaulted_meters = _ensure_initial_meters(score)
+    explicit_meters = _capture_explicit_meters(score)
     before_rows = _measure_rows(score)
     before_hashes = {(part_id, index): _measure_signature(measure) for part_id, index, measure in before_rows}
-    initial_issues = {
-        (part_id, index): _measure_issues(measure, index)
-        for part_id, index, measure in before_rows
-    }
+    initial_issues: dict[tuple[str, int], list[str]] = {}
+    for part_id, index, measure in before_rows:
+        issues = _measure_issues(measure, index)
+        if (part_id, index) in defaulted_meters:
+            issues.append("missing_time_signature_defaulted")
+        initial_issues[(part_id, index)] = issues
     flagged = {key for key, issues in initial_issues.items() if issues}
 
     corrector_error = ""
@@ -210,9 +318,14 @@ def repair_score(score: stream.Score, engine: str) -> tuple[stream.Score, dict[s
             corrector_error = str(error)[:200]
 
     _assign_unique_part_ids(score, part_ids)
+    _restore_explicit_meters(score, explicit_meters)
 
+    rebased: set[tuple[str, int]] = set()
     padded: set[tuple[str, int]] = set()
     for part_id, index, measure in _measure_rows(score):
+        if _rebase_non_rhythmic_overflow(measure):
+            rebased.add((part_id, index))
+            initial_issues.setdefault((part_id, index), []).append("non_rhythmic_offset_rebased")
         if _pad_measure(measure, index):
             padded.add((part_id, index))
     try:
@@ -227,7 +340,7 @@ def repair_score(score: stream.Score, engine: str) -> tuple[stream.Score, dict[s
         (part_id, index): _measure_issues(measure, index)
         for part_id, index, measure in final_rows
     }
-    changed: set[tuple[str, int]] = set(padded)
+    changed: set[tuple[str, int]] = set(padded).union(defaulted_meters).union(rebased)
     for part_id, index, measure in final_rows:
         key = (part_id, index)
         if key in before_hashes and before_hashes[key] != _measure_signature(measure):
