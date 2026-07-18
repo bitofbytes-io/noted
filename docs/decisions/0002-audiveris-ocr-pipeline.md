@@ -47,7 +47,7 @@ The production worker image pins runtime dependencies and fails readiness on ver
 |---|---|---|---|
 | [Audiveris](https://github.com/Audiveris/audiveris/tree/5.10.2) | `5.10.2` official Ubuntu package; pinned package SHA-256 `9470d15e79dd4fe45f817b8545ba9f8e57ddaebff3b3a1031f21218647602068` | AGPL-3.0 | Preserve license/notices; record the exact package and the launcher heap change from 8 GiB to 2560 MiB; provide the applicable corresponding source and modification information; have the owner review the private-network interaction model. |
 | [homr](https://github.com/liebharc/homr/tree/v0.7.0) | `0.7.0` | AGPL-3.0 | Preserve license/notices and provide applicable corresponding source/modification information. Do not assume process or Python-package separation removes AGPL obligations. |
-| homr/RapidOCR model weights | downloaded during `homr --init`; ONNX files are hashed into the image manifest | Separate artifacts whose provenance and terms must be verified independently | Before release, inventory every bundled weight by filename, source URL, SHA-256, model/training-data license, required attribution/citation, and redistribution permission. The build-time checksum manifest is an integrity control, not a license record. This remains unresolved. |
+| homr/RapidOCR model weights | downloaded during `homr --init`; six exact ONNX files are enforced by the checked-in build/readiness manifest | Separate artifacts whose provenance and terms must be verified independently | The completed inventory records every weight's filename, source URL, SHA-256, available license/provenance, and citation context. The three homr weights still lack per-weight model cards, licenses, and immutable training-data manifests; private-use acceptance of that residual risk is an explicit owner decision. |
 | [music21](https://github.com/cuthbertLab/music21/tree/v10.3.0) | `10.3.0` | BSD-3-Clause for music21 code; bundled corpora/data can have separate terms | Retain the BSD notice. Inventory or remove unused corpus/data rather than treating all package contents as uniformly BSD. The worker uses parsing, OMR correction, notation, and export code only. |
 | [alphaTab](https://github.com/CoderLine/alphaTab/tree/v1.8.4) | `1.8.4` in worker and web application | MPL-2.0; package subcomponents/assets can carry their own terms | Preserve MPL notices and make source for any modified MPL-covered files available as required. Record that the worker uses the unmodified npm package; inventory bundled font/SoundFont and package notices separately. |
 
@@ -79,17 +79,19 @@ timing becomes valid but pitch/event fidelity is slightly below raw Audiveris, a
 measures are flagged for review. The evidence supports an overall improvement claim on this
 synthetic corpus, not a universal no-regression or production-quality claim.
 
-Production promotion requires all of the following to be attached to a release candidate:
+Production promotion requires all of the following to be attached to a release candidate. The
+current evidence and remaining gates are tracked in the
+[production-readiness record](../implementation/omr-production-readiness.md):
 
-1. Actual before/after harness output from the pinned worker image, including every committed fixture and a rights-cleared representative real-score set. The committed-fixture half is recorded; the representative real-score set remains outstanding.
-2. A recorded acceptance threshold chosen by the product/production owner before reviewing the candidate results, plus no regression relative to the Audiveris-only baseline on the accepted measures.
-3. Resource evidence for the two-CPU, 4-GiB, one-job topology: runtime, peak memory, scratch use, timeout/cancellation, and cleanup on representative multi-page scores.
-4. Failure-path evidence for one-engine fallback, both-engine failure, malformed/oversized output, report rejection, and `unplayable_output`.
-5. Completed dependency/model license inventory and owner acceptance of AGPL, model-weight, notice, corresponding-source, and distribution/network obligations.
+1. Actual before/after harness output from the pinned worker image, including every committed fixture and a rights-cleared representative real-score set. Both sets are now recorded; the real-score set is structural/playability evidence because it has no independently sourced MusicXML references.
+2. A recorded acceptance threshold chosen by the product/production owner before reviewing the candidate results, plus no regression relative to the Audiveris-only baseline on the reference-qualified measures. The predeclared rule and candidate result are recorded.
+3. Resource evidence for the two-CPU, 4-GiB, one-job topology: runtime, peak memory, scratch use, timeout/cancellation, and cleanup on representative multi-page scores. Constrained exact-image evidence exists locally; NAS-native confirmation remains outstanding.
+4. Failure-path evidence for one-engine fallback, both-engine failure, malformed/oversized output, report rejection, and `unplayable_output`. Automated coverage and a real local client-disconnect cancellation pass are recorded; NAS-native cancellation/cleanup confirmation remains outstanding.
+5. Completed dependency/model license inventory and owner acceptance of AGPL, model-weight, notice, corresponding-source, and distribution/network obligations. The inventory is complete; final informed private-use owner acceptance remains outstanding.
 
-The measured synthetic-corpus result is recorded without inventing an acceptance threshold. Until
-the remaining real-score, NAS-resource, failure-path, legal-inventory, and owner-acceptance evidence
-exists, the pipeline is implemented but not approved for production promotion.
+The pipeline is implemented, reviewed, merged, and published as a private AMD64 image. It is not
+approved for production activation until the remaining NAS-native resource/cancellation checks and
+the final informed owner acceptance are recorded.
 
 ## Security and operational invariants
 

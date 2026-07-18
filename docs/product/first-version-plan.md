@@ -269,9 +269,9 @@ Until this research is complete, the safe first workflow is to retain a source U
 - Label generated output `Unverified OCR`; allow explicit playback, rerun, replacement, and deletion while preserving the original.
 - Retain the bounded private `.omr` project artifact when available to support later correction outside Noted.
 - Maintain the CC0 synthetic fixture corpus and evaluation harness for parse, alphaTab, measure integrity/count, and pitch/rhythm/event comparison.
-- The committed synthetic-corpus benchmark records Audiveris-only versus homr/repaired/fused results and an emulated production-image resource observation. Before production promotion, add a rights-cleared representative real-score benchmark and NAS-native resource/failure-path results, then record owner acceptance of AGPL, homr/RapidOCR model-weight, notice, corresponding-source, private-network, backup, and operations obligations.
+- The committed synthetic-corpus benchmark records Audiveris-only versus homr/repaired/fused results. A separately recorded, rights-cleared representative real-score run passes the fixed structural/playability gate under production-like limits. Before production activation, add NAS-native resource/cancellation results and record final informed owner acceptance of the inventoried AGPL, homr/RapidOCR model-weight, notice, corresponding-source, private-network, backup, and operations obligations.
 
-M6 still does not include a Noted correction editor, handwritten-score recognition, or guaranteed transcription accuracy. The technical pipeline and four-fixture benchmark exist; the benchmark shows an overall playability/event improvement with a dense-polyphony fidelity tradeoff. Production promotion remains blocked on representative real-score, NAS-resource/failure-path, dependency-inventory, and legal/operational acceptance gates.
+M6 still does not include a Noted correction editor, handwritten-score recognition, or guaranteed transcription accuracy. The technical pipeline, synthetic benchmark, representative real-score run, and dependency/model inventory exist; the benchmark shows an overall playability/event improvement with a dense-polyphony fidelity tradeoff. Production activation remains blocked on NAS-native resource/cancellation verification and final informed legal/operational owner acceptance.
 
 ## First-version definition of done
 

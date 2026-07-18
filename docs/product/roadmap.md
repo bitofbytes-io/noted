@@ -1,6 +1,6 @@
 # Noted: Provisional Product Roadmap
 
-Status: Product sequence selected; OCR follow-up in active development
+Status: Product sequence selected; OCR follow-up in production validation
 Last updated: 2026-07-18
 
 ## Phase 1: Store and Play
@@ -23,12 +23,13 @@ The repository now implements an asynchronous, resource-limited dual-engine work
 
 This increment uses batch recognition and automatic conservative repair only. It does not build a notation editor into Noted. Retaining the private Audiveris `.omr` artifact keeps later Audiveris/external-editor correction possible, while image-source uploads and handwritten-score recognition remain out of scope for the current route.
 
-Implementation is not the production release gate. The committed rights-safe corpus now has recorded
+Implementation is not the production release gate. The committed rights-safe corpus has recorded
 Audiveris-only, homr/repaired, and fused results: playability and aggregate event accuracy improve,
-with a disclosed dense-polyphony fidelity tradeoff. Before promotion, add rights-cleared
-representative real scans, NAS-native resource/failure behavior from the pinned image, and owner
-acceptance of AGPL, model-weight provenance/redistribution, notices, corresponding-source,
-private-network, backup, and operations obligations.
+with a disclosed dense-polyphony fidelity tradeoff. Rights-cleared representative real scans also
+pass the fixed structural/playability gate under production-like limits, and the exact dependency
+and model inventory is recorded. Before activation, complete NAS-native resource/cancellation
+verification and obtain final informed owner acceptance of the residual model provenance risk,
+AGPL/corresponding-source duties, private-network boundary, backup, and operations obligations.
 
 ## Phase 2: Tracking, Lessons, and Progress
 

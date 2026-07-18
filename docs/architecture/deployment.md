@@ -139,9 +139,11 @@ The Go backend should define asset storage behind a small internal interface sup
 
 Active post-POC development adds a private, asynchronous `noted-omr-worker` image with Audiveris
 5.10.2, homr 0.7.0 and its ONNX weights, music21 10.3.0, and alphaTab 1.8.4. The component and its
-[synthetic-corpus benchmark](../implementation/omr-benchmark.md) are implemented, but it is not
-production-accepted until the representative real-score, NAS-resource/failure,
-dependency/license, and owner-acceptance gates in [ADR 0002](../decisions/0002-audiveris-ocr-pipeline.md) are recorded.
+[synthetic-corpus benchmark](../implementation/omr-benchmark.md) are implemented. The
+rights-cleared representative run and exact dependency/model inventory are recorded in the
+[production-readiness ledger](../implementation/omr-production-readiness.md), but the worker is not
+production-accepted until NAS-native resource/cancellation checks and final informed owner
+acceptance are recorded.
 
 - Do not expose the worker through Traefik or grant it OAuth/session secrets.
 - Run the worker on `bahamut` through Synology Container Manager. Do not schedule Audiveris, homr, or the repair/fusion pipeline on the ARM Raspberry Pi Crystal Swarm; those nodes keep the lightweight API/UI and job-orchestration responsibilities.

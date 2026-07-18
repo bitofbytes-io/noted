@@ -152,11 +152,13 @@ The implemented increment targets printed Common Western Music Notation in PDF f
 
 Implementation does not equal production acceptance. The committed synthetic-corpus before/after
 result is recorded in the [OMR benchmark](../implementation/omr-benchmark.md). Promotion still
-requires a rights-cleared representative real-score benchmark, NAS-native resource/failure
-evidence, and owner acceptance of the exact Audiveris/homr AGPL packaging and network interaction,
-homr/RapidOCR model-weight provenance and redistribution terms, music21 BSD/corpus notices, and
-alphaTab MPL/package-asset notices. Keeping the worker separate is an architectural and security
-boundary, not a conclusion about license obligations.
+requires the gates in the [production-readiness record](../implementation/omr-production-readiness.md).
+The rights-cleared representative run and dependency/model inventory are recorded; NAS-native
+resource/cancellation evidence and final informed owner acceptance remain outstanding. Acceptance
+must cover the exact Audiveris/homr AGPL packaging and network interaction, residual homr model
+provenance limitations, RapidOCR terms, music21 BSD/corpus notices, and alphaTab MPL/package-asset
+notices. Keeping the worker separate is an architectural and security boundary, not a conclusion
+about license obligations.
 
 ## Local authentication mode
 
