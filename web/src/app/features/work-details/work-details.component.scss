@@ -283,7 +283,9 @@
   .asset-row {
     grid-template-columns: 36px 1fr;
   }
-  .asset-row .button {
+  .asset-actions {
     grid-column: 1 / -1;
+    justify-content: flex-start;
+    max-width: none;
   }
 }
