@@ -23,6 +23,41 @@ test('score asset actions stay inside the mobile viewport', async ({ page }) => 
   expect(bounds.every(({ left, right }) => left >= 0 && right <= viewportWidth)).toBe(true);
 });
 
+test('measure range and loop controls are usable and distinct on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/home');
+  await page.getByRole('link', { name: seededWork }).click();
+  await page.getByRole('link', { name: 'Play' }).click();
+
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled({
+    timeout: 30_000,
+  });
+  const rangeButton = page.getByRole('button', { name: /Measures 1–8/ });
+  await rangeButton.click();
+
+  const editor = page.getByRole('dialog', { name: 'Choose measures' });
+  await expect(editor).toBeVisible();
+  const editorBounds = await editor.boundingBox();
+  expect(editorBounds).not.toBeNull();
+  expect(editorBounds?.x).toBeGreaterThanOrEqual(0);
+  expect((editorBounds?.x ?? 0) + (editorBounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  expect(editorBounds?.y).toBeGreaterThanOrEqual(0);
+  expect((editorBounds?.y ?? 0) + (editorBounds?.height ?? 0)).toBeLessThanOrEqual(844);
+
+  await page.getByLabel('Start', { exact: true }).fill('3');
+  await page.getByLabel('End', { exact: true }).fill('5');
+  await page.getByRole('button', { name: 'Apply range' }).click();
+  await expect(page.getByRole('button', { name: /Measures 3–5/ })).toBeVisible();
+
+  const loopOn = page.getByRole('button', { name: 'Loop on, turn off' });
+  await expect(loopOn).toContainText('Loop On');
+  await expect(loopOn).toHaveAttribute('aria-pressed', 'true');
+  await loopOn.click();
+  const loopOff = page.getByRole('button', { name: 'Loop off, turn on' });
+  await expect(loopOff).toContainText('Loop Off');
+  await expect(loopOff).toHaveAttribute('aria-pressed', 'false');
+});
+
 test.describe.serial('Noted core flows', () => {
   test('Flow A: open a seeded PDF and render/play a measure range', async ({ page }, testInfo) => {
     await page.goto('/home');

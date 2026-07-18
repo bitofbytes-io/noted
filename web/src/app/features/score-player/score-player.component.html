@@ -112,49 +112,24 @@
         <button (click)="changeZoom(25)" [disabled]="zoom >= 200" aria-label="Zoom in">+</button>
       </div>
       <div class="range-wrap">
-        <button class="range-control" (click)="toggleRangeEditor()">
+        <button
+          class="range-control"
+          (click)="toggleRangeEditor()"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="rangeOpen"
+          aria-controls="range-editor"
+        >
           Measures {{ rangeStart }}–{{ rangeEnd }} <span>⌄</span>
         </button>
-        @if (rangeOpen) {
-          <form class="range-popover" (ngSubmit)="applyRange()">
-            <strong>Loop range</strong>
-            <div>
-              <label for="range-start">Start</label
-              ><input
-                id="range-start"
-                name="start"
-                type="number"
-                min="1"
-                [max]="measureCount"
-                [(ngModel)]="draftRangeStart"
-              />
-            </div>
-            <div>
-              <label for="range-end">End</label
-              ><input
-                id="range-end"
-                name="end"
-                type="number"
-                min="1"
-                [max]="measureCount"
-                [(ngModel)]="draftRangeEnd"
-              />
-            </div>
-            @if (rangeError) {
-              <span class="range-error">{{ rangeError }}</span>
-            }
-            <button class="apply-range" type="submit">Apply</button>
-            <button class="cancel-range" type="button" (click)="closeRangeEditor()">Cancel</button>
-          </form>
-        }
       </div>
       <button
         class="loop-control"
         [class.active]="looping"
         (click)="toggleLoop()"
         [attr.aria-pressed]="looping"
+        [attr.aria-label]="looping ? 'Loop on, turn off' : 'Loop off, turn on'"
       >
-        ↻ Loop
+        ↻ Loop {{ looping ? 'On' : 'Off' }}
       </button>
       @if (workId && !timer.running()) {
         <button class="practice-control" (click)="startPractice()">Start Practice</button>
@@ -163,5 +138,51 @@
         <a class="practice-control running" routerLink="/practice">● {{ timer.formatElapsed() }}</a>
       }
     </section>
+    @if (rangeOpen) {
+      <form
+        id="range-editor"
+        class="range-popover"
+        role="dialog"
+        aria-labelledby="range-editor-title"
+        (ngSubmit)="applyRange()"
+      >
+        <strong id="range-editor-title">Choose measures</strong>
+        <div class="range-fields">
+          <label for="range-start"
+            >Start
+            <input
+              id="range-start"
+              name="start"
+              type="number"
+              inputmode="numeric"
+              autocomplete="off"
+              min="1"
+              [max]="measureCount"
+              [(ngModel)]="draftRangeStart"
+            />
+          </label>
+          <label for="range-end"
+            >End
+            <input
+              id="range-end"
+              name="end"
+              type="number"
+              inputmode="numeric"
+              autocomplete="off"
+              min="1"
+              [max]="measureCount"
+              [(ngModel)]="draftRangeEnd"
+            />
+          </label>
+        </div>
+        @if (rangeError) {
+          <span class="range-error" role="alert">{{ rangeError }}</span>
+        }
+        <div class="range-actions">
+          <button class="cancel-range" type="button" (click)="closeRangeEditor()">Cancel</button>
+          <button class="apply-range" type="submit">Apply range</button>
+        </div>
+      </form>
+    }
   }
 </section>
