@@ -94,6 +94,51 @@ describe('ScorePlayerComponent controls', () => {
     expect(state.rangeError).toContain('at most 8');
   });
 
+  it('renders the measure editor outside the scrolling toolbar with mobile numeric inputs', () => {
+    const fixture = TestBed.createComponent(ScorePlayerComponent);
+    const renderedComponent = fixture.componentInstance;
+    const renderedState = renderedComponent as any;
+    renderedState.loading.set(false);
+    renderedState.scoreReady.set(true);
+    renderedState.playbackReady.set(true);
+    fixture.detectChanges();
+
+    const rangeButton = fixture.nativeElement.querySelector('.range-control') as HTMLButtonElement;
+    rangeButton.click();
+    fixture.detectChanges();
+
+    const editor = fixture.nativeElement.querySelector('#range-editor') as HTMLFormElement;
+    expect(editor).toBeTruthy();
+    expect(editor.getAttribute('role')).toBe('dialog');
+    expect(editor.closest('.floating-player')).toBeNull();
+    expect(editor.querySelectorAll('input[inputmode="numeric"]')).toHaveLength(2);
+    expect(rangeButton.getAttribute('aria-expanded')).toBe('true');
+    fixture.destroy();
+  });
+
+  it('labels and styles loop on and off as distinct pressed states', () => {
+    const fixture = TestBed.createComponent(ScorePlayerComponent);
+    const renderedState = fixture.componentInstance as any;
+    renderedState.loading.set(false);
+    renderedState.scoreReady.set(true);
+    renderedState.playbackReady.set(true);
+    fixture.detectChanges();
+
+    const loopButton = fixture.nativeElement.querySelector('.loop-control') as HTMLButtonElement;
+    expect(loopButton.textContent).toContain('Loop On');
+    expect(loopButton.getAttribute('aria-pressed')).toBe('true');
+    expect(loopButton.getAttribute('aria-label')).toBe('Loop on, turn off');
+    expect(loopButton.classList.contains('active')).toBe(true);
+
+    loopButton.click();
+    fixture.detectChanges();
+    expect(loopButton.textContent).toContain('Loop Off');
+    expect(loopButton.getAttribute('aria-pressed')).toBe('false');
+    expect(loopButton.getAttribute('aria-label')).toBe('Loop off, turn on');
+    expect(loopButton.classList.contains('active')).toBe(false);
+    fixture.destroy();
+  });
+
   it('turns a silent playback initialization into a recoverable error after 15 seconds', () => {
     state.playbackReady.set(false);
     state.error.set('');
