@@ -37,22 +37,22 @@ var playbackIssueDefinitions = map[string]playbackIssueDefinition{
 		message: "The score is not well-formed MusicXML.", blocked: true,
 	},
 	"unsupported_score_format": {
-		message: "Timewise MusicXML is not supported for playback.", blocked: true,
+		message: "This MusicXML score arrangement may render differently.", blocked: false,
 	},
 	"invalid_divisions": {
-		message: "One or more notes use an invalid rhythmic divisions value.", blocked: true,
+		message: "One or more notes use an invalid rhythmic divisions value.", blocked: false,
 	},
 	"cursor_before_measure": {
-		message: "A backup moves before the start of its measure.", blocked: true,
+		message: "A backup moves before the start of its measure.", blocked: false,
 	},
 	"measure_duration_overflow": {
-		message: "Rhythmic content extends beyond the expected measure duration.", blocked: true,
+		message: "Rhythmic content extends beyond the expected measure duration.", blocked: false,
 	},
 	"measure_number_gap": {
 		message: "The score has gaps in its numeric measure sequence.", blocked: false,
 	},
 	"no_playable_notes": {
-		message: "The score does not contain playable notes.", blocked: true,
+		message: "The score does not contain playable notes.", blocked: false,
 	},
 }
 
@@ -217,7 +217,6 @@ func validateScoreXML(data []byte) PlaybackValidation {
 				}
 			case "score-timewise":
 				rootSeen = true
-				issues.add("unsupported_score_format", "")
 			case "part":
 				partIndex++
 				partID := attributeValue(value.Attr, "id")

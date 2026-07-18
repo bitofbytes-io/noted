@@ -1,6 +1,7 @@
 package app
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -43,6 +44,36 @@ func (fixtureRecognizer) Recognize(_ context.Context, _ string, outputDirectory 
 		return RecognitionOutput{}, err
 	}
 	return RecognitionOutput{Path: path, EngineVersion: "test"}, nil
+}
+
+type fixtureProjectRecognizer struct{}
+
+func (fixtureProjectRecognizer) Recognize(ctx context.Context, inputPath, outputDirectory string) (RecognitionOutput, error) {
+	result, err := (fixtureRecognizer{}).Recognize(ctx, inputPath, outputDirectory)
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	projectPath := filepath.Join(outputDirectory, "converted.omr")
+	project, err := os.Create(projectPath)
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	archive := zip.NewWriter(project)
+	book, err := archive.Create("book.xml")
+	if err == nil {
+		_, err = io.WriteString(book, `<book version="5.10.2"/>`)
+	}
+	if closeErr := archive.Close(); err == nil {
+		err = closeErr
+	}
+	if closeErr := project.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return RecognitionOutput{}, err
+	}
+	result.ProjectPath = projectPath
+	return result, nil
 }
 
 type countingFixtureRecognizer struct{ calls *atomic.Int32 }
@@ -855,7 +886,7 @@ func TestIntegrationDeletionPreservesOtherLearnersLibraryData(t *testing.T) {
 func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
 	service, _, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
-	service.WithRecognizer(fixtureRecognizer{})
+	service.WithRecognizer(fixtureProjectRecognizer{})
 	ctx := context.Background()
 	pdf, err := os.Open("../../testdata/fixtures/noted-exercise.pdf")
 	if err != nil {
@@ -885,8 +916,24 @@ func TestIntegrationRecognitionCreatesDerivedUnverifiedMusicXML(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if job.Status != "succeeded" || job.OutputAssetID == nil {
+	if job.Status != "succeeded" || job.OutputAssetID == nil || job.ProjectDownloadURL == "" {
 		t.Fatalf("recognition job = %+v", job)
+	}
+	project, _, err := service.OpenRecognitionProject(ctx, fixture.UserID, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectBytes, err := io.ReadAll(project)
+	_ = project.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(projectBytes), int64(len(projectBytes)))
+	if err != nil {
+		t.Fatalf("open stored correction project: %v", err)
+	}
+	if len(archive.File) != 1 || archive.File[0].Name != "book.xml" {
+		t.Fatalf("stored correction project files = %v", archive.File)
 	}
 	asset, err := service.GetAsset(ctx, fixture.UserID, *job.OutputAssetID)
 	if err != nil {
@@ -1082,7 +1129,7 @@ func TestIntegrationCancelledRecognitionDiscardsLateOutput(t *testing.T) {
 		VALUES($1,$2,'musicxml',$3,'late.musicxml','application/vnd.recordare.musicxml+xml',8,$4,'Generated OCR',true,$5,$6,'unverified_ocr')`, assetID, fixture.EditionID, "musicxml/"+uuid.NewString(), strings.Repeat("c", 64), fixture.UserID, fixture.AssetID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test", service.recognitionWorkerID); err != nil {
+	if err := service.finishRecognition(jobID, fixture.UserID, assetID, "test", service.recognitionWorkerID, ""); err != nil {
 		t.Fatal(err)
 	}
 	var exists bool

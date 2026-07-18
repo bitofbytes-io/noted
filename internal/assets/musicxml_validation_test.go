@@ -20,10 +20,10 @@ func TestValidateMusicXMLPlaybackSemantics(t *testing.T) {
 	}{
 		{name: "ready with chord grace and pickup", measures: validMeasure + `<measure number="2" implicit="yes"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "ready"},
 		{name: "measure number gap warns", measures: validMeasure + `<measure number="3"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "measure_number_gap"},
-		{name: "duration overflow blocks", measures: `<measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>` + fiveQuarterNotes() + `</measure>`, wantStatus: "blocked", wantCode: "measure_duration_overflow"},
-		{name: "negative cursor blocks", measures: `<measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><backup><duration>4</duration></backup><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "blocked", wantCode: "cursor_before_measure"},
-		{name: "invalid divisions block", measures: `<measure number="1"><attributes><divisions>0</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "blocked", wantCode: "invalid_divisions"},
-		{name: "no playable notes block", measures: `<measure number="1"><attributes><divisions>4</divisions></attributes><note><rest/><duration>4</duration></note></measure>`, wantStatus: "blocked", wantCode: "no_playable_notes"},
+		{name: "duration overflow warns", measures: `<measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>` + fiveQuarterNotes() + `</measure>`, wantStatus: "needs_review", wantCode: "measure_duration_overflow"},
+		{name: "negative cursor warns", measures: `<measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><backup><duration>4</duration></backup><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "cursor_before_measure"},
+		{name: "invalid divisions warn", measures: `<measure number="1"><attributes><divisions>0</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "invalid_divisions"},
+		{name: "no playable notes warn", measures: `<measure number="1"><attributes><divisions>4</divisions></attributes><note><rest/><duration>4</duration></note></measure>`, wantStatus: "needs_review", wantCode: "no_playable_notes"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

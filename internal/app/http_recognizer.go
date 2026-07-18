@@ -96,7 +96,7 @@ func (r HTTPRecognizer) recognizeOnce(ctx context.Context, inputPath, outputDire
 	}
 	request.Header.Set("Authorization", "Bearer "+r.Token)
 	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
-	request.Header.Set("Accept", "application/vnd.recordare.musicxml, application/vnd.recordare.musicxml+xml")
+	request.Header.Set("Accept", "multipart/mixed, application/vnd.recordare.musicxml, application/vnd.recordare.musicxml+xml")
 
 	streamDone := make(chan error, 1)
 	go func() {
@@ -129,44 +129,127 @@ func (r HTTPRecognizer) recognizeOnce(ctx context.Context, inputPath, outputDire
 	if !strings.EqualFold(engine, "audiveris") || version == "" {
 		return RecognitionOutput{}, errors.New("recognition worker returned invalid engine metadata")
 	}
-	extension, err := remoteOutputExtension(response.Header.Get("Content-Type"))
-	if err != nil {
-		return RecognitionOutput{}, err
-	}
-	if response.ContentLength > maxRecognitionOutputBytes {
-		return RecognitionOutput{}, errors.New("recognition output is too large")
-	}
 	if err := os.MkdirAll(outputDirectory, 0o750); err != nil {
 		return RecognitionOutput{}, fmt.Errorf("create recognition output directory: %w", err)
 	}
-	output, err := os.CreateTemp(outputDirectory, "recognized-*"+extension)
+	scorePath, projectPath, err := receiveRecognitionArtifacts(response, outputDirectory)
 	if err != nil {
-		return RecognitionOutput{}, fmt.Errorf("create recognition output: %w", err)
+		return RecognitionOutput{}, err
 	}
-	outputPath := output.Name()
+	return RecognitionOutput{Path: scorePath, ProjectPath: projectPath, EngineVersion: version}, nil
+}
+
+func receiveRecognitionArtifacts(response *http.Response, outputDirectory string) (string, string, error) {
+	mediaType, parameters, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err != nil {
+		return "", "", errors.New("recognition worker returned an invalid content type")
+	}
+	if !strings.EqualFold(mediaType, "multipart/mixed") {
+		extension, err := remoteOutputExtension(response.Header.Get("Content-Type"))
+		if err != nil {
+			return "", "", err
+		}
+		if response.ContentLength > maxRecognitionOutputBytes {
+			return "", "", errors.New("recognition output is too large")
+		}
+		path, err := writeRecognitionArtifact(response.Body, outputDirectory, "recognized-*"+extension, maxRecognitionOutputBytes)
+		if err != nil {
+			return "", "", err
+		}
+		if err := validateRecognitionScore(path); err != nil {
+			_ = os.Remove(path)
+			return "", "", fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
+		}
+		return path, "", nil
+	}
+
+	boundary := parameters["boundary"]
+	if boundary == "" {
+		return "", "", errors.New("recognition worker returned multipart output without a boundary")
+	}
+	reader := multipart.NewReader(response.Body, boundary)
+	var scorePath, projectPath string
 	keep := false
 	defer func() {
-		_ = output.Close()
 		if !keep {
-			_ = os.Remove(outputPath)
+			_ = os.Remove(scorePath)
+			_ = os.Remove(projectPath)
 		}
 	}()
-	written, copyErr := io.Copy(output, io.LimitReader(response.Body, maxRecognitionOutputBytes+1))
-	closeErr := output.Close()
-	if copyErr != nil {
-		return RecognitionOutput{}, fmt.Errorf("read recognition output: %w", copyErr)
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("read recognition multipart output: %w", err)
+		}
+		artifact := strings.ToLower(strings.TrimSpace(part.Header.Get("X-Noted-Artifact")))
+		switch artifact {
+		case "score":
+			if scorePath != "" {
+				_ = part.Close()
+				return "", "", errors.New("recognition worker returned multiple score artifacts")
+			}
+			extension, extensionErr := remoteOutputExtension(part.Header.Get("Content-Type"))
+			if extensionErr != nil {
+				_ = part.Close()
+				return "", "", extensionErr
+			}
+			scorePath, err = writeRecognitionArtifact(part, outputDirectory, "recognized-*"+extension, maxRecognitionOutputBytes)
+		case "project":
+			if projectPath != "" {
+				_ = part.Close()
+				return "", "", errors.New("recognition worker returned multiple project artifacts")
+			}
+			projectPath, err = writeRecognitionArtifact(part, outputDirectory, "recognized-*.omr", maxRecognitionProjectBytes)
+		default:
+			err = fmt.Errorf("recognition worker returned unknown artifact %q", artifact)
+		}
+		closeErr := part.Close()
+		if err != nil {
+			return "", "", err
+		}
+		if closeErr != nil {
+			return "", "", fmt.Errorf("close recognition artifact: %w", closeErr)
+		}
 	}
-	if closeErr != nil {
-		return RecognitionOutput{}, fmt.Errorf("close recognition output: %w", closeErr)
+	if scorePath == "" {
+		return "", "", errors.New("recognition worker returned no score artifact")
 	}
-	if written < 1 || written > maxRecognitionOutputBytes {
-		return RecognitionOutput{}, errors.New("recognition output is too large")
+	if err := validateRecognitionScore(scorePath); err != nil {
+		return "", "", fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
 	}
-	if err := validateRecognitionScore(outputPath); err != nil {
-		return RecognitionOutput{}, fmt.Errorf("recognition worker produced unusable MusicXML: %w", err)
+	if projectPath != "" {
+		if err := validateRecognitionProject(projectPath); err != nil {
+			return "", "", fmt.Errorf("recognition worker produced unusable Audiveris project: %w", err)
+		}
 	}
 	keep = true
-	return RecognitionOutput{Path: outputPath, EngineVersion: version}, nil
+	return scorePath, projectPath, nil
+}
+
+func writeRecognitionArtifact(reader io.Reader, outputDirectory, pattern string, limit int64) (string, error) {
+	output, err := os.CreateTemp(outputDirectory, pattern)
+	if err != nil {
+		return "", fmt.Errorf("create recognition artifact: %w", err)
+	}
+	path := output.Name()
+	written, copyErr := io.Copy(output, io.LimitReader(reader, limit+1))
+	closeErr := output.Close()
+	if copyErr != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("read recognition artifact: %w", copyErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close recognition artifact: %w", closeErr)
+	}
+	if written < 1 || written > limit {
+		_ = os.Remove(path)
+		return "", errors.New("recognition artifact is too large")
+	}
+	return path, nil
 }
 
 func streamRecognitionInput(inputPath string, writer *multipart.Writer, pipe *io.PipeWriter) error {

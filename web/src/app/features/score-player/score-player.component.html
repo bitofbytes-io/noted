@@ -44,7 +44,7 @@
       <strong>{{ validationBlocked() ? 'Score needs correction' : 'Review recommended' }}</strong>
       <span>{{ validationMessage() }}</span>
       @if (asset(); as scoreAsset) {
-        <a [href]="scoreAsset.downloadUrl">Download and fix in MuseScore</a>
+        <a [href]="scoreAsset.downloadUrl">Download MusicXML</a>
       }
     </div>
   }

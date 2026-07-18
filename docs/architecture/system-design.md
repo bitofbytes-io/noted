@@ -131,7 +131,7 @@ Audiveris worker ---- private temporary/derived asset storage
 - The worker uses a pinned Audiveris release and its batch CLI (`-batch -transcribe -export -output`) without shell interpolation of user-controlled names.
 - Each job gets a private temporary directory, execution deadline, page/size limit, memory/CPU limit, concurrency limit, and cleanup on every terminal state.
 - Network access should be disabled unless a documented Audiveris runtime prerequisite requires it. Inputs and outputs are treated as untrusted files.
-- Only validated MusicXML output becomes a `score_asset`. Prefer Audiveris plain MusicXML export initially; if compressed `.mxl` is accepted, enforce archive entry/count/expanded-size limits, safe paths, and expected score content. The `.omr` book, logs, and intermediate files remain private job artifacts rather than browser-addressable assets.
+- Only validated MusicXML output becomes a `score_asset`. Prefer Audiveris plain MusicXML export initially; if compressed `.mxl` is accepted, enforce archive entry/count/expanded-size limits, safe paths, and expected score content. The `.omr` book remains a private job artifact exposed only through an authenticated owner download; logs and intermediate files are never browser-addressable.
 
 ### Recognition workflow
 
@@ -141,7 +141,7 @@ Audiveris worker ---- private temporary/derived asset storage
 4. Materialize the authorized source into an isolated job directory and run Audiveris asynchronously.
 5. Capture bounded logs and transition to `failed` with a stable, sanitized error when the process fails, times out, exceeds limits, or produces no valid score.
 6. Validate the MusicXML structure and size, calculate its checksum, store it under an opaque derived key, and link it to the source asset and edition.
-7. Mark the result `Unverified OCR`. The learner can explicitly inspect/play it, rerun recognition, replace it with corrected MusicXML, or delete it independently of the original.
+7. Mark the result `Unverified OCR`. The learner can explicitly inspect/play it despite musical-quality warnings, download the linked `.omr` correction project, rerun recognition, replace it with corrected MusicXML, or delete it independently of the original.
 8. Retain the `.omr` project artifact when configured so a later Audiveris/external-editor correction workflow can resume without redefining Noted as a notation editor.
 
 The first increment targets printed Common Western Music Notation. Audiveris documents that handwritten music is unsupported and that recognition is not perfectly accurate; the UI and data model must not imply otherwise.

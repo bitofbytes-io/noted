@@ -321,6 +321,9 @@
                       }
                     }
                     <a class="button secondary small" [href]="asset.downloadUrl">Download</a>
+                    @if (recognitionProjectUrl(asset.id); as projectUrl) {
+                      <a class="button secondary small" [href]="projectUrl">Download OMR</a>
+                    }
                     <button class="button secondary small" (click)="editAsset(asset)">Edit</button>
                     <label class="button secondary small replace-button"
                       >{{

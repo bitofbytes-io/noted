@@ -10,7 +10,9 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -200,27 +202,64 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	file, err := os.Open(result.Path)
+	score, err := os.Open(result.Path)
 	if err != nil {
 		h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition output could not be opened")
 		return
 	}
-	defer file.Close()
-	info, err := file.Stat()
+	defer score.Close()
+	scoreInfo, err := score.Stat()
 	if err != nil {
 		h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition output could not be measured")
 		return
 	}
-	response.Header().Set("Content-Type", result.ContentType)
-	response.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="recognized%s"`, result.Extension))
-	response.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	response.Header().Set("X-Noted-OMR-Engine", EngineName)
 	response.Header().Set("X-Noted-OMR-Version", EngineVersion)
 	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(http.StatusOK)
-	if _, err := io.Copy(response, file); err != nil {
-		h.logger.Warn("stream OCR output", "error", err)
+	if result.ProjectPath == "" {
+		response.Header().Set("Content-Type", result.ContentType)
+		response.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="recognized%s"`, result.Extension))
+		response.Header().Set("Content-Length", strconv.FormatInt(scoreInfo.Size(), 10))
+		response.WriteHeader(http.StatusOK)
+		if _, err := io.Copy(response, score); err != nil {
+			h.logger.Warn("stream OCR output", "error", err)
+		}
+		return
 	}
+
+	project, err := os.Open(result.ProjectPath)
+	if err != nil {
+		h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition project could not be opened")
+		return
+	}
+	defer project.Close()
+	writer := multipart.NewWriter(response)
+	response.Header().Set("Content-Type", "multipart/mixed; boundary="+writer.Boundary())
+	response.WriteHeader(http.StatusOK)
+	if err := writeArtifactPart(writer, score, "score", "recognized"+result.Extension, result.ContentType); err != nil {
+		h.logger.Warn("stream OCR score output", "error", err)
+		return
+	}
+	if err := writeArtifactPart(writer, project, "project", "recognized.omr", "application/octet-stream"); err != nil {
+		h.logger.Warn("stream OCR project output", "error", err)
+		return
+	}
+	if err := writer.Close(); err != nil {
+		h.logger.Warn("finish OCR multipart output", "error", err)
+	}
+}
+
+func writeArtifactPart(writer *multipart.Writer, reader io.Reader, artifact, filename, contentType string) error {
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`attachment; name="%s"; filename="%s"`, artifact, filename))
+	header.Set("Content-Type", contentType)
+	header.Set("X-Noted-Artifact", artifact)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, reader)
+	return err
 }
 
 func (h *Handler) receivePDF(response http.ResponseWriter, request *http.Request, path string) error {

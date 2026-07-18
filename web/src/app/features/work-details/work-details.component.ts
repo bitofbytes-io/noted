@@ -441,6 +441,13 @@ export class WorkDetailsComponent implements OnInit {
       .find((asset) => asset.id === job.outputAssetId);
   }
 
+  protected recognitionProjectUrl(outputAssetId: string): string {
+    return (
+      Object.values(this.recognitionJobs()).find((job) => job.outputAssetId === outputAssetId)
+        ?.projectDownloadUrl ?? ''
+    );
+  }
+
   chooseFile(event: Event): void {
     this.uploadFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   }

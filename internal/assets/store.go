@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-var opaqueKeyPattern = regexp.MustCompile(`^(pdf|musicxml)/[0-9a-f-]{36}$`)
+var opaqueKeyPattern = regexp.MustCompile(`^(pdf|musicxml|omr)/[0-9a-f-]{36}$`)
 
 type StoredObject struct {
 	Key      string
@@ -43,7 +43,7 @@ func NewFilesystemStore(root string) (*FilesystemStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve asset root: %w", err)
 	}
-	for _, dir := range []string{"temporary", "originals/pdf", "originals/musicxml"} {
+	for _, dir := range []string{"temporary", "originals/pdf", "originals/musicxml", "originals/omr"} {
 		if err := os.MkdirAll(filepath.Join(abs, dir), 0o750); err != nil {
 			return nil, fmt.Errorf("create asset directory: %w", err)
 		}
@@ -122,7 +122,7 @@ func (s *FilesystemStore) Exists(_ context.Context, key string) (bool, error) {
 }
 
 func (s *FilesystemStore) Ready(ctx context.Context) error {
-	for _, relative := range []string{"temporary", "originals/pdf", "originals/musicxml"} {
+	for _, relative := range []string{"temporary", "originals/pdf", "originals/musicxml", "originals/omr"} {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

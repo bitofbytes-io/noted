@@ -481,6 +481,24 @@ func (h *Handler) getRecognitionJob(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, value)
 }
 
+func (h *Handler) downloadRecognitionProject(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobId")
+	reader, size, err := h.Service.OpenRecognitionProject(r.Context(), currentUser(r).ID, jobID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="recognized-%s.omr"`, jobID))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if _, err := io.Copy(w, reader); err != nil {
+		return
+	}
+}
+
 func (h *Handler) retryRecognitionJob(w http.ResponseWriter, r *http.Request) {
 	value, err := h.Service.RetryRecognitionJob(r.Context(), currentUser(r).ID, chi.URLParam(r, "jobId"))
 	if err != nil {

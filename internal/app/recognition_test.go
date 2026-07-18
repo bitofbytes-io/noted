@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-func TestValidateRecognitionScoreRejectsRestOnlyExport(t *testing.T) {
+func TestValidateRecognitionScoreAcceptsRestOnlyExport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rests.musicxml")
 	contents := `<score-partwise><part><measure><note><rest/></note></measure></part></score-partwise>`
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateRecognitionScore(path); err == nil || !strings.Contains(err.Error(), "no pitched notes") {
+	if err := validateRecognitionScore(path); err != nil {
 		t.Fatalf("rest-only export validation = %v", err)
 	}
 }
