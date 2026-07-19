@@ -258,7 +258,7 @@ Until this research is complete, the safe first workflow is to retain a source U
 - Privacy, account deletion, and data export behavior appropriate for the initial audience.
 - End-to-end tests for sign-in, upload, playback, and practice logging.
 
-### M6: OCR-assisted upload (implemented direction; production acceptance pending)
+### M6: OCR-assisted upload (accepted for the private production topology)
 
 - Run Audiveris 5.10.2 and homr 0.7.0 sequentially in a private asynchronous worker, outside the Go API request process and behind the same resource/security boundary.
 - Let a learner explicitly request recognition for an eligible printed PDF asset. Image uploads remain a later input extension.
@@ -269,9 +269,9 @@ Until this research is complete, the safe first workflow is to retain a source U
 - Label generated output `Unverified OCR`; allow explicit playback, rerun, replacement, and deletion while preserving the original.
 - Retain the bounded private `.omr` project artifact when available to support later correction outside Noted.
 - Maintain the CC0 synthetic fixture corpus and evaluation harness for parse, alphaTab, measure integrity/count, and pitch/rhythm/event comparison.
-- The committed synthetic-corpus benchmark records Audiveris-only versus homr/repaired/fused results and an emulated production-image resource observation. Before production promotion, add a rights-cleared representative real-score benchmark and NAS-native resource/failure-path results, then record owner acceptance of AGPL, homr/RapidOCR model-weight, notice, corresponding-source, private-network, backup, and operations obligations.
+- The committed synthetic-corpus benchmark records Audiveris-only versus homr/repaired/fused results. The exact published AMD64 digest also passes the separately recorded rights-cleared representative set, NAS-native resource/cancellation/cleanup gates, Crystal-only network boundary, and a production PDF-to-alphaTab conversion. The owner has explicitly accepted the inventoried AGPL, homr/RapidOCR model-weight, notice, corresponding-source, and residual model-provenance risk for private use only.
 
-M6 still does not include a Noted correction editor, handwritten-score recognition, or guaranteed transcription accuracy. The technical pipeline and four-fixture benchmark exist; the benchmark shows an overall playability/event improvement with a dense-polyphony fidelity tradeoff. Production promotion remains blocked on representative real-score, NAS-resource/failure-path, dependency-inventory, and legal/operational acceptance gates.
+M6 still does not include a Noted correction editor, handwritten-score recognition, or guaranteed transcription accuracy. The technical pipeline, synthetic benchmark, representative real-score run, dependency/model inventory, NAS-native evidence, production application proof, and private-use owner acceptance exist; the benchmark shows an overall playability/event improvement with a dense-polyphony fidelity tradeoff. The OMR worker is accepted only for the recorded private production topology.
 
 ## First-version definition of done
 

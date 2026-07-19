@@ -150,13 +150,16 @@ The implemented increment targets printed Common Western Music Notation in PDF f
 
 ### Production release gate
 
-Implementation does not equal production acceptance. The committed synthetic-corpus before/after
-result is recorded in the [OMR benchmark](../implementation/omr-benchmark.md). Promotion still
-requires a rights-cleared representative real-score benchmark, NAS-native resource/failure
-evidence, and owner acceptance of the exact Audiveris/homr AGPL packaging and network interaction,
-homr/RapidOCR model-weight provenance and redistribution terms, music21 BSD/corpus notices, and
-alphaTab MPL/package-asset notices. Keeping the worker separate is an architectural and security
-boundary, not a conclusion about license obligations.
+The committed synthetic-corpus before/after result is recorded in the
+[OMR benchmark](../implementation/omr-benchmark.md). The exact published AMD64 worker also passed
+the rights-cleared representative corpus, NAS-native resource/cancellation/cleanup checks, the
+Crystal-only network boundary, and a production PDF-to-alphaTab conversion recorded in the
+[production-readiness record](../implementation/omr-production-readiness.md). On 2026-07-18 the
+owner accepted for private use only the exact Audiveris/homr AGPL packaging and network
+interaction, residual homr model provenance limitations, RapidOCR terms, music21 BSD/corpus
+notices, and alphaTab MPL/package-asset notices. The worker is accepted only for that private
+topology. Keeping it separate is an architectural and security boundary, not a conclusion about
+license obligations; public or commercial distribution requires a fresh review.
 
 ## Local authentication mode
 

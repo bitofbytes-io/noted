@@ -50,8 +50,8 @@ playability check.
 
 Repair and fusion made this fixture duration-valid but slightly reduced pitch and event fidelity.
 The final pipeline correctly leaves all eight measures flagged because the engines disagree. This
-tradeoff is why results remain `Unverified OCR` and why product-owner thresholds and a
-rights-cleared representative real-score corpus still gate production promotion.
+tradeoff is why results remain `Unverified OCR`. The product-owner threshold and rights-cleared
+representative real-score corpus were subsequently completed before private production acceptance.
 
 The clean, noisy, and corrected two-page final outputs each scored 100% on the reported parse,
 alphaTab, measure-count, duration, pitch, rhythm, and event checks. The two-page run returned 40
@@ -62,13 +62,14 @@ measures; its report marked four as suspect and none as auto-corrected.
 The two-page production-image run completed in 198.41 seconds under `linux/amd64` emulation on an
 Apple-silicon development host with the requested two-CPU and 4-GiB container limits. Observed
 peak memory was 1.214 GiB. A point-in-time scratch sample was about 16.5 MiB and container block
-writes were 64.9 MB. This demonstrates headroom for this fixture but is not the representative NAS
-resource/cancellation/cleanup acceptance run required by ADR 0002.
+writes were 64.9 MB. This demonstrates headroom for this fixture. The subsequent exact-digest
+NAS-native representative, resource, cancellation, cleanup, and production-application acceptance
+run is recorded separately in the [production-readiness record](omr-production-readiness.md).
 
 ## Conclusion
 
 On the committed synthetic corpus, automatic correction and fallback improve OCR-to-playable
 MusicXML overall, primarily by eliminating the single-engine failure and duration defect. They do
-not improve every fidelity metric on every fixture. Production promotion therefore remains gated
-on predeclared acceptance thresholds, a rights-cleared real-score set, NAS-native resource and
-failure-path evidence, and completion of the model/license inventory.
+not improve every fidelity metric on every fixture. The predeclared threshold, rights-cleared
+real-score set, NAS-native resource/failure evidence, model/license inventory, and private-use
+owner decision were subsequently completed and are recorded in the production-readiness ledger.
