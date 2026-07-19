@@ -184,8 +184,9 @@ The NAS worker runs as UID 10001 with all capabilities dropped,
 4 GiB of memory with no swap headroom, bounded logs, two BLAS threads, and CPU
 affinity restricted to CPUs 0 and 1. DSM exposes neither the CPU nor PID cgroup
 controller on this host, so the requested two-CPU and 512-process boundaries
-are enforced by `sched_setaffinity` and `RLIMIT_NPROC=512`; readiness fails if
-those fallback controls are absent. The worker receives only its dedicated
+are enforced by `sched_setaffinity` and `RLIMIT_NPROC=512`. Both controls were
+verified from the running container as an external deployment gate; `/readyz`
+does not probe them. The worker receives only its dedicated
 bearer secret and a fixed private address on an internal, no-egress Docker
 network.
 
