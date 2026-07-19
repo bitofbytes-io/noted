@@ -89,7 +89,7 @@ Playwright installs its browser engines separately. If this machine has not run 
 
 The [verification record](docs/implementation/verification.md) maps requirements to implementation/tests and records the exact final checks. The [browser score ADR](docs/decisions/0001-browser-score-rendering-and-playback.md) explains the PDF.js/alphaTab decision and browser constraints.
 
-The OMR harness writes ignored JSON/Markdown results beneath `.local/omr-eval/`. A reference self-check (`python3 scripts/omr-eval/evaluate.py --include-reference-baseline`) validates the harness and alphaTab check only. The [recorded four-fixture benchmark](docs/implementation/omr-benchmark.md) compares Audiveris-only, homr-only, repaired, and fused outputs and finds an overall playability/event improvement with a documented dense-polyphony fidelity tradeoff. [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md) defines the remaining production gates.
+The OMR harness writes ignored JSON/Markdown results beneath `.local/omr-eval/`. A reference self-check (`python3 scripts/omr-eval/evaluate.py --include-reference-baseline`) validates the harness and alphaTab check only. The [recorded four-fixture benchmark](docs/implementation/omr-benchmark.md) compares Audiveris-only, homr-only, repaired, and fused outputs and finds an overall playability/event improvement with a documented dense-polyphony fidelity tradeoff. The [production-readiness record](docs/implementation/omr-production-readiness.md) captures the accepted NAS-native, cancellation, private-network, licensing, and production-application evidence for the private deployment.
 
 ## Capabilities
 
@@ -102,7 +102,7 @@ The OMR harness writes ignored JSON/Markdown results beneath `.local/omr-eval/`.
 - Responsive cobalt/white interface exercised at a 1024×1366 portrait viewport.
 - Production Google OAuth, database-backed sessions, `_FILE` secrets, API/UI containers, and commit-tagged deployment workflows for the Crystal Swarm.
 
-An interactive notation-correction editor is not included; the worker does perform conservative automatic repair and always leaves the result unverified. Annotations, lessons, sharing, offline support, and performance assessment are also deferred. Production infrastructure provisioning and operations live in `home_swarm`; promotion of the private OMR worker remains subject to representative real-score and NAS-resource evidence plus owner acceptance of the AGPL, model-weight, notice, corresponding-source, private-network, and operational obligations in [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md).
+An interactive notation-correction editor is not included; the worker does perform conservative automatic repair and always leaves the result unverified. Annotations, lessons, sharing, offline support, and performance assessment are also deferred. Production infrastructure provisioning and operations live in `home_swarm`; the exact AMD64 OMR digest is accepted for the recorded private `bahamut` topology after representative-score, NAS-resource, cancellation, Crystal-only network, and owner-license gates. Public or commercial distribution requires a fresh review under [ADR 0002](docs/decisions/0002-audiveris-ocr-pipeline.md).
 
 ## Design and architecture
 
@@ -113,5 +113,6 @@ An interactive notation-correction editor is not included; the worker does perfo
 - [Visual direction](docs/design/visual-direction.md)
 - [Implementation handoff](docs/implementation/handoff.md)
 - [OMR benchmark record](docs/implementation/omr-benchmark.md)
+- [OMR production-readiness record](docs/implementation/omr-production-readiness.md)
 - [Dual-engine OMR decision](docs/decisions/0002-audiveris-ocr-pipeline.md)
 - [Production deployment architecture](docs/architecture/deployment.md)

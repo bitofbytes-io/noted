@@ -165,6 +165,82 @@ scores are not represented as note-perfect.
 - AlphaTab fonts and soundfonts are absent, and music21's encoded corpus data
   is absent; required runtime modules and license files remain.
 
+## NAS production deployment and acceptance
+
+The reviewed worker is active for private use on `bahamut`, a Synology DS920+
+with an Intel J4125 (`linux/amd64`), 8 GiB of RAM, DSM 7.3.2, and more than
+6.8 TiB free on `volume1`. The private registry reference is immutable:
+
+- image: `registry.tail209cfc.ts.net/noted-omr:00656dc`;
+- manifest digest: `sha256:c8bce4a5410abaea8551043acab782f0d4f4150fe5af790d152474eb3b143905`;
+- image-config digest: `sha256:5de0a6634f55a935bb37e98409cf444b0b36bfdea2881d2cb4673c861ab817fb`;
+  and
+- platform: AMD64 only. The Crystal Swarm deployment contains only the ARM64
+  API and UI services; no recognizer image or OMR compute task is scheduled on
+  a Raspberry Pi.
+
+The NAS worker runs as UID 10001 with all capabilities dropped,
+`no-new-privileges`, a read-only root filesystem, a 1-GiB executable tmpfs,
+4 GiB of memory with no swap headroom, bounded logs, two BLAS threads, and CPU
+affinity restricted to CPUs 0 and 1. DSM exposes neither the CPU nor PID cgroup
+controller on this host, so the requested two-CPU and 512-process boundaries
+are enforced by `sched_setaffinity` and `RLIMIT_NPROC=512`; readiness fails if
+those fallback controls are absent. The worker receives only its dedicated
+bearer secret and a fixed private address on an internal, no-egress Docker
+network.
+
+A separate 128-MiB host-network ingress relay is required because DSM suppresses
+published host ports for containers attached only to an internal Docker
+network. The relay uses Python's standard library from the same immutable image,
+runs as UID 10001 with a 64-process rlimit, has no secret, no writable root, no
+capabilities, and forwards only to the fixed worker address. DSM firewall rules
+are ordered so `192.168.10.0/24` (the Crystal application network) may reach TCP
+8788 and every other source is denied before broader NAS allow rules are
+considered. A direct request from the Siren LAN host timed out after this policy
+was applied, while a fresh production conversion submitted by the Crystal API
+entered worker processing and could be cancelled normally.
+
+### NAS-native representative result
+
+The exact published digest reran the frozen five-score representative corpus on
+`bahamut`. All five responses were HTTP 200, parseable, duration-valid, and
+alphaTab 1.8.4 playable. Every request directory was removed.
+
+| Input | Selected output | Measures | Stable ticks | Elapsed | Peak RSS | Peak request scratch | Corrected / suspect |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Private real scan A | Audiveris | 43 | 165,120 | 431.8 s | 1,392.9 MiB | 6,276,876 B | 15 / 43 |
+| Private real scan B | Fusion | 67 | 257,280 | 490.7 s | 1,087.7 MiB | 7,069,095 B | 63 / 67 |
+| Greensleeves | Fusion | 33 | 95,040 | 158.2 s | 1,338.2 MiB | 2,094,847 B | 0 / 33 |
+| Bach Invention 12 | Fusion | 21 | 120,960 | 500.4 s | 1,433.1 MiB | 5,140,693 B | 2 / 6 |
+| Chopin Prelude Op. 28 No. 4 | Fusion | 26 | 99,840 | 228.6 s | 1,252.8 MiB | 2,944,987 B | — |
+
+Worst-case peak RSS was 1,433.1 MiB of the 4-GiB boundary and maximum observed
+request scratch was 7,069,095 bytes (6.74 MiB) of the 1-GiB tmpfs. Runtime is
+observational only; none of these measurements was used to shorten or bypass a
+recognition stage.
+
+A NAS-native client disconnect was issued while preprocessing and a recognizer
+job were both observed. The client was cancelled, the request directory was
+gone on the first check 0.3 seconds later, and no job directory remained.
+Startup cleanup of a deliberately stale directory also passed. The temporary
+evaluation mount and corpus were removed after the run.
+
+### Production application proof
+
+The production Crystal API streamed the public-domain Greensleeves PDF to the
+NAS worker and imported the returned 95.3-KiB MusicXML. The pinned version string
+was `audiveris+homr audiveris-5.10.2+homr-0.7.0+music21-10.3.0+alphatab-1.8.4`.
+The result contained 33 measures, loaded in the production alphaTab player, and
+exposed playback controls. The UI retained the source PDF and correctly labeled
+the result `Unverified OCR`, with 0 auto-corrected and all 33 measures suspect.
+The production-only test work and its derived assets were deleted after this
+verification.
+
+The representative, resource, cancellation, cleanup, routing, and private-use
+owner-decision gates are therefore satisfied. The worker is accepted for this
+private production topology. Public or commercial distribution remains outside
+that acceptance and requires a fresh dependency/model and legal review.
+
 ## License and activation decision
 
 The concrete inventory is in `omr/THIRD_PARTY_NOTICES.md`. It records the direct

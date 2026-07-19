@@ -141,15 +141,17 @@ Active post-POC development adds a private, asynchronous `noted-omr-worker` imag
 5.10.2, homr 0.7.0 and its ONNX weights, music21 10.3.0, and alphaTab 1.8.4. The component and its
 [synthetic-corpus benchmark](../implementation/omr-benchmark.md) are implemented. The
 rights-cleared representative run and exact dependency/model inventory are recorded in the
-[production-readiness ledger](../implementation/omr-production-readiness.md), but the worker is not
-production-accepted until NAS-native resource/cancellation and operational-boundary checks are
-recorded. The owner accepted the inventoried obligations and residual model-provenance risk for
-private use only on 2026-07-18.
+[production-readiness ledger](../implementation/omr-production-readiness.md). The exact published
+AMD64 digest, NAS-native resource/cancellation evidence, Crystal-only network boundary, production
+application conversion, and owner decision are recorded and accepted for the private topology.
+The owner accepted the inventoried obligations and residual model-provenance risk for private use
+only on 2026-07-18.
 
 - Do not expose the worker through Traefik or grant it OAuth/session secrets.
 - Run the worker on `bahamut` through Synology Container Manager. Do not schedule Audiveris, homr, or the repair/fusion pipeline on the ARM Raspberry Pi Crystal Swarm; those nodes keep the lightweight API/UI and job-orchestration responsibilities.
 - Give the worker no PostgreSQL, NFS, Google, or session credentials. The Go API streams an already-authorized PDF over private TCP with a dedicated bearer secret; the worker returns artifacts to the API rather than choosing or persisting learner objects itself.
 - Permit private TCP `8788` only from the Crystal application nodes. The browser never calls `/v1/recognize`, `/healthz`, or `/readyz` directly.
+- On DSM, keep the Crystal-subnet allow rule above an explicit TCP-8788 deny for every other source and above broader NAS allow rules. A secretless, fixed-upstream host-network relay may expose this port because DSM does not publish ports from the worker's internal-only network; the worker itself remains on the no-egress network and is the only component that receives the bearer secret.
 - Run one request at a time with a two-CPU, 4-GiB container ceiling and a 1-GiB scratch ceiling. Independently retain worker limits of 25 MiB input/output, 25 pages, two-minute upload, ten-minute processing, bounded logs/archives, and 512 MiB post-conversion job footprint.
 - Keep PostgreSQL job ownership, authorization, claim/lease recovery, retries, and cancellation in the Go API. API replicas use database leases; the worker's one-slot queue returns `429 busy`, which the API retries with bounded backoff.
 - Disable outbound runtime network access. `homr --init` must run at image build time; the deployed image must contain the required weights and pass the exact-version plus ONNX-checksum readiness checks without downloading anything.
@@ -157,4 +159,4 @@ private use only on 2026-07-18.
 - Preserve image revision, engine/dependency versions, bounded logs, Audiveris package checksum, homr model manifest, quality report, output checksums, and optional `.omr` project artifacts for troubleshooting/future correction.
 - Include derived MusicXML, retained `.omr` artifacts, and job state in backup/restore and reconciliation policy.
 - Retain the accepted private-use record for the exact Audiveris/homr AGPL packaging/network review, every bundled model's source/hash/license/citation/redistribution inventory, music21 BSD/corpus review, and alphaTab MPL/subasset notices. Public or commercial distribution requires a fresh review and owner decision.
-- Attach actual pinned-image before/after harness output and representative runtime/memory/scratch/cancellation evidence to the release. A reference self-check alone does not satisfy this gate.
+- Retain the pinned-image before/after harness output and the accepted NAS-native runtime, memory, scratch, cancellation, cleanup, and production-E2E evidence with the release. A reference self-check alone does not satisfy this gate.

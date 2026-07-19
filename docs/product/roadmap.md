@@ -1,6 +1,6 @@
 # Noted: Provisional Product Roadmap
 
-Status: Product sequence selected; OCR follow-up in production validation
+Status: Product sequence selected; private OCR production activation verified
 Last updated: 2026-07-18
 
 ## Phase 1: Store and Play
@@ -26,11 +26,10 @@ This increment uses batch recognition and automatic conservative repair only. It
 Implementation is not the production release gate. The committed rights-safe corpus has recorded
 Audiveris-only, homr/repaired, and fused results: playability and aggregate event accuracy improve,
 with a disclosed dense-polyphony fidelity tradeoff. Rights-cleared representative real scans also
-pass the fixed structural/playability gate under production-like limits, and the exact dependency
-and model inventory is recorded. Before activation, complete NAS-native resource/cancellation
-verification plus the private-network, backup, and operations checks. On 2026-07-18 the owner
-explicitly accepted the residual model-provenance risk and AGPL/corresponding-source duties for
-private use only; public or commercial distribution requires a fresh review.
+pass the fixed structural/playability gate. The exact published digest passed NAS-native resource,
+cancellation, cleanup, Crystal-only network, and production PDF-to-alphaTab checks. On 2026-07-18
+the owner explicitly accepted the residual model-provenance risk and AGPL/corresponding-source
+duties for private use only; public or commercial distribution requires a fresh review.
 
 ## Phase 2: Tracking, Lessons, and Progress
 
