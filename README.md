@@ -91,6 +91,125 @@ The [verification record](docs/implementation/verification.md) maps requirements
 
 The OMR harness writes ignored JSON/Markdown results beneath `.local/omr-eval/`. A reference self-check (`python3 scripts/omr-eval/evaluate.py --include-reference-baseline`) validates the harness and alphaTab check only. The [recorded four-fixture benchmark](docs/implementation/omr-benchmark.md) compares Audiveris-only, homr-only, repaired, and fused outputs and finds an overall playability/event improvement with a documented dense-polyphony fidelity tradeoff. The [production-readiness record](docs/implementation/omr-production-readiness.md) captures the accepted NAS-native, cancellation, private-network, licensing, and production-application evidence for the private deployment.
 
+## Build and deploy the production OMR worker
+
+The full OMR worker runs on the AMD64 `bahamut` NAS, not on the Raspberry Pi
+Crystal servers. Crystal runs the API/UI and submits jobs over the private
+network. The worker contract, resource boundaries, and licensing requirements
+are documented in [omr/README.md](omr/README.md).
+
+The accepted production baseline is:
+
+- release tag: `00656dc`;
+- manifest digest: `sha256:c8bce4a5410abaea8551043acab782f0d4f4150fe5af790d152474eb3b143905`;
+- image/config ID: `sha256:5de0a6634f55a935bb37e98409cf444b0b36bfdea2881d2cb4673c861ab817fb`;
+- NAS image name: `127.0.0.1:9000/noted-omr:00656dc`; and
+- production Compose file: `/volume1/docker/noted/compose.yaml` on `bahamut`.
+
+### Rebuild and publish
+
+Build the production-shaped image locally for AMD64 validation from the release
+commit:
+
+```sh
+git checkout <release-commit>
+make docker-build-omr
+```
+
+The Make target derives the seven-character Git SHA for the image tag and sets
+the OCI version, revision, and source labels. An explicit tag may be used for a
+non-release validation build:
+
+```sh
+IMAGE_TAG=<test-tag> VERSION=<test-tag> REVISION="$(git rev-parse HEAD)" \
+  make docker-build-omr
+```
+
+Do not deploy a developer-machine build directly. Merge the reviewed
+runtime-changing commit to `main`, or manually dispatch the GitHub Actions
+workflow named **Publish OMR worker**. That workflow builds `linux/amd64`, tags
+the image with the seven-character release SHA, and publishes it to
+`registry.tail209cfc.ts.net/noted-omr`. Record the published manifest digest,
+not only the mutable tag. From a machine logged in to the private registry:
+
+```sh
+docker buildx imagetools inspect \
+  registry.tail209cfc.ts.net/noted-omr:<release-tag>
+```
+
+### Deploy on the NAS
+
+Before deployment, preserve the currently accepted `tag@digest` as the rollback
+value. In `/volume1/docker/noted/compose.yaml`, set the image for both
+`noted-omr` and the secretless `omr-ingress` relay to the same immutable
+artifact:
+
+```yaml
+image: 127.0.0.1:9000/noted-omr:<release-tag>@sha256:<manifest-digest>
+```
+
+Keep the existing runtime restrictions: UID 10001, read-only root filesystem,
+dropped capabilities, `no-new-privileges`, 4 GiB/no-swap worker memory, 1 GiB
+executable scratch tmpfs, two-CPU affinity, the internal no-egress worker
+network, and the 128 MiB secretless host-network relay. The worker alone receives
+`/run/secrets/noted_omr_token`. Keep the DSM firewall allow for TCP 8788 from
+`192.168.10.0/24` above the explicit deny for every other source; do not publish
+the worker through Traefik.
+
+Apply the project through Synology Container Manager, or from an authorized NAS
+shell with Synology's Docker binary:
+
+```sh
+cd /volume1/docker/noted
+/usr/local/bin/docker compose pull noted-omr omr-ingress
+/usr/local/bin/docker compose up -d --no-deps --force-recreate \
+  noted-omr omr-ingress
+```
+
+Verify the deployment before removing the previous image:
+
+```sh
+/usr/local/bin/docker compose -f /volume1/docker/noted/compose.yaml ps
+/usr/local/bin/docker inspect \
+  --format '{{.Name}} image={{.Image}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' \
+  noted-omr-noted-omr-1 noted-omr-omr-ingress-1
+curl -fsS http://127.0.0.1:8788/readyz
+```
+
+Both containers must be up, the worker must become healthy, `/readyz` must
+confirm the pinned engines and model checksums, and the resolved worker image ID
+must match the published artifact. Then submit a rights-safe representative PDF
+through the production Noted UI/API from Crystal. Confirm that the job succeeds,
+the returned MusicXML loads in alphaTab, the source PDF is preserved, the result
+is labeled `Unverified OCR`, a quality report is present, cancellation leaves no
+job directory, and a non-Crystal client still cannot reach TCP 8788. Correctness
+and the playability gate take priority over conversion time.
+
+### Roll back and clean up images
+
+To roll back, restore the prior `tag@digest` for both services, pull it, recreate
+the two containers with the commands above, and repeat all readiness and
+production conversion checks. Do not replace a digest pin with a tag-only image.
+
+Synology may display a digest-pinned running image as `<none>` even though the
+bytes are correct. Give those exact bytes their release name instead of
+rebuilding them:
+
+```sh
+active_id=$(/usr/local/bin/docker inspect \
+  --format '{{.Image}}' noted-omr-noted-omr-1)
+test "$active_id" = 'sha256:<accepted-image-config-id>'
+/usr/local/bin/docker image tag "$active_id" \
+  127.0.0.1:9000/noted-omr:<release-tag>
+```
+
+Remove an old image only after `docker ps -a` proves that no container uses it,
+`docker image inspect` proves that its ID differs from the active accepted ID,
+and the replacement has passed the checks above. Remove only the explicit old
+references with `docker image rm`; do not use Container Manager's broad
+**Remove Unused Images** action or an unscoped Docker prune on the production
+NAS. The worker and ingress relay intentionally share one image and its layers.
+
 ## Capabilities
 
 - Home dashboard, Library search/filtering, work/edition/asset edit/replace/archive/delete management, Metronome, Practice, and Settings.
@@ -114,5 +233,6 @@ An interactive notation-correction editor is not included; the worker does perfo
 - [Implementation handoff](docs/implementation/handoff.md)
 - [OMR benchmark record](docs/implementation/omr-benchmark.md)
 - [OMR production-readiness record](docs/implementation/omr-production-readiness.md)
+- [OMR worker contract](omr/README.md)
 - [Dual-engine OMR decision](docs/decisions/0002-audiveris-ocr-pipeline.md)
 - [Production deployment architecture](docs/architecture/deployment.md)
