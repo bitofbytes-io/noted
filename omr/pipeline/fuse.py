@@ -135,6 +135,8 @@ def _engine_summary(state: dict[str, Any], report: dict[str, Any]) -> dict[str, 
     }
     if state.get("error"):
         summary["error"] = str(state["error"])[:500]
+    if state.get("warning"):
+        summary["routingWarning"] = str(state["warning"])[:200]
     if report.get("correctorWarning"):
         summary["repairWarning"] = str(report["correctorWarning"])[:200]
     return summary

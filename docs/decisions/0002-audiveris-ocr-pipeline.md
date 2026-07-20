@@ -2,7 +2,7 @@
 
 Status: Accepted for the private production topology
 Date: 2026-07-13
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 ## Context
 
@@ -10,28 +10,30 @@ Noted preserves and reads source PDFs and renders/plays structured MusicXML. The
 
 No recognizer is reliable enough to make its output trusted notation. Audiveris is strong at score structure and produces a private `.omr` correction project; homr has a different, learned recognition path and different failure modes. A useful result must also have coherent measure timing and load in the exact alphaTab importer used by Noted. XML well-formedness alone is insufficient.
 
-The earlier form of this ADR selected only Audiveris and gated all implementation on a future spike. That direction has been superseded. The worker and application integration are implemented as a dual-engine, repair, fusion, and playability pipeline. Benchmark, inventory, NAS-native, network-boundary, and production-application evidence are recorded, and the owner has accepted the residual risk for private use only.
+The earlier form of this ADR selected only Audiveris and was later superseded by an always-dual-engine pipeline. Practice playback is now decoupled from transcription (ADR 0003), so full OMR is opt-in and can optimize for the likely best engine per input. Benchmark, inventory, NAS-native, network-boundary, and production-application evidence remain the release baseline, and the owner has accepted the residual risk for private use only.
 
 ## Decision
 
 Use a private, resource-limited OMR worker with this pipeline:
 
 ```text
-authorized PDF
+authorized PDF or printed score image
   -> render each page at 300 DPI
-  -> Audiveris + homr recognition (sequential, CPU-bounded)
-  -> music21 repair of each usable engine result
-  -> measure alignment and conservative arbitration
+  -> route PDF to Audiveris or image to homr
+  -> run the secondary recognizer only if the primary fails
+  -> music21 repair of the surviving result(s)
+  -> conservative arbitration only on the fallback path
   -> worker MusicXML structure/size validation
   -> alphaTab 1.8.4 headless import/timing gate
   -> Go API MusicXML structure/rhythm validation
   -> derived Unverified OCR asset + schema-v1 quality report
 ```
 
-- OCR begins only after an explicit learner request. Normal upload persists the original first.
-- Audiveris is the backbone when its output survives validation and repair. homr becomes the score fallback when Audiveris fails. When both results exist, measures are aligned with Needleman-Wunsch scoring over measure hashes/numbers.
+- Full OCR begins only after an explicit learner request. Normal upload persists the original and automatically queues only a lightweight measure-map job.
+- Audiveris is primary for PDFs and homr is primary for JPEG/PNG printed-score images. A successful primary result skips the other engine. When the primary fails and both repaired outputs exist, measures are aligned with Needleman-Wunsch scoring over measure hashes/numbers.
+- A learner can request Audiveris's `ProcessingSwitches.implicitTuplets` through the conversion hint. Without the hint, a repair report triggers one retry when a strict majority of measures are overfull by exactly 3:2 and contain at least three beamed events. The quality report records whether the hint, automatic retry, or failed retry was applied.
 - When both aligned measures agree and have valid timing, confidence is `high`. When the Audiveris measure is invalid and the homr measure is valid, homr replaces it and the correction is recorded. Valid disagreement is retained from the backbone at `medium` confidence; two invalid results are retained only as `low`/suspect input to the final gate.
-- A single surviving engine is usable as a score-level fallback, but its measures cannot receive agreement-based `high` confidence. Both engines failing is `conversion_failed`.
+- A single routed engine is the normal successful result, but its measures cannot receive agreement-based `high` confidence. Both engines failing is `conversion_failed`.
 - `music21.omr.correctors.ScoreCorrector` is attempted for flagged measures. Underfull non-pickup measures are padded with rests, notation is rebuilt when possible, and the score is re-exported through music21. Repair is conservative and remains `Unverified OCR`; it is not a claim that the source has been reconstructed note-for-note.
 - MusicXML `<backup>` and `<forward>` are valid cursor controls used for polyphonic voices. The old blanket claim that alphaTab cannot handle `backup` is incorrect. The actual hazards are cursor movement before a measure, overfull/underfull timing, inconsistent staff/master-bar counts, and other importer-specific failures. The Go validator models `backup`/`forward` timing, and the worker loads the final bytes with alphaTab and checks positive master-bar durations, bounded beat positions, consistent measure counts, and timed beats.
 - A final alphaTab failure is returned as stable code `unplayable_output` (`422` at the worker boundary). No derived MusicXML asset is imported for that attempt; the original remains available and the job can be retried.
@@ -98,7 +100,7 @@ requires a fresh review and owner decision.
 
 - The worker is private: no Traefik/browser route, bearer authentication from the Go API, no PostgreSQL/OAuth/session credentials, and no authority to select learner assets.
 - The worker runs on the AMD64 `bahamut` NAS, not on the ARM Raspberry Pi Crystal Swarm. Crystal hosts the API/UI and database-backed queue orchestration; only the NAS performs recognition, repair, fusion, and the playability gate.
-- The worker accepts only bounded PDFs, processes one job at a time, and enforces 25 MiB input/output limits, 25 pages, a two-minute upload deadline, a ten-minute recognition deadline, bounded logs, archive checks, and a 512 MiB post-conversion job-footprint limit. The container runtime supplies the two-CPU, 4-GiB, and scratch-storage ceilings.
+- The worker accepts only bounded PDFs/PNG/JPEG images, processes one job at a time, and enforces 25 MiB input/output limits, 25 pages, a two-minute upload deadline, a ten-minute recognition deadline, bounded logs, archive checks, and a 512 MiB post-conversion job-footprint limit. The container runtime supplies the two-CPU, 4-GiB, and scratch-storage ceilings.
 - Every job uses isolated HOME/XDG/temp paths with thread counts capped for native math libraries. Temporary job state is removed on terminal requests and stale job directories are removed at startup.
 - Runtime outbound networking is denied. All engines, Python dependencies, npm packages, and model weights must be present and checksum-verified in the built image before deployment.
 - The Go API owns authorization, database leases, retries/cancellation, source/output lineage, import validation, and opaque asset storage. Failed or cancelled jobs do not import partial output.
@@ -107,7 +109,7 @@ requires a fresh review and owner decision.
 ## Consequences
 
 - Recognition can improve or fail independently of the original PDF and the rest of Noted.
-- Two engines plus preprocessing, Python repair, Node import validation, and model artifacts make the image larger and the operational/license surface broader.
+- Two available engines plus preprocessing, Python repair, Node import validation, and model artifacts make the image larger and the operational/license surface broader, although ordinary clean inputs now execute only one recognizer.
 - Agreement and timing validity provide useful review signals, but confidence is heuristic and remains visibly unverified.
-- The pipeline can degrade to a single surviving engine, while the final alphaTab gate prevents a known-unplayable result from being delivered as a playable asset.
+- The pipeline starts with a single routed engine and degrades to the secondary engine only after failure, while the final alphaTab gate prevents a known-unplayable result from being delivered as a playable asset.
 - A future manual correction workflow can use the retained Audiveris project or an external MusicXML editor without committing Noted to a full notation editor.

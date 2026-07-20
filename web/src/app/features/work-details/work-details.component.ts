@@ -67,6 +67,9 @@ export class WorkDetailsComponent implements OnInit {
   protected uploadFile: File | null = null;
   protected uploadSource = '';
   protected uploadRights = '';
+  protected readonly implicitTuplets = signal<Record<string, boolean>>({});
+  protected mediaLinkEditionId = '';
+  protected youtubeDraft = { url: '', title: '' };
   protected stopDraft = {
     startMeasure: null as number | null,
     endMeasure: null as number | null,
@@ -124,7 +127,7 @@ export class WorkDetailsComponent implements OnInit {
   private async loadRecognitionJobs(work: WorkDetail): Promise<void> {
     const pdfs = work.editions
       .flatMap((edition) => edition.assets)
-      .filter((asset) => asset.assetType === 'pdf');
+      .filter((asset) => asset.assetType === 'pdf' || asset.assetType === 'image');
     const histories = await Promise.all(
       pdfs.map(async (asset) => {
         try {
@@ -405,9 +408,74 @@ export class WorkDetailsComponent implements OnInit {
 
   async convertAsset(asset: Asset): Promise<void> {
     try {
-      const job = await firstValueFrom(this.api.createRecognitionJob(asset.id));
+      const job = await firstValueFrom(
+        this.api.createRecognitionJob(asset.id, Boolean(this.implicitTuplets()[asset.id])),
+      );
       this.recognitionJobs.update((jobs) => ({ ...jobs, [asset.id]: job }));
       this.pollRecognition(asset.id, job.id);
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  setImplicitTuplets(assetId: string, enabled: boolean): void {
+    this.implicitTuplets.update((values) => ({ ...values, [assetId]: enabled }));
+  }
+
+  scoreAssets(edition: Edition): Asset[] {
+    return edition.assets.filter((asset) => ['pdf', 'image', 'musicxml'].includes(asset.assetType));
+  }
+
+  playbackAssets(edition: Edition): Asset[] {
+    return edition.assets.filter(
+      (asset) => asset.assetType === 'midi' || asset.assetType === 'audio',
+    );
+  }
+
+  orderedAssets(edition: Edition): Asset[] {
+    return [...this.scoreAssets(edition), ...this.playbackAssets(edition)];
+  }
+
+  playbackStartIndex(edition: Edition): number {
+    return this.scoreAssets(edition).length;
+  }
+
+  assetTypeLabel(asset: Asset): string {
+    return { pdf: 'PDF', image: 'IMG', musicxml: 'XML', midi: 'MIDI', audio: 'AUDIO' }[
+      asset.assetType
+    ];
+  }
+
+  assetAccept(asset: Asset): string {
+    return {
+      pdf: '.pdf,application/pdf',
+      image: '.jpg,.jpeg,.png,image/jpeg,image/png',
+      musicxml: '.musicxml,.xml,.mxl',
+      midi: '.mid,.midi,audio/midi',
+      audio: '.mp3,.m4a,.mp4,.ogg,.oga,audio/mpeg,audio/mp4,audio/ogg',
+    }[asset.assetType];
+  }
+
+  async addYouTube(edition: Edition): Promise<void> {
+    if (!this.youtubeDraft.url.trim()) return;
+    try {
+      await firstValueFrom(
+        this.api.createMediaLink(edition.id, this.youtubeDraft.url, this.youtubeDraft.title),
+      );
+      this.youtubeDraft = { url: '', title: '' };
+      this.mediaLinkEditionId = '';
+      await this.load();
+      this.success.set('YouTube playback source added.');
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async deleteYouTube(id: string): Promise<void> {
+    if (!window.confirm('Remove this YouTube playback source and its measure anchors?')) return;
+    try {
+      await firstValueFrom(this.api.deleteMediaLink(id));
+      await this.load();
     } catch (error) {
       this.error.set(errorMessage(error));
     }

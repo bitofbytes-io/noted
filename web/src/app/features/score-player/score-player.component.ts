@@ -51,8 +51,17 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
   protected measureCount = Number(this.route.snapshot.queryParamMap.get('measures')) || 1;
   protected bpm = 96;
   protected zoom = 100;
-  protected rangeStart = 1;
-  protected rangeEnd = this.measureCount;
+  protected rangeStart = Math.min(
+    this.measureCount,
+    Math.max(1, Number(this.route.snapshot.queryParamMap.get('start')) || 1),
+  );
+  protected rangeEnd = Math.min(
+    this.measureCount,
+    Math.max(
+      this.rangeStart,
+      Number(this.route.snapshot.queryParamMap.get('end')) || this.measureCount,
+    ),
+  );
   protected draftRangeStart = this.rangeStart;
   protected draftRangeEnd = this.rangeEnd;
   protected rangeOpen = false;
@@ -158,12 +167,15 @@ export class ScorePlayerComponent implements AfterViewInit, OnDestroy {
         {
           onScoreLoaded: (measureCount, originalBpm) => {
             this.clearReadinessTimeoutError(scoreLoadReadinessError);
+            const requestedStart = Math.min(measureCount, Math.max(1, this.rangeStart));
+            const requestedEnd = Math.min(measureCount, Math.max(requestedStart, this.rangeEnd));
             this.measureCount = measureCount;
-            this.rangeEnd = measureCount;
-            this.draftRangeStart = 1;
-            this.draftRangeEnd = measureCount;
+            this.rangeStart = requestedStart;
+            this.rangeEnd = requestedEnd;
+            this.draftRangeStart = requestedStart;
+            this.draftRangeEnd = requestedEnd;
             this.bpm = Math.round(originalBpm);
-            this.adapter.setRange(1, measureCount);
+            this.adapter.setRange(requestedStart, requestedEnd);
             this.adapter.setLooping(this.looping);
             this.scoreReady.set(true);
             if (!this.playbackReady()) this.startPlaybackReadinessWatchdog();

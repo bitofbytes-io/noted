@@ -99,6 +99,36 @@
 .asset-list {
   border-top: 1px solid var(--line);
 }
+.asset-group-heading {
+  border-bottom: 2px solid var(--ink);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  margin: 18px 0 0;
+  padding-bottom: 7px;
+  text-transform: uppercase;
+}
+.playback-heading {
+  margin-top: 26px;
+}
+.implicit-tuplets {
+  align-items: center;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  gap: 5px;
+}
+.anchor-label {
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 800;
+}
+.add-youtube {
+  justify-self: start;
+  margin-top: 10px;
+}
+.youtube-form {
+  margin-top: 8px;
+}
 .asset-row {
   align-items: center;
   border-bottom: 1px solid var(--line);

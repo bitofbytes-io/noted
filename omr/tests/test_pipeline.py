@@ -4,15 +4,18 @@ import copy
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
 from music21 import dynamics, meter, note, stream
 
 PIPELINE = Path(__file__).resolve().parents[1] / "pipeline"
 sys.path.insert(0, str(PIPELINE))
 
 import fuse  # noqa: E402
+import measure_map  # noqa: E402
 import repair  # noqa: E402
 
 
@@ -39,6 +42,20 @@ def score_without_meter(durations: list[float], pitches: list[str] | None = None
 
 
 class RepairTests(unittest.TestCase):
+    def test_implicit_tuplet_candidate_requires_three_to_two_overflow_and_beams(self) -> None:
+        measure = stream.Measure(number=1)
+        measure.insert(0, meter.TimeSignature("4/4"))
+        for index in range(12):
+            event = note.Note("C4", quarterLength=0.5)
+            event.beams.fill(1, "continue")
+            measure.append(event)
+        self.assertTrue(repair._implicit_tuplet_candidate(measure))
+        unbeamed = stream.Measure(number=1)
+        unbeamed.insert(0, meter.TimeSignature("4/4"))
+        for _ in range(12):
+            unbeamed.append(note.Note("C4", quarterLength=0.5))
+        self.assertFalse(repair._implicit_tuplet_candidate(unbeamed))
+
     def test_missing_initial_meter_is_made_explicit_and_reported(self) -> None:
         score = score_without_meter([4])
         with mock.patch.object(repair.correctors.ScoreCorrector, "run", return_value=score):
@@ -201,6 +218,47 @@ class FuseTests(unittest.TestCase):
         self.assertTrue(
             all("engine_measure_count_mismatch" in row["issues"] for row in report["measures"])
         )
+
+
+class MeasureMapTests(unittest.TestCase):
+    def test_opencv_fallback_finds_grand_staff_barlines_without_note_stems(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "score.png"
+            pixels = np.full((500, 1000), 255, dtype=np.uint8)
+            for staff_top in (120, 240):
+                for line in range(5):
+                    measure_map.cv2.line(
+                        pixels, (100, staff_top + line * 12), (900, staff_top + line * 12), 0, 2
+                    )
+            for x in (100, 370, 640, 900):
+                for staff_top in (120, 240):
+                    measure_map.cv2.line(pixels, (x, staff_top), (x, staff_top + 48), 0, 2)
+            # Long note stems on only one staff must not become boundaries.
+            for x in (220, 500, 760):
+                measure_map.cv2.line(pixels, (x, 112), (x, 165), 0, 3)
+            measure_map.cv2.imwrite(str(path), pixels)
+            _, _, boxes = measure_map.cv_boxes(path)
+        self.assertEqual(len(boxes), 3)
+        self.assertEqual([round(box["x"]) for box in boxes], [100, 370, 640])
+
+    def test_audiveris_stack_geometry_is_extracted(self) -> None:
+        sheet = b'''<sheet><picture width="2550" height="3300"/><page id="1"><system id="1">
+          <stack id="1" left="100" right="600"/><stack id="2" left="600" right="1100"/>
+          <part><staff><lines>
+            <line><point x="100" y="200"/><point x="1100" y="200"/></line>
+            <line><point x="100" y="220"/><point x="1100" y="220"/></line>
+            <line><point x="100" y="240"/><point x="1100" y="240"/></line>
+            <line><point x="100" y="260"/><point x="1100" y="260"/></line>
+            <line><point x="100" y="280"/><point x="1100" y="280"/></line>
+          </lines></staff></part></system></page></sheet>'''
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "score.omr"
+            with zipfile.ZipFile(project, "w") as archive:
+                archive.writestr("sheet#1/sheet#1.xml", sheet)
+            boxes = measure_map.boxes_from_omr(project)
+        self.assertEqual(len(boxes[1]), 2)
+        self.assertEqual(boxes[1][0]["x"], 100)
+        self.assertEqual(boxes[1][0]["width"], 500)
 
 
 if __name__ == "__main__":

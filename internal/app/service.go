@@ -25,6 +25,7 @@ type Service struct {
 	Pool                *pgxpool.Pool
 	Store               assets.AssetStore
 	Recognizer          Recognizer
+	MeasureMapper       MeasureMapper
 	recognitionWorkerID string
 	recognitionSlots    chan struct{}
 	recognitionWorker   sync.Once
@@ -45,6 +46,9 @@ func NewService(pool *pgxpool.Pool, store assets.AssetStore) *Service {
 
 func (s *Service) WithRecognizer(recognizer Recognizer) *Service {
 	s.Recognizer = recognizer
+	if mapper, ok := recognizer.(MeasureMapper); ok {
+		s.MeasureMapper = mapper
+	}
 	return s
 }
 

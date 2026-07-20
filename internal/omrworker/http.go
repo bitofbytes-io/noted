@@ -98,7 +98,57 @@ func NewHandler(config Config) (*Handler, error) {
 	handler.router.HandleFunc("/healthz", handler.health)
 	handler.router.HandleFunc("/readyz", handler.ready)
 	handler.router.HandleFunc("/v1/recognize", handler.recognize)
+	handler.router.HandleFunc("/v1/measure-map", handler.measureMap)
 	return handler, nil
+}
+
+func (h *Handler) measureMap(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		h.writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "method is not allowed")
+		return
+	}
+	if !h.authorized(request) {
+		response.Header().Set("WWW-Authenticate", `Bearer realm="noted-omr"`)
+		h.writeError(response, http.StatusUnauthorized, "unauthorized", "valid bearer authentication is required")
+		return
+	}
+	mapper, ok := h.recognizer.(MeasureMapper)
+	if !ok {
+		h.writeError(response, http.StatusServiceUnavailable, "worker_unavailable", "measure mapping is unavailable")
+		return
+	}
+	select {
+	case h.slot <- struct{}{}:
+		defer func() { <-h.slot }()
+	default:
+		response.Header().Set("Retry-After", "5")
+		h.writeError(response, http.StatusTooManyRequests, "busy", "recognition worker is processing another score")
+		return
+	}
+	jobDirectory, err := os.MkdirTemp(h.tempRoot, "noted-omr-job-")
+	if err != nil {
+		h.writeError(response, http.StatusInternalServerError, "internal_error", "temporary job storage could not be created")
+		return
+	}
+	defer func() { _ = os.RemoveAll(jobDirectory) }()
+	inputPath := filepath.Join(jobDirectory, "input.bin")
+	if err := h.receivePDF(response, request, inputPath); err != nil {
+		h.writeWorkerError(response, err)
+		return
+	}
+	outputDirectory := filepath.Join(jobDirectory, "output")
+	if err := os.Mkdir(outputDirectory, 0o700); err != nil {
+		h.writeError(response, http.StatusInternalServerError, "internal_error", "temporary output storage could not be created")
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), h.timeout)
+	defer cancel()
+	result, err := mapper.MapMeasures(ctx, inputPath, outputDirectory)
+	if err != nil {
+		h.writeWorkerError(response, err)
+		return
+	}
+	h.writeJSON(response, http.StatusOK, result)
 }
 
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -166,7 +216,11 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 			h.logger.Error("remove OCR job directory", "error", err)
 		}
 	}()
-	inputPath := filepath.Join(jobDirectory, "input.pdf")
+	inputName := "input.pdf"
+	if strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Noted-Source-Type")), "image") {
+		inputName = "input.jpg"
+	}
+	inputPath := filepath.Join(jobDirectory, inputName)
 	var uploadTimedOut atomic.Bool
 	uploadBody := request.Body
 	uploadTimerDone := make(chan struct{})
@@ -195,7 +249,21 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), h.timeout)
 	defer cancel()
-	result, err := h.recognizer.Recognize(ctx, inputPath, outputDirectory)
+	options := RecognitionOptions{SourceType: strings.ToLower(strings.TrimSpace(request.Header.Get("X-Noted-Source-Type")))}
+	if options.SourceType == "" {
+		options.SourceType = "pdf"
+	}
+	if options.SourceType != "pdf" && options.SourceType != "image" {
+		h.writeError(response, http.StatusUnprocessableEntity, "invalid_request", "source type must be pdf or image")
+		return
+	}
+	options.ImplicitTuplets = strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Noted-Implicit-Tuplets")), "true")
+	var result Result
+	if optionRecognizer, ok := h.recognizer.(OptionRecognizer); ok {
+		result, err = optionRecognizer.RecognizeWithOptions(ctx, inputPath, outputDirectory, options)
+	} else {
+		result, err = h.recognizer.Recognize(ctx, inputPath, outputDirectory)
+	}
 	if err != nil {
 		h.logger.Warn("OCR conversion failed", "code", codeForError(err, "conversion_failed"), "error", err)
 		h.writeWorkerError(response, err)
@@ -213,7 +281,11 @@ func (h *Handler) recognize(response http.ResponseWriter, request *http.Request)
 		h.writeError(response, http.StatusBadGateway, "invalid_output", "recognition output could not be measured")
 		return
 	}
-	response.Header().Set("X-Noted-OMR-Engine", EngineName)
+	engine := strings.TrimSpace(result.Engine)
+	if engine == "" || engine == "fusion" {
+		engine = EngineName
+	}
+	response.Header().Set("X-Noted-OMR-Engine", engine)
 	response.Header().Set("X-Noted-OMR-Version", EngineVersion)
 	response.Header().Set("Cache-Control", "no-store")
 	if result.ProjectPath == "" && result.Report == nil {
@@ -361,8 +433,12 @@ func validatePDF(path string) error {
 	if err != nil && !errors.Is(err, io.EOF) {
 		return workerError("invalid_pdf", "PDF could not be inspected", err)
 	}
-	if !strings.Contains(string(header[:read]), "%PDF-") {
-		return workerError("invalid_pdf", "uploaded file is not a PDF", nil)
+	data := header[:read]
+	isPDF := strings.Contains(string(data), "%PDF-")
+	isPNG := len(data) >= 8 && string(data[:8]) == "\x89PNG\r\n\x1a\n"
+	isJPEG := len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff
+	if !isPDF && !isPNG && !isJPEG {
+		return workerError("invalid_pdf", "uploaded file is not a PDF, PNG, or JPEG score", nil)
 	}
 	return nil
 }

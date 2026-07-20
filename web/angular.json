@@ -24,6 +24,7 @@
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
+            "allowedCommonJsDependencies": ["@tonejs/midi"],
             "assets": [
               {
                 "glob": "**/*",
@@ -65,9 +66,7 @@
                 "output": "/pdfjs/wasm"
               }
             ],
-            "styles": [
-              "src/styles.scss"
-            ]
+            "styles": ["src/styles.scss"]
           },
           "configurations": {
             "production": {
@@ -79,7 +78,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "5kB",
+                  "maximumWarning": "7kB",
                   "maximumError": "8kB"
                 }
               ],

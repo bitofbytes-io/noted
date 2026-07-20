@@ -22,6 +22,7 @@ type pipelineEngineState struct {
 	Version string `json:"version"`
 	Status  string `json:"status"`
 	Error   string `json:"error,omitempty"`
+	Warning string `json:"warning,omitempty"`
 }
 
 type alphaTabGateResult struct {
@@ -54,6 +55,7 @@ func (r *CommandRecognizer) readyPipeline(ctx context.Context) error {
 	}
 	for name, path := range map[string]string{
 		"pre-processing":  r.PreprocessScript,
+		"measure mapping": r.MeasureMapScript,
 		"MusicXML repair": r.RepairScript,
 		"MusicXML fusion": r.FuseScript,
 		"alphaTab gate":   r.AlphaTabGateScript,
@@ -104,9 +106,17 @@ func runReadyCommand(ctx context.Context, command string, arguments ...string) (
 }
 
 func (r *CommandRecognizer) recognizePipeline(ctx context.Context, inputPath, outputDirectory string) (Result, error) {
-	pages, err := r.pageCount(ctx, inputPath)
-	if err != nil {
-		return Result{}, err
+	return r.recognizePipelineWithOptions(ctx, inputPath, outputDirectory, RecognitionOptions{SourceType: "pdf"})
+}
+
+func (r *CommandRecognizer) recognizePipelineWithOptions(ctx context.Context, inputPath, outputDirectory string, options RecognitionOptions) (Result, error) {
+	pages := 1
+	var err error
+	if options.SourceType != "image" {
+		pages, err = r.pageCount(ctx, inputPath)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	maxPages := r.MaxPages
 	if maxPages <= 0 {
@@ -128,17 +138,32 @@ func (r *CommandRecognizer) recognizePipeline(ctx context.Context, inputPath, ou
 
 	preparedDirectory := filepath.Join(outputDirectory, "prepared")
 	audiverisDirectory := filepath.Join(outputDirectory, "audiveris")
+	audiverisImplicitDirectory := filepath.Join(outputDirectory, "audiveris-implicit-tuplets")
 	repairedDirectory := filepath.Join(outputDirectory, "repaired")
+	repairedImplicitDirectory := filepath.Join(outputDirectory, "repaired-implicit-tuplets")
 	finalDirectory := filepath.Join(outputDirectory, "final")
-	for _, directory := range []string{preparedDirectory, audiverisDirectory, repairedDirectory, finalDirectory} {
+	for _, directory := range []string{preparedDirectory, audiverisDirectory, audiverisImplicitDirectory, repairedDirectory, repairedImplicitDirectory, finalDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return Result{}, workerError("internal_error", "recognition pipeline storage could not be created", err)
 		}
 	}
 
-	pageImages, err := r.preprocessPages(ctx, inputPath, preparedDirectory, pages, environment, jobRoot)
-	if err != nil {
-		return Result{}, err
+	var pageImages []string
+	if options.SourceType == "image" {
+		pageImage := filepath.Join(preparedDirectory, "page-001"+filepath.Ext(inputPath))
+		contents, readErr := os.ReadFile(inputPath)
+		if readErr != nil {
+			return Result{}, workerError("invalid_pdf", "score image could not be read", readErr)
+		}
+		if writeErr := os.WriteFile(pageImage, contents, 0o600); writeErr != nil {
+			return Result{}, workerError("internal_error", "score image could not be prepared", writeErr)
+		}
+		pageImages = []string{pageImage}
+	} else {
+		pageImages, err = r.preprocessPages(ctx, inputPath, preparedDirectory, pages, environment, jobRoot)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	bookImage := filepath.Join(preparedDirectory, "book.tiff")
 	arguments := []string{r.PreprocessScript, "--output", bookImage}
@@ -151,56 +176,65 @@ func (r *CommandRecognizer) recognizePipeline(ctx context.Context, inputPath, ou
 	}
 
 	states := map[string]pipelineEngineState{
-		"audiveris": {Version: r.Version, Status: "failed"},
-		"homr":      {Version: r.HomrVersion, Status: "failed"},
+		"audiveris": {Version: r.Version, Status: "skipped"},
+		"homr":      {Version: r.HomrVersion, Status: "skipped"},
 	}
-	var audiverisScore, audiverisProject, homrScore string
-
-	audiverisResult, projectPath, audiverisErr := r.runPipelineAudiveris(ctx, bookImage, audiverisDirectory, environment, maxOutputBytes)
-	if audiverisErr == nil {
-		audiverisScore = audiverisResult.Path
-		audiverisProject = projectPath
-		states["audiveris"] = pipelineEngineState{Version: r.Version, Status: "succeeded"}
-	} else if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return Result{}, pipelineWorkerError(ctx, "conversion_failed", "Audiveris recognition did not complete", audiverisErr)
-	} else {
-		states["audiveris"] = pipelineEngineState{Version: r.Version, Status: "failed", Error: sanitizePipelineError(audiverisErr)}
-	}
-	if err := validateJobFootprint(jobRoot); err != nil {
-		return Result{}, err
-	}
-
-	homrOutputs, homrErr := r.runPipelineHomr(ctx, pageImages, environment, jobRoot, maxOutputBytes)
-	if homrErr == nil {
-		homrScore, homrErr = r.repairEngine(ctx, "homr", homrOutputs, repairedDirectory, environment, jobRoot, maxOutputBytes)
-	}
-	if homrErr == nil {
-		states["homr"] = pipelineEngineState{Version: r.HomrVersion, Status: "succeeded"}
-	} else if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return Result{}, pipelineWorkerError(ctx, "conversion_failed", "homr recognition did not complete", homrErr)
-	} else {
-		homrScore = ""
-		states["homr"] = pipelineEngineState{Version: r.HomrVersion, Status: "failed", Error: sanitizePipelineError(homrErr)}
-	}
-	if err := validateJobFootprint(jobRoot); err != nil {
-		return Result{}, err
-	}
-
 	var audiverisRepairReport, homrRepairReport string
-	if audiverisScore != "" {
-		var repairErr error
-		audiverisScore, audiverisRepairReport, repairErr = r.repairEngineWithReport(ctx, "audiveris", []string{audiverisScore}, repairedDirectory, environment, jobRoot, maxOutputBytes)
-		if repairErr != nil {
-			if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return Result{}, pipelineWorkerError(ctx, "conversion_failed", "Audiveris repair did not complete", repairErr)
-			}
-			audiverisScore = ""
-			states["audiveris"] = pipelineEngineState{Version: r.Version, Status: "failed", Error: sanitizePipelineError(repairErr)}
+	var audiverisScore, audiverisProject, homrScore string
+	runAudiveris := func() error {
+		result, project, engineErr := r.runPipelineAudiverisWithOptions(ctx, bookImage, audiverisDirectory, environment, maxOutputBytes, options)
+		if engineErr == nil {
+			audiverisScore, audiverisRepairReport, engineErr = r.repairEngineWithReport(ctx, "audiveris", []string{result.Path}, repairedDirectory, environment, jobRoot, maxOutputBytes)
+			audiverisProject = project
 		}
+		if engineErr != nil {
+			audiverisScore = ""
+			states["audiveris"] = pipelineEngineState{Version: r.Version, Status: "failed", Error: sanitizePipelineError(engineErr)}
+			return engineErr
+		}
+		state := pipelineEngineState{Version: r.Version, Status: "succeeded"}
+		if !options.ImplicitTuplets && shouldRetryImplicitTuplets(audiverisRepairReport) {
+			retryOptions := options
+			retryOptions.ImplicitTuplets = true
+			retryResult, retryProject, retryErr := r.runPipelineAudiverisWithOptions(ctx, bookImage, audiverisImplicitDirectory, environment, maxOutputBytes, retryOptions)
+			if retryErr == nil {
+				retryScore, retryReport, repairErr := r.repairEngineWithReport(ctx, "audiveris", []string{retryResult.Path}, repairedImplicitDirectory, environment, jobRoot, maxOutputBytes)
+				if repairErr == nil {
+					audiverisScore, audiverisRepairReport, audiverisProject = retryScore, retryReport, retryProject
+					state.Warning = "implicit_tuplets_auto_retry_applied"
+				} else {
+					state.Warning = "implicit_tuplets_auto_retry_failed"
+				}
+			} else {
+				state.Warning = "implicit_tuplets_auto_retry_failed"
+			}
+		}
+		if options.ImplicitTuplets {
+			state.Warning = "implicit_tuplets_hint_applied"
+		}
+		states["audiveris"] = state
+		return nil
 	}
-	if homrScore != "" {
-		// runPipelineHomr has already normalized all pages through repairEngine.
-		homrRepairReport = filepath.Join(repairedDirectory, "homr-report.json")
+	runHomr := func() error {
+		outputs, engineErr := r.runPipelineHomr(ctx, pageImages, environment, jobRoot, maxOutputBytes)
+		if engineErr == nil {
+			homrScore, homrRepairReport, engineErr = r.repairEngineWithReport(ctx, "homr", outputs, repairedDirectory, environment, jobRoot, maxOutputBytes)
+		}
+		if engineErr != nil {
+			homrScore = ""
+			states["homr"] = pipelineEngineState{Version: r.HomrVersion, Status: "failed", Error: sanitizePipelineError(engineErr)}
+			return engineErr
+		}
+		states["homr"] = pipelineEngineState{Version: r.HomrVersion, Status: "succeeded"}
+		return nil
+	}
+
+	runRoutedEngines(options.SourceType, runAudiveris, runHomr)
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return Result{}, pipelineWorkerError(ctx, "conversion_failed", "recognition did not complete", ctx.Err())
+	}
+	if err := validateJobFootprint(jobRoot); err != nil {
+		return Result{}, err
 	}
 	if audiverisScore == "" && homrScore == "" {
 		return Result{}, workerError("conversion_failed", "both recognition engines failed", fmt.Errorf("audiveris: %s; homr: %s", states["audiveris"].Error, states["homr"].Error))
@@ -243,8 +277,20 @@ func (r *CommandRecognizer) recognizePipeline(ctx context.Context, inputPath, ou
 	}
 	return Result{
 		Path: finalScore, ContentType: "application/vnd.recordare.musicxml+xml", Extension: ".musicxml",
-		ProjectPath: audiverisProject, Report: &qualityReport,
+		ProjectPath: audiverisProject, Engine: qualityReport.SelectedEngine, Report: &qualityReport,
 	}, nil
+}
+
+func runRoutedEngines(sourceType string, runAudiveris, runHomr func() error) {
+	if sourceType == "image" {
+		if err := runHomr(); err != nil {
+			_ = runAudiveris()
+		}
+		return
+	}
+	if err := runAudiveris(); err != nil {
+		_ = runHomr()
+	}
 }
 
 func createPipelineEnvironment(jobRoot string) (map[string]string, error) {
@@ -310,7 +356,15 @@ func validatePNG(path string) error {
 }
 
 func (r *CommandRecognizer) runPipelineAudiveris(ctx context.Context, inputPath, outputDirectory string, environment []string, maxOutputBytes int64) (Result, string, error) {
-	arguments := []string{"-batch", "-transcribe", "-save", "-export", "-output", outputDirectory, "--", inputPath}
+	return r.runPipelineAudiverisWithOptions(ctx, inputPath, outputDirectory, environment, maxOutputBytes, RecognitionOptions{})
+}
+
+func (r *CommandRecognizer) runPipelineAudiverisWithOptions(ctx context.Context, inputPath, outputDirectory string, environment []string, maxOutputBytes int64, options RecognitionOptions) (Result, string, error) {
+	arguments := []string{"-batch"}
+	if options.ImplicitTuplets {
+		arguments = append(arguments, "-constant", "org.audiveris.omr.sheet.ProcessingSwitches.implicitTuplets=true")
+	}
+	arguments = append(arguments, "-transcribe", "-save", "-export", "-output", outputDirectory, "--", inputPath)
 	if err := runPipelineStage(ctx, r.Command, arguments, environment, filepath.Dir(outputDirectory)); err != nil {
 		return Result{}, "", err
 	}
@@ -407,6 +461,29 @@ func sanitizePipelineError(err error) string {
 		value = value[:500]
 	}
 	return value
+}
+
+func shouldRetryImplicitTuplets(reportPath string) bool {
+	data, err := os.ReadFile(reportPath)
+	if err != nil || len(data) == 0 || len(data) > omrreport.MaxBytes {
+		return false
+	}
+	var report struct {
+		MeasureCount             int `json:"measureCount"`
+		ImplicitTupletCandidates []struct {
+			MeasureIndex int `json:"measureIndex"`
+		} `json:"implicitTupletCandidates"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil || report.MeasureCount < 1 {
+		return false
+	}
+	indexes := map[int]bool{}
+	for _, candidate := range report.ImplicitTupletCandidates {
+		if candidate.MeasureIndex > 0 && candidate.MeasureIndex <= report.MeasureCount {
+			indexes[candidate.MeasureIndex] = true
+		}
+	}
+	return len(indexes)*2 > report.MeasureCount
 }
 
 func completeQualityReport(draftPath, gatePath, outputPath string) (omrreport.Report, error) {

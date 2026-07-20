@@ -39,7 +39,7 @@ export interface Session {
 export interface Asset {
   id: string;
   editionId: string;
-  assetType: 'pdf' | 'musicxml';
+  assetType: 'pdf' | 'musicxml' | 'midi' | 'audio' | 'image';
   originalFilename: string;
   displayName?: string;
   mediaType: string;
@@ -56,6 +56,48 @@ export interface Asset {
   contentUrl: string;
   downloadUrl: string;
   playbackValidation: PlaybackValidation;
+  anchorCount?: number;
+}
+
+export interface MediaLink {
+  id: string;
+  editionId: string;
+  kind: 'youtube';
+  videoId: string;
+  title: string;
+  anchorCount: number;
+  createdAt: string;
+}
+
+export interface MeasureAnchor {
+  id?: string;
+  measureNumber: number;
+  positionMs: number;
+}
+
+export interface MeasureBox {
+  measureNumber: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface MeasureMapPage {
+  pageNumber: number;
+  width: number;
+  height: number;
+  dpi: number;
+  measures: MeasureBox[];
+}
+
+export interface MeasureMap {
+  assetId: string;
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  pages: MeasureMapPage[];
+  engineVersion?: string;
+  failureMessage?: string;
+  updatedAt: string;
 }
 
 export type PlaybackValidationStatus = 'not_checked' | 'ready' | 'needs_review' | 'blocked';
@@ -84,6 +126,7 @@ export interface Edition {
   rightsNote?: string;
   archivedAt?: string;
   assets: Asset[];
+  mediaLinks?: MediaLink[];
 }
 
 export type RecognitionMeasureConfidence = 'high' | 'medium' | 'low';
@@ -123,6 +166,8 @@ export interface RecognitionJob {
   sourceAssetId: string;
   outputAssetId?: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
+  jobKind?: 'transcribe' | 'measure_map';
+  hints?: { implicitTuplets: boolean };
   engine: string;
   engineVersion: string;
   errorCode?: string;

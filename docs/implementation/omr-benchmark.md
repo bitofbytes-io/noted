@@ -53,6 +53,12 @@ The final pipeline correctly leaves all eight measures flagged because the engin
 tradeoff is why results remain `Unverified OCR`. The product-owner threshold and rights-cleared
 representative real-score corpus were subsequently completed before private production acceptance.
 
+## 2026-07-20 routed/implicit-tuplet extension
+
+The corpus now includes `moonlight-style-implicit-tuplets`, an original CC0 exercise with eight measures of beamed triplet texture and hidden tuplet numbers. It is named for the visual/rhythmic pattern only and reproduces no Beethoven notation. The manifest records that it is project-authored and has no third-party score source.
+
+Native Audiveris 5.10.2 was run once with defaults and once with `org.audiveris.omr.sheet.ProcessingSwitches.implicitTuplets=true`. Both completed in 5–6 seconds and both matched the synthetic reference exactly on pitch, rhythm, and event F1 while passing alphaTab. This clean synthetic case therefore validates the batch switch and harness coverage but does not claim an improvement from the switch. The strict-majority 3:2/beamed candidate detector, one-time retry decision, and PDF/image primary/fallback invocation policy have focused automated tests. A difficult private real-score result may be recorded separately but must not be committed.
+
 The clean, noisy, and corrected two-page final outputs each scored 100% on the reported parse,
 alphaTab, measure-count, duration, pitch, rhythm, and event checks. The two-page run returned 40
 measures; its report marked four as suspect and none as auto-corrected.

@@ -60,6 +60,8 @@ under `.local/omr-eval/outputs/`. Commands time out after ten minutes by default
 This hook is deliberately generic: Audiveris, homr, repaired output, and fused output should each
 have a distinct engine/pipeline name so before/after reports stay comparable.
 
+The committed `moonlight-style-implicit-tuplets` fixture is the focused input for comparing default Audiveris output, the `ProcessingSwitches.implicitTuplets=true` run, and the routed worker. Use distinct candidate names so the report retains all three results.
+
 ## Tests
 
 After `make setup`, run:

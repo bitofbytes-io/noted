@@ -1,7 +1,7 @@
 # Noted: Provisional Product Roadmap
 
-Status: Product sequence selected; private OCR production activation verified
-Last updated: 2026-07-18
+Status: Product sequence selected; decoupled practice playback implemented
+Last updated: 2026-07-20
 
 ## Phase 1: Store and Play
 
@@ -17,11 +17,15 @@ Supporting capabilities include Google sign-in, learner-private libraries, work 
 
 The local POC is a subset of this phase and is defined separately in `poc-requirements.md`.
 
-### Phase 1 follow-up: OCR-assisted upload (active development)
+### Phase 1 follow-up: decoupled practice playback
 
-The repository now implements an asynchronous, resource-limited dual-engine worker so a learner can request recognition of an eligible printed PDF and receive a derived MusicXML asset. Audiveris 5.10.2 and homr 0.7.0 run against shared 300-DPI preprocessing, music21 10.3.0 repairs each surviving result, measure-level fusion records source/agreement/confidence, and alphaTab 1.8.4 gates final playability. The original is preserved, every result is linked to its source/job/engine provenance, and playback remains labeled `Unverified OCR` with corrected/suspect counts and per-measure review signals.
+PDFs and phone photos are now first-class interactive practice scores. An automatic structure-only job adds tappable measure geometry without attempting note transcription. The reader supports passage selection, measure-aware practice starts, and a dock of independent MusicXML, MIDI, audio, and YouTube playback sources. Learner-created timestamp anchors connect visual measures to media for seeking and looping. Full OMR is therefore optional rather than the gateway to hearing a work.
 
-This increment uses batch recognition and automatic conservative repair only. It does not build a notation editor into Noted. Retaining the private Audiveris `.omr` artifact keeps later Audiveris/external-editor correction possible, while image-source uploads and handwritten-score recognition remain out of scope for the current route.
+### Phase 1 follow-up: OCR-assisted upload
+
+The repository implements an asynchronous, resource-limited routed worker so a learner can explicitly request recognition of an eligible PDF/image and receive a derived MusicXML asset. PDFs use Audiveris 5.10.2 first; images use homr 0.7.0 first; the secondary engine runs only if the primary fails. music21 10.3.0 repairs the surviving result, the existing fusion path arbitrates only after fallback, and alphaTab 1.8.4 gates final playability. An explicit implicit-tuplet hint and a strict-majority 3:2/beamed-pattern retry address unmarked triplet textures. The original is preserved, every result is linked to its source/job/engine provenance, and playback remains labeled `Unverified OCR`.
+
+This increment uses batch recognition and automatic conservative repair only. It does not build a notation editor into Noted. Retaining the private Audiveris `.omr` artifact keeps later Audiveris/external-editor correction possible. Printed phone-photo input is supported; handwritten-score recognition remains out of scope.
 
 Implementation is not the production release gate. The committed rights-safe corpus has recorded
 Audiveris-only, homr/repaired, and fused results: playability and aggregate event accuracy improve,

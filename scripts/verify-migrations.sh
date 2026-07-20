@@ -2,9 +2,27 @@
 set -eu
 
 go run ./cmd/migrate
+playback_columns=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='recognition_jobs' AND column_name IN ('job_kind','hints')")
+playback_tables=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('media_links','measure_anchors','measure_maps')")
+if [ "$playback_columns" -ne 2 ] || [ "$playback_tables" -ne 3 ]; then
+	echo "migration 000010 did not add playback/measure-map schema" >&2
+	exit 1
+fi
 quality_columns=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='recognition_jobs' AND column_name IN ('failure_code','flagged_measures','corrected_measures','quality_report')")
 if [ "$quality_columns" -ne 4 ]; then
 	echo "migration 000009 did not add the recognition quality columns" >&2
+	exit 1
+fi
+go run ./cmd/migrate down
+playback_columns=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='recognition_jobs' AND column_name IN ('job_kind','hints')")
+playback_tables=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('media_links','measure_anchors','measure_maps')")
+if [ "$playback_columns" -ne 0 ] || [ "$playback_tables" -ne 0 ]; then
+	echo "migration 000010 rollback left playback/measure-map schema behind" >&2
+	exit 1
+fi
+quality_columns=$(docker compose -p noted -f compose.local.yml exec -T postgres psql -U noted -d "$TEST_DATABASE_NAME" -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='recognition_jobs' AND column_name IN ('failure_code','flagged_measures','corrected_measures','quality_report')")
+if [ "$quality_columns" -ne 4 ]; then
+	echo "migration 000010 rollback damaged migration 000009 columns" >&2
 	exit 1
 fi
 go run ./cmd/migrate down
@@ -38,6 +56,7 @@ if [ "$warning_playback" != "true:needs_review" ]; then
 	echo "migration 000008 did not restore warning-only MusicXML playability" >&2
 	exit 1
 fi
+go run ./cmd/migrate down
 go run ./cmd/migrate down
 go run ./cmd/migrate down
 go run ./cmd/migrate down
