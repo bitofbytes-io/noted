@@ -14,6 +14,7 @@ Read these before creating an implementation plan or goals:
 4. `docs/architecture/api-contract.md`
 5. `docs/implementation/handoff.md`
 6. `docs/design/visual-direction.md`
+7. `docs/design/design-tokens.md`
 
 Use `docs/product/discovery-brief.md` for rationale and future ideas, not as POC scope. Use `docs/product/requirements-v0.md` as longer-term requirements. When they differ, the POC requirements control POC planning.
 
@@ -34,7 +35,7 @@ Use `docs/product/discovery-brief.md` for rationale and future ideas, not as POC
 - Playback does not automatically record practice.
 - Practice summaries begin on Monday.
 - Primary navigation is Home, Library, Metronome, Practice, Settings.
-- The selected visual baseline is `docs/design/concepts/noted-v1-visual-baseline.png`.
+- The selected visual baseline is `docs/design/concepts/noted-v2-title-page-baseline.png` ("Title Page": ivory background, ink typography, forest-green accent, no dashboard sheet-music preview); tokens are specified in `docs/design/design-tokens.md`.
 
 ## Planning expectations
 

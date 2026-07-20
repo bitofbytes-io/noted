@@ -1,11 +1,53 @@
 # Noted: Visual Direction
 
-Status: Version-one direction selected
-Last updated: 2026-07-13
+Status: Version-two "Title Page" direction selected
+Last updated: 2026-07-18
 
-## Version-one visual baseline
+## Version-two visual baseline — "Title Page"
 
-The following refined concept is accepted as the visual baseline for the first version:
+The following concept is accepted as the visual baseline for the UI rebuild:
+
+![Noted version-two Title Page baseline](concepts/noted-v2-title-page-baseline.png)
+
+It was selected on 2026-07-18 after three rounds of dashboard exploration. The
+authoritative token specification and component recipes live in
+`design-tokens.md`; that document controls colors, typography, spacing, and
+component treatments for implementation.
+
+### What defines v2
+
+- Warm ivory background (`#F6F1E7`) with ink-black typography and a single deep
+  forest-green accent (`#1E4D3B`). Cobalt blue is retired.
+- Typographic, placard-minimal dashboard: the current work's title is the hero,
+  set very large and framed by two thin horizontal rules like the engraved title
+  page of a printed score. No sheet-music preview on the dashboard.
+- No cards and no shadows; structure comes from whitespace and hairline rules.
+- One primary action on Home: a green "Resume practice" pill below the hero.
+- A short "Up next" queue as quiet text rows with small green progress dots.
+- A single understated search field on Home (delegating to Library search).
+- Weekly metrics compressed to one line with seven Monday-first day markers;
+  fuller charts live on the Practice page.
+- The "Recently imported" panel and the multi-column repertoire table are removed
+  from Home; that information lives in Library.
+- Bottom navigation unchanged: Home, Library, Metronome, Practice, Settings.
+- The score player keeps its immersive structure and white notation surface,
+  re-accented from cobalt to forest green.
+
+### Exploration history
+
+- Round 1 tested score-preview heroes in five palettes; the notation-as-decoration
+  approach was rejected for the dashboard.
+- Round 2 tested typographic heroes; the centered placard-minimal option was
+  preferred.
+- Round 3 refined the placard direction; the "Title Page" variant (framed hero
+  rules, ivory/ink/forest green) was selected.
+
+The v1 material below is retained for history. Where v1 and v2 conflict, v2 and
+`design-tokens.md` control.
+
+## Version-one visual baseline (superseded)
+
+The following refined concept was the visual baseline for the first version:
 
 ![Noted version-one visual baseline](concepts/noted-v1-visual-baseline.png)
 
