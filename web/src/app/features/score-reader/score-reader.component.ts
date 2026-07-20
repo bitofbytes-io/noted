@@ -1,5 +1,6 @@
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   inject,
@@ -83,6 +84,7 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
 
   constructor(
     private readonly api: ApiService,
+    private readonly changeDetector: ChangeDetectorRef,
     protected readonly timer: PracticeTimerService,
   ) {}
 
@@ -129,8 +131,11 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
         this.pageCount = 1;
       }
       await this.loadMeasureMap(asset.id);
-      this.sources.set(this.buildSources(work));
+      const sources = this.buildSources(work);
+      this.sources.set(sources);
       await this.render();
+      const playableSources = sources.filter((source) => source.kind !== 'score');
+      if (playableSources.length === 1) await this.chooseSource(playableSources[0]);
     } catch (error) {
       this.error.set(errorMessage(error));
     } finally {
@@ -309,6 +314,10 @@ export class ScoreReaderComponent implements AfterViewInit, OnDestroy {
     this.durationMs.set(0);
     this.anchorMode = false;
     this.anchorsDirty = false;
+    // The media host is conditional on activeSource. Render it before asking an
+    // adapter to mount its player; otherwise the first source click appears to
+    // do nothing because the ViewChild is still undefined.
+    this.changeDetector.detectChanges();
     try {
       const anchors = source.mediaLink
         ? (await firstValueFrom(this.api.mediaLinkAnchors(source.id))).items
