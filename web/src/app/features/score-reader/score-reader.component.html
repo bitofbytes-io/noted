@@ -111,8 +111,12 @@
             <button
               [class.active]="activeSource()?.id === source.id"
               (click)="chooseSource(source)"
+              [attr.aria-label]="'Choose ' + source.label + ' playback source'"
             >
-              {{ source.label }}
+              <span class="source-action">{{ source.label }}</span>
+              @if (activeSource()?.id !== source.id) {
+                <span class="source-prompt">Select to show playback controls</span>
+              }
             </button>
           }
         }

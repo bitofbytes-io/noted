@@ -199,6 +199,17 @@
   text-decoration: none;
   white-space: nowrap;
 }
+.source-tabs button {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+}
+.source-prompt {
+  color: #8f95a1;
+  font-size: 9px;
+  font-weight: 600;
+}
 .source-tabs button.active,
 .source-tabs button:hover,
 .source-tabs a:hover {
