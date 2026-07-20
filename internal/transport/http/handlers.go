@@ -455,7 +455,13 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createRecognitionJob(w http.ResponseWriter, r *http.Request) {
-	value, err := h.Service.CreateRecognitionJob(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"))
+	var input struct {
+		Hints app.RecognitionHints `json:"hints"`
+	}
+	if !h.decodeJSON(w, r, &input) {
+		return
+	}
+	value, err := h.Service.CreateRecognitionJobWithHints(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetId"), input.Hints)
 	if err != nil {
 		h.handleError(w, err)
 		return

@@ -2,6 +2,7 @@ package omrworker
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,56 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/omrreport"
 )
+
+func TestRunRoutedEnginesUsesSecondaryOnlyAfterPrimaryFailure(t *testing.T) {
+	for _, test := range []struct {
+		name, sourceType, want string
+		failPrimary            bool
+	}{
+		{name: "PDF success", sourceType: "pdf", want: "audiveris"},
+		{name: "PDF fallback", sourceType: "pdf", want: "audiveris,homr", failPrimary: true},
+		{name: "image success", sourceType: "image", want: "homr"},
+		{name: "image fallback", sourceType: "image", want: "homr,audiveris", failPrimary: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := []string{}
+			audiveris := func() error {
+				calls = append(calls, "audiveris")
+				if test.failPrimary && test.sourceType != "image" {
+					return errors.New("primary failed")
+				}
+				return nil
+			}
+			homr := func() error {
+				calls = append(calls, "homr")
+				if test.failPrimary && test.sourceType == "image" {
+					return errors.New("primary failed")
+				}
+				return nil
+			}
+			runRoutedEngines(test.sourceType, audiveris, homr)
+			if got := strings.Join(calls, ","); got != test.want {
+				t.Fatalf("calls = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestShouldRetryImplicitTupletsRequiresStrictMajority(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.json")
+	if err := os.WriteFile(path, []byte(`{"measureCount":8,"implicitTupletCandidates":[{"measureIndex":1},{"measureIndex":2},{"measureIndex":3},{"measureIndex":4},{"measureIndex":5}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !shouldRetryImplicitTuplets(path) {
+		t.Fatal("expected a strict majority to trigger the retry")
+	}
+	if err := os.WriteFile(path, []byte(`{"measureCount":8,"implicitTupletCandidates":[{"measureIndex":1},{"measureIndex":2},{"measureIndex":3},{"measureIndex":4}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if shouldRetryImplicitTuplets(path) {
+		t.Fatal("half of measures must not trigger the retry")
+	}
+}
 
 func TestPreprocessPagesUsesDeterministic300DPIRendering(t *testing.T) {
 	root := t.TempDir()

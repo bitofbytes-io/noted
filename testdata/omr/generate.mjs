@@ -54,6 +54,9 @@ function note({
   rest = false,
   accidental = "",
   tie = "",
+  timeModification = false,
+  beam = "",
+  tuplet = "",
 }) {
   const pitch = rest
     ? "<rest/>"
@@ -64,7 +67,14 @@ function note({
         .map((kind) => `<tie type="${kind}"/>`)
         .join("")
     : "";
-  return `<note>${chord ? "<chord/>" : ""}${pitch}<duration>${duration}</duration>${tieElements}<voice>${voice}</voice><type>${type}</type>${accidental ? `<accidental>${accidental}</accidental>` : ""}<staff>${staff}</staff></note>`;
+  const timeModificationElement = timeModification
+    ? "<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>"
+    : "";
+  const beamElement = beam ? `<beam number="1">${beam}</beam>` : "";
+  const tupletElement = tuplet
+    ? `<notations><tuplet type="${tuplet}" bracket="no" show-number="none"/></notations>`
+    : "";
+  return `<note>${chord ? "<chord/>" : ""}${pitch}<duration>${duration}</duration>${tieElements}<voice>${voice}</voice><type>${type}</type>${timeModificationElement}${accidental ? `<accidental>${accidental}</accidental>` : ""}<staff>${staff}</staff>${beamElement}${tupletElement}</note>`;
 }
 
 function scoreHeader(title) {
@@ -328,6 +338,48 @@ function multipageStudyMusicXML() {
   return `${xml}\n${scoreFooter()}`;
 }
 
+function implicitTupletMusicXML() {
+  let xml = scoreHeader("Noted Moonlight-style Implicit Tuplets");
+  for (let measureIndex = 0; measureIndex < 8; measureIndex += 1) {
+    xml += `\n    <measure number="${measureIndex + 1}">${measureIndex === 0 ? attributes(6) : ""}`;
+    for (let index = 0; index < 12; index += 1) {
+      const groupPosition = index % 3;
+      const degree =
+        (measureIndex + Math.floor(index / 3) * 2 + groupPosition) %
+        SCALE_STEPS.length;
+      xml += note({
+        step: SCALE_STEPS[degree],
+        octave: 4 + (index % 6 === 5 ? 1 : 0),
+        duration: 2,
+        type: "eighth",
+        timeModification: true,
+        beam:
+          groupPosition === 0
+            ? "begin"
+            : groupPosition === 2
+              ? "end"
+              : "continue",
+        tuplet:
+          groupPosition === 0 ? "start" : groupPosition === 2 ? "stop" : "",
+      });
+    }
+    xml += "<backup><duration>24</duration></backup>";
+    xml += note({
+      step: SCALE_STEPS[(measureIndex * 2) % SCALE_STEPS.length],
+      octave: 2,
+      duration: 24,
+      type: "whole",
+      voice: 2,
+      staff: 2,
+    });
+    if (measureIndex === 7)
+      xml +=
+        '<barline location="right"><bar-style>light-heavy</bar-style></barline>';
+    xml += "</measure>";
+  }
+  return `${xml}\n${scoreFooter()}`;
+}
+
 function renderPageHTML() {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Noted synthetic OMR fixture</title><style>
@@ -458,7 +510,14 @@ async function renderScore(page, serverURL, musicXML, scale = 0.72) {
   );
 }
 
-async function writeScorePDF(page, serverURL, musicXML, destination, scale, pageRanges) {
+async function writeScorePDF(
+  page,
+  serverURL,
+  musicXML,
+  destination,
+  scale,
+  pageRanges,
+) {
   await renderScore(page, serverURL, musicXML, scale);
   await page.emulateMedia({ media: "print" });
   const pdf = await page.pdf({
@@ -541,6 +600,7 @@ async function main() {
     "clean-simple.musicxml": cleanSimpleMusicXML(),
     "dense-polyphony.musicxml": densePolyphonyMusicXML(),
     "multipage-study.musicxml": multipageStudyMusicXML(),
+    "moonlight-style-implicit-tuplets.musicxml": implicitTupletMusicXML(),
   };
   for (const [filename, contents] of Object.entries(references)) {
     await fs.writeFile(path.join(REFERENCE_DIR, filename), contents);
@@ -593,16 +653,31 @@ async function main() {
       0.68,
       "1-2",
     );
+    await writeScorePDF(
+      page,
+      assetServer.url,
+      references["moonlight-style-implicit-tuplets.musicxml"],
+      path.join(INPUT_DIR, "moonlight-style-implicit-tuplets.pdf"),
+      0.68,
+    );
     await page.close();
 
     const generatedFiles = {
       cleanReference: path.join(REFERENCE_DIR, "clean-simple.musicxml"),
       denseReference: path.join(REFERENCE_DIR, "dense-polyphony.musicxml"),
       multipageReference: path.join(REFERENCE_DIR, "multipage-study.musicxml"),
+      implicitTupletReference: path.join(
+        REFERENCE_DIR,
+        "moonlight-style-implicit-tuplets.musicxml",
+      ),
       cleanInput: path.join(INPUT_DIR, "clean-simple.pdf"),
       noisyInput: path.join(INPUT_DIR, "noisy-simple.pdf"),
       denseInput: path.join(INPUT_DIR, "dense-polyphony.pdf"),
       multipageInput: path.join(INPUT_DIR, "multipage-study.pdf"),
+      implicitTupletInput: path.join(
+        INPUT_DIR,
+        "moonlight-style-implicit-tuplets.pdf",
+      ),
     };
     const hashes = Object.fromEntries(
       await Promise.all(
@@ -614,12 +689,16 @@ async function main() {
     );
     const pages = Object.fromEntries(
       await Promise.all(
-        ["cleanInput", "noisyInput", "denseInput", "multipageInput"].map(
-          async (key) => [
-            key,
-            pdfPageCount(await fs.readFile(generatedFiles[key])),
-          ],
-        ),
+        [
+          "cleanInput",
+          "noisyInput",
+          "denseInput",
+          "multipageInput",
+          "implicitTupletInput",
+        ].map(async (key) => [
+          key,
+          pdfPageCount(await fs.readFile(generatedFiles[key])),
+        ]),
       ),
     );
     const sharedProvenance = {
@@ -724,6 +803,29 @@ async function main() {
             reference: hashes.multipageReference,
           },
           provenance: sharedProvenance,
+        },
+        {
+          id: "moonlight-style-implicit-tuplets",
+          title: "Moonlight-style unmarked triplet texture",
+          input: "inputs/moonlight-style-implicit-tuplets.pdf",
+          reference: "references/moonlight-style-implicit-tuplets.musicxml",
+          traits: [
+            "clean",
+            "piano",
+            "grand-staff",
+            "implicit-tuplets",
+            "beamed-triplets",
+            "moonlight-style-texture",
+          ],
+          expected: { parts: 1, measures: 8, pages: pages.implicitTupletInput },
+          sha256: {
+            input: hashes.implicitTupletInput,
+            reference: hashes.implicitTupletReference,
+          },
+          provenance: {
+            ...sharedProvenance,
+            note: "Original project-authored exercise named only for its unmarked-triplet texture; it does not reproduce Beethoven notation.",
+          },
         },
       ],
     };

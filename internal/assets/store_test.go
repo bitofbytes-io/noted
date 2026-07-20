@@ -81,3 +81,16 @@ func TestFilesystemStoreRoundTripAndDelete(t *testing.T) {
 		t.Fatalf("expected deleted object, exists=%v err=%v", exists, err)
 	}
 }
+
+func TestFilesystemStoreAcceptsEveryOpaqueAssetKind(t *testing.T) {
+	store, err := NewFilesystemStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"pdf", "musicxml", "midi", "audio", "image", "omr"} {
+		key := kind + "/11111111-1111-4111-8111-111111111111"
+		if _, err := store.Put(context.Background(), key, strings.NewReader("fixture")); err != nil {
+			t.Fatalf("put %s: %v", kind, err)
+		}
+	}
+}

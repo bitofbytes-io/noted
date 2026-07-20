@@ -306,6 +306,10 @@ func (s *Service) listEditions(ctx context.Context, userID, workID string) ([]Ed
 		if err != nil {
 			return nil, err
 		}
+		item.MediaLinks, err = s.ListMediaLinks(ctx, userID, item.ID)
+		if err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()

@@ -7,6 +7,9 @@ import {
   Dashboard,
   Edition,
   LearnerState,
+  MeasureAnchor,
+  MeasureMap,
+  MediaLink,
   PracticeInput,
   PracticeSession,
   Preferences,
@@ -137,8 +140,10 @@ export class ApiService {
     return this.http.delete<void>(`/api/assets/${id}`);
   }
 
-  createRecognitionJob(assetId: string): Observable<RecognitionJob> {
-    return this.http.post<RecognitionJob>(`/api/assets/${assetId}/recognition-jobs`, {});
+  createRecognitionJob(assetId: string, implicitTuplets = false): Observable<RecognitionJob> {
+    return this.http.post<RecognitionJob>(`/api/assets/${assetId}/recognition-jobs`, {
+      hints: { implicitTuplets },
+    });
   }
 
   recognitionJobs(assetId: string): Observable<ApiList<RecognitionJob>> {
@@ -155,6 +160,45 @@ export class ApiService {
 
   cancelRecognitionJob(id: string): Observable<void> {
     return this.http.delete<void>(`/api/recognition-jobs/${id}`);
+  }
+
+  mediaLinks(editionId: string): Observable<ApiList<MediaLink>> {
+    return this.http.get<ApiList<MediaLink>>(`/api/editions/${editionId}/media-links`);
+  }
+
+  createMediaLink(editionId: string, url: string, title: string): Observable<MediaLink> {
+    return this.http.post<MediaLink>(`/api/editions/${editionId}/media-links`, {
+      kind: 'youtube',
+      url,
+      title,
+    });
+  }
+
+  deleteMediaLink(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/media-links/${id}`);
+  }
+
+  mediaLinkAnchors(id: string): Observable<ApiList<MeasureAnchor>> {
+    return this.http.get<ApiList<MeasureAnchor>>(`/api/media-links/${id}/anchors`);
+  }
+
+  replaceMediaLinkAnchors(
+    id: string,
+    anchors: MeasureAnchor[],
+  ): Observable<ApiList<MeasureAnchor>> {
+    return this.http.put<ApiList<MeasureAnchor>>(`/api/media-links/${id}/anchors`, { anchors });
+  }
+
+  assetAnchors(id: string): Observable<ApiList<MeasureAnchor>> {
+    return this.http.get<ApiList<MeasureAnchor>>(`/api/assets/${id}/anchors`);
+  }
+
+  replaceAssetAnchors(id: string, anchors: MeasureAnchor[]): Observable<ApiList<MeasureAnchor>> {
+    return this.http.put<ApiList<MeasureAnchor>>(`/api/assets/${id}/anchors`, { anchors });
+  }
+
+  measureMap(id: string): Observable<MeasureMap> {
+    return this.http.get<MeasureMap>(`/api/assets/${id}/measure-map`);
   }
 
   tags(): Observable<ApiList<Tag>> {

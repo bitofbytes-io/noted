@@ -19,7 +19,7 @@ type Format struct {
 	Extension string
 }
 
-var ErrUnsupportedUpload = errors.New("unsupported PDF or MusicXML upload")
+var ErrUnsupportedUpload = errors.New("unsupported score or playback-media upload")
 
 func DetectUpload(header *multipart.FileHeader, file multipart.File) (Format, io.Reader, error) {
 	const sniffSize = 64 << 10
@@ -38,6 +38,24 @@ func DetectUpload(header *multipart.FileHeader, file multipart.File) (Format, io
 	if ext == ".pdf" && bytes.HasPrefix(bytes.TrimSpace(prefix), []byte("%PDF-")) {
 		return Format{AssetType: "pdf", MediaType: "application/pdf", Extension: ".pdf"}, io.MultiReader(bytes.NewReader(prefix), file), nil
 	}
+	if (ext == ".mid" || ext == ".midi") && bytes.HasPrefix(prefix, []byte("MThd")) {
+		return Format{AssetType: "midi", MediaType: "audio/midi", Extension: ext}, io.MultiReader(bytes.NewReader(prefix), file), nil
+	}
+	if ext == ".mp3" && (bytes.HasPrefix(prefix, []byte("ID3")) || hasMP3FrameSync(prefix)) {
+		return Format{AssetType: "audio", MediaType: "audio/mpeg", Extension: ext}, io.MultiReader(bytes.NewReader(prefix), file), nil
+	}
+	if (ext == ".m4a" || ext == ".mp4") && isMP4Audio(prefix) {
+		return Format{AssetType: "audio", MediaType: "audio/mp4", Extension: ext}, io.MultiReader(bytes.NewReader(prefix), file), nil
+	}
+	if (ext == ".ogg" || ext == ".oga") && bytes.HasPrefix(prefix, []byte("OggS")) {
+		return Format{AssetType: "audio", MediaType: "audio/ogg", Extension: ext}, io.MultiReader(bytes.NewReader(prefix), file), nil
+	}
+	if (ext == ".jpg" || ext == ".jpeg") && len(prefix) >= 3 && prefix[0] == 0xff && prefix[1] == 0xd8 && prefix[2] == 0xff {
+		return Format{AssetType: "image", MediaType: "image/jpeg", Extension: ext}, io.MultiReader(bytes.NewReader(prefix), file), nil
+	}
+	if ext == ".png" && bytes.HasPrefix(prefix, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		return Format{AssetType: "image", MediaType: "image/png", Extension: ext}, io.MultiReader(bytes.NewReader(prefix), file), nil
+	}
 	if ext == ".musicxml" || ext == ".xml" {
 		decoder := xml.NewDecoder(bytes.NewReader(prefix))
 		for {
@@ -54,6 +72,18 @@ func DetectUpload(header *multipart.FileHeader, file multipart.File) (Format, io
 		}
 	}
 	return Format{}, nil, fmt.Errorf("%w: file content does not match its extension", ErrUnsupportedUpload)
+}
+
+func hasMP3FrameSync(data []byte) bool {
+	return len(data) >= 2 && data[0] == 0xff && data[1]&0xe0 == 0xe0
+}
+
+func isMP4Audio(data []byte) bool {
+	if len(data) < 12 || !bytes.Equal(data[4:8], []byte("ftyp")) {
+		return false
+	}
+	brand := string(data[8:12])
+	return brand == "M4A " || brand == "M4B " || brand == "mp42" || brand == "isom"
 }
 
 const (

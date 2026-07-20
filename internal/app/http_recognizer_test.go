@@ -21,6 +21,60 @@ import (
 const validRemoteMusicXML = `<score-partwise><part><measure><note><pitch><step>C</step><octave>4</octave></pitch></note></measure></part></score-partwise>`
 const validRemoteReport = `{"schemaVersion":1,"totalMeasures":1,"flaggedMeasures":0,"correctedMeasures":0,"suspectMeasures":0,"selectedEngine":"audiveris","engines":{"audiveris":{"status":"passed"},"homr":{"status":"passed"}},"measures":[{"partId":"P1","number":"1","measureIndex":1,"sourceEngine":"audiveris","agreement":true,"confidence":"high","corrected":false,"issues":[]}],"playability":{"status":"passed","measureCount":1,"totalTicks":3840}}`
 
+func TestHTTPRecognizerMapsMeasuresAndValidatesResponse(t *testing.T) {
+	input := writeRecognitionInput(t, []byte("%PDF-1.7\nscore"))
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/measure-map" || request.Header.Get("Authorization") != "Bearer token" {
+			t.Fatalf("request = %s, authorization = %q", request.URL.Path, request.Header.Get("Authorization"))
+		}
+		file, _, err := request.FormFile("file")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = file.Close()
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"pages":[{"pageNumber":1,"width":2550,"height":3300,"dpi":300,"measures":[{"measureNumber":1,"x":100,"y":200,"width":500,"height":250}]}],"engineVersion":"audiveris-5.10.2-measures"}`)
+	}))
+	defer server.Close()
+	result, err := (HTTPRecognizer{BaseURL: server.URL, Token: "token"}).MapMeasures(context.Background(), input, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.EngineVersion == "" || len(result.Pages) != 1 || len(result.Pages[0].Measures) != 1 {
+		t.Fatalf("measure map = %+v", result)
+	}
+}
+
+func TestHTTPRecognizerForwardsImageRoutingAndTupletHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Noted-Source-Type") != "image" || request.Header.Get("X-Noted-Implicit-Tuplets") != "true" {
+			t.Fatalf("routing headers = %q, %q", request.Header.Get("X-Noted-Source-Type"), request.Header.Get("X-Noted-Implicit-Tuplets"))
+		}
+		file, _, err := request.FormFile("file")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = file.Close()
+		response.Header().Set("Content-Type", "application/vnd.recordare.musicxml+xml")
+		response.Header().Set("X-Noted-OMR-Engine", "homr")
+		response.Header().Set("X-Noted-OMR-Version", "homr-0.7.0+music21-10.3.0+alphatab-1.8.4")
+		_, _ = io.WriteString(response, validRemoteMusicXML)
+	}))
+	defer server.Close()
+	ctx := context.WithValue(context.Background(), recognitionOptionsContextKey{}, recognitionOptions{
+		SourceType: "image", Hints: RecognitionHints{ImplicitTuplets: true},
+	})
+	result, err := (HTTPRecognizer{BaseURL: server.URL, Token: "token"}).Recognize(
+		ctx, writeRecognitionInput(t, []byte("\x89PNG\r\n\x1a\n")), t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Engine != "homr" {
+		t.Fatalf("engine = %q", result.Engine)
+	}
+}
+
 func TestHTTPRecognizerStreamsPDFAndPersistsValidatedMusicXML(t *testing.T) {
 	input := writeRecognitionInput(t, []byte("%PDF-1.7\nscore"))
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

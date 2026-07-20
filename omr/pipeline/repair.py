@@ -209,6 +209,21 @@ def _measure_issues(measure: stream.Measure, measure_index: int) -> list[str]:
     return issues
 
 
+def _implicit_tuplet_candidate(measure: stream.Measure) -> bool:
+    expected = _expected_duration(measure)
+    if expected is None or _actual_duration(measure) * 2 != expected * 3:
+        return False
+    events = list(measure.recurse().notes)
+    if len(events) < 3:
+        return False
+    beamed = 0
+    for event in events:
+        beams = getattr(event, "beams", None)
+        if beams is not None and len(beams) > 0:
+            beamed += 1
+    return beamed >= 3
+
+
 def _pad_measure(measure: stream.Measure, measure_index: int) -> bool:
     expected = _expected_duration(measure)
     if expected is None:
@@ -299,6 +314,11 @@ def repair_score(score: stream.Score, engine: str) -> tuple[stream.Score, dict[s
     before_rows = _measure_rows(score)
     before_hashes = {(part_id, index): _measure_signature(measure) for part_id, index, measure in before_rows}
     initial_issues: dict[tuple[str, int], list[str]] = {}
+    implicit_tuplet_candidates = {
+        (part_id, index)
+        for part_id, index, measure in before_rows
+        if _implicit_tuplet_candidate(measure)
+    }
     for part_id, index, measure in before_rows:
         issues = _measure_issues(measure, index)
         if (part_id, index) in defaulted_meters:
@@ -362,6 +382,10 @@ def repair_score(score: stream.Score, engine: str) -> tuple[stream.Score, dict[s
         ],
         "suspect": [{"partId": part, "measureIndex": index} for part, index in sorted(suspect)],
         "issues": report_issues,
+        "implicitTupletCandidates": [
+            {"partId": part, "measureIndex": index}
+            for part, index in sorted(implicit_tuplet_candidates)
+        ],
     }
     if corrector_error:
         report["correctorWarning"] = corrector_error

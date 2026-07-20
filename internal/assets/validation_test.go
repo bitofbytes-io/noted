@@ -56,6 +56,32 @@ func TestDetectUploadValidatesExtensionAndContent(t *testing.T) {
 	}
 }
 
+func TestDetectUploadAcceptsPlaybackMediaAndImages(t *testing.T) {
+	tests := []struct {
+		name, filename, assetType, mediaType string
+		data                                 []byte
+	}{
+		{name: "midi", filename: "piece.mid", assetType: "midi", mediaType: "audio/midi", data: append([]byte("MThd"), make([]byte, 20)...)},
+		{name: "mp3", filename: "recording.mp3", assetType: "audio", mediaType: "audio/mpeg", data: []byte("ID3\x04\x00\x00")},
+		{name: "m4a", filename: "recording.m4a", assetType: "audio", mediaType: "audio/mp4", data: []byte("\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00")},
+		{name: "ogg", filename: "recording.ogg", assetType: "audio", mediaType: "audio/ogg", data: []byte("OggS\x00\x02")},
+		{name: "jpeg", filename: "photo.jpg", assetType: "image", mediaType: "image/jpeg", data: []byte{0xff, 0xd8, 0xff, 0xe0, 0x00}},
+		{name: "png", filename: "photo.png", assetType: "image", mediaType: "image/png", data: []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file := uploadBytes(t, test.data)
+			format, _, err := DetectUpload(&multipart.FileHeader{Filename: test.filename}, file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if format.AssetType != test.assetType || format.MediaType != test.mediaType {
+				t.Fatalf("format = %+v", format)
+			}
+		})
+	}
+}
+
 func TestDetectUploadAcceptsBoundedCompressedMusicXML(t *testing.T) {
 	contents := compressedMusicXML(t, map[string]string{
 		"META-INF/container.xml": `<?xml version="1.0"?><container><rootfiles><rootfile full-path="score.musicxml" media-type="application/vnd.recordare.musicxml+xml"/></rootfiles></container>`,

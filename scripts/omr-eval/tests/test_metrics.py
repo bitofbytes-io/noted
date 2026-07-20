@@ -74,7 +74,7 @@ class MusicXMLMetricsTests(unittest.TestCase):
     def test_manifest_files_match_hashes_and_expected_pages(self) -> None:
         manifest = json.loads((CORPUS_ROOT / "manifest.json").read_text())
         self.assertEqual(manifest["license"], "CC0-1.0")
-        self.assertEqual(len(manifest["fixtures"]), 4)
+        self.assertEqual(len(manifest["fixtures"]), 5)
         for fixture in manifest["fixtures"]:
             input_path = CORPUS_ROOT / fixture["input"]
             reference_path = CORPUS_ROOT / fixture["reference"]
@@ -84,6 +84,9 @@ class MusicXMLMetricsTests(unittest.TestCase):
             self.assertEqual(pages, fixture["expected"]["pages"])
         multipage = next(item for item in manifest["fixtures"] if item["id"] == "multipage-study")
         self.assertGreaterEqual(multipage["expected"]["pages"], multipage["expected"]["minimumPages"])
+        implicit = next(item for item in manifest["fixtures"] if item["id"] == "moonlight-style-implicit-tuplets")
+        self.assertIn("implicit-tuplets", implicit["traits"])
+        self.assertFalse(implicit["provenance"]["thirdPartyScoreSource"])
 
     def test_exact_alphatab_importer_loads_reference(self) -> None:
         completed = subprocess.run(
@@ -178,7 +181,7 @@ class EvaluationCLITests(unittest.TestCase):
             report = json.loads((root / "report" / "report.json").read_text())
             markdown = (root / "report" / "report.md").read_text()
 
-        self.assertEqual(len(report["results"]), 4)
+            self.assertEqual(len(report["results"]), 5)
         self.assertEqual(report["aggregate"][0]["engine"], "reference-copy")
         self.assertEqual(report["aggregate"][0]["parseSuccessRate"], 1.0)
         self.assertEqual(report["aggregate"][0]["eventF1Mean"], 1.0)

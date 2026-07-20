@@ -254,11 +254,17 @@
               <a [href]="edition.sourceUrl" target="_blank" rel="noreferrer">Source ↗</a>
             }
           </div>
-          @if (edition.assets.length) {
+          @if (edition.assets.length || edition.mediaLinks?.length) {
             <div class="asset-list">
-              @for (asset of edition.assets; track asset.id) {
+              @if (scoreAssets(edition).length) {
+                <h4 class="asset-group-heading">Score files</h4>
+              }
+              @for (asset of orderedAssets(edition); track asset.id; let assetIndex = $index) {
+                @if (assetIndex === playbackStartIndex(edition) && playbackAssets(edition).length) {
+                  <h4 class="asset-group-heading playback-heading">Playback media</h4>
+                }
                 <div class="asset-row" [class.archived]="asset.archivedAt">
-                  <span class="asset-icon">{{ asset.assetType === 'pdf' ? 'PDF' : 'XML' }}</span>
+                  <span class="asset-icon">{{ assetTypeLabel(asset) }}</span>
                   <div>
                     <a class="asset-name" [href]="asset.downloadUrl"
                       ><strong>{{ asset.displayName || asset.originalFilename }}</strong></a
@@ -284,9 +290,15 @@
                     @if (asset.archivedAt) {
                       <span class="archived-label">Archived</span>
                     }
+                    @if (
+                      (asset.assetType === 'audio' || asset.assetType === 'midi') &&
+                      asset.anchorCount
+                    ) {
+                      <span class="anchor-label">{{ asset.anchorCount }} sync anchors</span>
+                    }
                   </div>
                   <div class="asset-actions">
-                    @if (asset.assetType === 'pdf') {
+                    @if (asset.assetType === 'pdf' || asset.assetType === 'image') {
                       <a
                         class="button secondary small"
                         [routerLink]="['/reader', asset.id]"
@@ -294,6 +306,14 @@
                         >Read</a
                       >
                       @if (!edition.archivedAt && !asset.archivedAt) {
+                        <label class="implicit-tuplets"
+                          ><input
+                            type="checkbox"
+                            [checked]="implicitTuplets()[asset.id]"
+                            (change)="setImplicitTuplets(asset.id, $any($event.target).checked)"
+                          />
+                          Unmarked triplets / tuplets</label
+                        >
                         <button
                           class="button small"
                           (click)="convertAsset(asset)"
@@ -305,7 +325,7 @@
                           Convert
                         </button>
                       }
-                    } @else {
+                    } @else if (asset.assetType === 'musicxml') {
                       @if (asset.playbackCapable) {
                         <a
                           class="button small"
@@ -333,9 +353,7 @@
                           : 'Replace'
                       }}<input
                         type="file"
-                        [accept]="
-                          asset.assetType === 'pdf' ? '.pdf,application/pdf' : '.musicxml,.xml,.mxl'
-                        "
+                        [accept]="assetAccept(asset)"
                         (change)="replaceAsset(asset, $event)"
                     /></label>
                     <button
@@ -416,6 +434,63 @@
                   </div>
                 }
               }
+              @if (edition.mediaLinks?.length && !playbackAssets(edition).length) {
+                <h4 class="asset-group-heading playback-heading">Playback media</h4>
+              }
+              @for (link of edition.mediaLinks ?? []; track link.id) {
+                <div class="asset-row media-link-row">
+                  <span class="asset-icon">YT</span>
+                  <div>
+                    <strong>{{ link.title || 'YouTube video' }}</strong
+                    ><span>youtube.com/watch?v={{ link.videoId }}</span>
+                    @if (link.anchorCount) {
+                      <small>{{ link.anchorCount }} sync anchors</small>
+                    }
+                  </div>
+                  <div class="asset-actions">
+                    <a
+                      class="button secondary small"
+                      [href]="'https://www.youtube.com/watch?v=' + link.videoId"
+                      target="_blank"
+                      rel="noreferrer"
+                      >Open</a
+                    ><button class="button danger small" (click)="deleteYouTube(link.id)">
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              }
+              @if (!edition.archivedAt) {
+                <button
+                  class="button secondary small add-youtube"
+                  (click)="mediaLinkEditionId = mediaLinkEditionId === edition.id ? '' : edition.id"
+                >
+                  + YouTube video
+                </button>
+                @if (mediaLinkEditionId === edition.id) {
+                  <form class="form-grid inline-edit youtube-form" (ngSubmit)="addYouTube(edition)">
+                    <div class="field">
+                      <label [for]="'youtube-url-' + edition.id">YouTube URL</label
+                      ><input
+                        [id]="'youtube-url-' + edition.id"
+                        name="youtubeUrl"
+                        type="url"
+                        [(ngModel)]="youtubeDraft.url"
+                        required
+                      />
+                    </div>
+                    <div class="field">
+                      <label [for]="'youtube-title-' + edition.id">Title</label
+                      ><input
+                        [id]="'youtube-title-' + edition.id"
+                        name="youtubeTitle"
+                        [(ngModel)]="youtubeDraft.title"
+                      />
+                    </div>
+                    <button class="button small" type="submit">Add video</button>
+                  </form>
+                }
+              }
             </div>
           } @else {
             <div class="empty-state">No score files in this edition yet.</div>
@@ -428,8 +503,8 @@
           <p class="eyebrow">Secure local import</p>
           <h2>Upload score asset</h2>
           <p class="meta">
-            PDF, .musicxml, .xml, or compressed .mxl up to 25 MB. Files receive opaque storage keys
-            and SHA-256 checksums.
+            PDF, score image, MusicXML, MIDI, MP3, M4A, or Ogg up to 25 MB. Files receive opaque
+            storage keys and SHA-256 checksums.
           </p>
         </div>
         <div class="form-grid">
@@ -446,7 +521,7 @@
             ><input
               id="upload-file"
               type="file"
-              accept=".pdf,.musicxml,.xml,.mxl,application/pdf,application/vnd.recordare.musicxml"
+              accept=".pdf,.jpg,.jpeg,.png,.musicxml,.xml,.mxl,.mid,.midi,.mp3,.m4a,.mp4,.ogg,.oga,application/pdf,image/jpeg,image/png,audio/midi,audio/mpeg,audio/mp4,audio/ogg,application/vnd.recordare.musicxml"
               (change)="chooseFile($event)"
             />
           </div>

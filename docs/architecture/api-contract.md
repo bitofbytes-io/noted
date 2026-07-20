@@ -1,7 +1,7 @@
 # Noted: POC API Contract Outline
 
 Status: Implemented contract; active post-POC extensions included
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 ## Conventions
 
@@ -50,6 +50,18 @@ Last updated: 2026-07-18
 - `DELETE /api/assets/{assetId}` — delete an owned/eligible asset after relationship checks; returns `409 asset_in_use` while practice history references it.
 
 Upload responses include asset identity, type, size, checksum, PDF/playback capabilities, and content endpoint.
+Accepted types are PDF, PNG/JPEG score image, MusicXML/MXL, MIDI, MP3, M4A/MP4 audio, and Ogg audio. Content is verified against the filename extension before storage. PDF and image uploads atomically create a `measure_map` queue job; full transcription remains an explicit action.
+
+## Playback media and measure sync
+
+- `GET /api/editions/{editionId}/media-links` — list learner-owned external playback sources.
+- `POST /api/editions/{editionId}/media-links` — add a YouTube source from a validated URL or 11-character video ID; only the video ID and optional title are stored.
+- `DELETE /api/media-links/{mediaLinkId}` — delete the link and its anchors.
+- `GET /api/media-links/{mediaLinkId}/anchors` and `PUT /api/media-links/{mediaLinkId}/anchors` — list or atomically replace measure/timestamp anchors.
+- `GET /api/assets/{assetId}/anchors` and `PUT /api/assets/{assetId}/anchors` — the same bulk contract for MIDI/audio assets.
+- `GET /api/assets/{assetId}/measure-map` — return `pending`, `processing`, `ready`, or `failed` geometry for an authorized PDF/image.
+
+Bulk anchor input is `{ "anchors": [{ "measureNumber": 5, "positionMs": 42000 }] }`. Measure numbers are positive and unique; timestamps are bounded to 24 hours. A ready measure map contains 1–25 pages with the source page's 300-DPI pixel dimensions and ordered `{measureNumber,x,y,width,height}` boxes. Coordinates must stay inside the declared page.
 
 ## Practice
 
@@ -72,7 +84,7 @@ The planner may choose a client-only running timer with one final create call fo
 
 These authenticated learner-scoped routes are implemented after the historical POC boundary:
 
-- `POST /api/assets/{assetId}/recognition-jobs` — explicitly request OCR for an authorized eligible source.
+- `POST /api/assets/{assetId}/recognition-jobs` — explicitly request OCR for an authorized PDF/image source. Optional JSON `hints.implicitTuplets` asks Audiveris to infer unmarked tuplets.
 - `GET /api/assets/{assetId}/recognition-jobs` — list attempts newest first so a derived output can be matched to its exact quality report/project.
 - `GET /api/recognition-jobs/{jobId}` — return learner-scoped status, engine/version, timestamps, stable sanitized failure details, quality report, project URL, and output asset when available.
 - `GET /api/recognition-jobs/{jobId}/project` — download the retained private Audiveris `.omr` correction project for the owning learner.
@@ -85,13 +97,14 @@ A successful job returns a normal MusicXML asset linked to its source with `veri
 
 - `id`, `sourceAssetId`, optional `outputAssetId`;
 - `status`: `queued`, `processing`, `succeeded`, `failed`, or `cancelled`;
+- `jobKind`: `transcribe` for user-visible conversion or `measure_map` for automatic structure extraction, plus the bounded `hints` object;
 - `engine`, `engineVersion`;
 - optional `errorCode` and `failureMessage` (bounded and sanitized);
 - optional `flaggedMeasures`, `correctedMeasures`, and `report`;
 - optional `projectDownloadUrl` only when a retained project exists;
 - `createdAt`, optional `startedAt`/`finishedAt`, and `updatedAt`.
 
-The dual-engine worker sends a bounded `multipart/mixed` response with `X-Noted-Artifact: score`, optional `project`, and required `report` parts. The API rejects unknown/duplicate artifacts, invalid content types, oversized data, unsafe archives, missing reports from `audiveris+homr`, and schema-invalid reports before importing any asset.
+The routed worker sends a bounded `multipart/mixed` response with `X-Noted-Artifact: score`, optional `project`, and required `report` parts. PDFs use Audiveris first and images use homr first; the other engine runs only when the primary result fails. The API rejects unknown/duplicate artifacts, invalid content types, oversized data, unsafe archives, missing reports from a fallback/fusion result, and schema-invalid reports before importing any asset.
 
 The quality report uses schema version 1:
 
@@ -125,7 +138,7 @@ The quality report uses schema version 1:
 
 The example illustrates shape, not a real recognition result. `measures` contains rows for every part/measure in an actual report. Counts are summary indexes across parts; `confidence` is `high`, `medium`, or `low`, and is review guidance rather than an accuracy probability. Full validation constraints are in [the data model](data-model.md#quality-report-schema-v1).
 
-The worker's internal `POST /v1/recognize` route is private and bearer-authenticated. A final headless alphaTab failure returns HTTP `422` and `unplayable_output`; the API persists that stable code on the failed job and imports no MusicXML. This differs from `playback_validation_status: "needs_review"` on user-supplied MusicXML, which may still be playable with warnings.
+The worker's internal `POST /v1/recognize` and `POST /v1/measure-map` routes are private and bearer-authenticated. A final headless alphaTab failure returns HTTP `422` and `unplayable_output`; the API persists that stable code on the failed job and imports no MusicXML. This differs from `playback_validation_status: "needs_review"` on user-supplied MusicXML, which may still be playable with warnings.
 
 ## Representative error codes
 
@@ -158,3 +171,5 @@ The worker's internal `POST /v1/recognize` route is private and bearer-authentic
 - OCR jobs cannot read another learner's source or expose another learner's output/report/project; invalid, oversized, timed-out, cancelled, unplayable, and failed jobs leave no imported MusicXML or job temporary files.
 - The API rejects missing/duplicate/oversized quality reports, unknown fields, invalid counts, invalid confidence values, and a playability measure count that differs from `totalMeasures`.
 - Fallback is tested for either engine failing; the dual-engine contract requires a report even when only one engine survives.
+- Media links, anchors, and measure maps are learner-scoped; invalid YouTube hosts/IDs, duplicate anchors, out-of-page geometry, and malformed worker responses are rejected.
+- Routing tests prove the secondary recognizer is not invoked after a successful primary result, and a strict majority of 3:2 beamed-measure candidates is required for the one-time implicit-tuplet retry.

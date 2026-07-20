@@ -42,18 +42,61 @@ type Asset struct {
 	ContentURL         string             `json:"contentUrl"`
 	DownloadURL        string             `json:"downloadUrl"`
 	PlaybackValidation PlaybackValidation `json:"playbackValidation"`
+	AnchorCount        int                `json:"anchorCount"`
+}
+
+type MediaLink struct {
+	ID          string    `json:"id"`
+	EditionID   string    `json:"editionId"`
+	Kind        string    `json:"kind"`
+	VideoID     string    `json:"videoId"`
+	Title       string    `json:"title"`
+	AnchorCount int       `json:"anchorCount"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+type MeasureAnchor struct {
+	ID            string `json:"id"`
+	MeasureNumber int    `json:"measureNumber"`
+	PositionMS    int64  `json:"positionMs"`
+}
+
+type MeasureBox struct {
+	MeasureNumber int     `json:"measureNumber"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
+	Width         float64 `json:"width"`
+	Height        float64 `json:"height"`
+}
+
+type MeasureMapPage struct {
+	PageNumber int          `json:"pageNumber"`
+	Width      float64      `json:"width"`
+	Height     float64      `json:"height"`
+	DPI        int          `json:"dpi"`
+	Measures   []MeasureBox `json:"measures"`
+}
+
+type MeasureMap struct {
+	AssetID        string           `json:"assetId"`
+	Status         string           `json:"status"`
+	Pages          []MeasureMapPage `json:"pages"`
+	EngineVersion  string           `json:"engineVersion,omitempty"`
+	FailureMessage string           `json:"failureMessage,omitempty"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
 }
 
 type Edition struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	Editor          string     `json:"editor,omitempty"`
-	Publisher       string     `json:"publisher,omitempty"`
-	PublicationYear *int       `json:"publicationYear,omitempty"`
-	SourceURL       string     `json:"sourceUrl,omitempty"`
-	RightsNote      string     `json:"rightsNote,omitempty"`
-	ArchivedAt      *time.Time `json:"archivedAt,omitempty"`
-	Assets          []Asset    `json:"assets"`
+	ID              string      `json:"id"`
+	Name            string      `json:"name"`
+	Editor          string      `json:"editor,omitempty"`
+	Publisher       string      `json:"publisher,omitempty"`
+	PublicationYear *int        `json:"publicationYear,omitempty"`
+	SourceURL       string      `json:"sourceUrl,omitempty"`
+	RightsNote      string      `json:"rightsNote,omitempty"`
+	ArchivedAt      *time.Time  `json:"archivedAt,omitempty"`
+	Assets          []Asset     `json:"assets"`
+	MediaLinks      []MediaLink `json:"mediaLinks"`
 }
 
 type RecognitionJob struct {
@@ -61,6 +104,8 @@ type RecognitionJob struct {
 	SourceAssetID      string            `json:"sourceAssetId"`
 	OutputAssetID      *string           `json:"outputAssetId,omitempty"`
 	Status             string            `json:"status"`
+	JobKind            string            `json:"jobKind"`
+	Hints              RecognitionHints  `json:"hints"`
 	Engine             string            `json:"engine"`
 	EngineVersion      string            `json:"engineVersion"`
 	ErrorCode          string            `json:"errorCode,omitempty"`
@@ -74,6 +119,10 @@ type RecognitionJob struct {
 	FinishedAt         *time.Time        `json:"finishedAt,omitempty"`
 	UpdatedAt          time.Time         `json:"updatedAt"`
 	projectStorageKey  *string
+}
+
+type RecognitionHints struct {
+	ImplicitTuplets bool `json:"implicitTuplets"`
 }
 
 type Movement struct {

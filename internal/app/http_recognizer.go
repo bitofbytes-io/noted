@@ -40,6 +40,85 @@ type RemoteRecognitionError struct {
 	Message    string
 }
 
+func (r HTTPRecognizer) MapMeasures(ctx context.Context, inputPath, outputDirectory string) (MeasureMapOutput, error) {
+	if strings.TrimSpace(r.BaseURL) == "" || strings.TrimSpace(r.Token) == "" {
+		return MeasureMapOutput{}, ErrRecognitionUnavailable
+	}
+	attempts := r.MaxAttempts
+	if attempts <= 0 || attempts > defaultRemoteRecognitionAttempts {
+		attempts = defaultRemoteRecognitionAttempts
+	}
+	initialDelay := r.InitialRetryDelay
+	if initialDelay <= 0 {
+		initialDelay = defaultRemoteRetryDelay
+	}
+	for attempt := 0; ; attempt++ {
+		output, err := r.mapMeasuresOnce(ctx, inputPath)
+		var remoteErr *RemoteRecognitionError
+		if err == nil || !errors.As(err, &remoteErr) || remoteErr.StatusCode != http.StatusTooManyRequests || attempt+1 >= attempts {
+			return output, err
+		}
+		delay := initialDelay << attempt
+		if delay > maxRemoteRetryDelay || delay < 0 {
+			delay = maxRemoteRetryDelay
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return MeasureMapOutput{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (r HTTPRecognizer) mapMeasuresOnce(ctx context.Context, inputPath string) (MeasureMapOutput, error) {
+	bodyReader, bodyWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(bodyWriter)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(r.BaseURL, "/")+"/v1/measure-map", bodyReader)
+	if err != nil {
+		return MeasureMapOutput{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+r.Token)
+	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	request.Header.Set("Accept", "application/json")
+	streamDone := make(chan error, 1)
+	go func() { streamDone <- streamRecognitionInput(inputPath, multipartWriter, bodyWriter) }()
+	client := *http.DefaultClient
+	if r.Client != nil {
+		client = *r.Client
+	}
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	response, requestErr := client.Do(request)
+	_ = bodyReader.Close()
+	streamErr := <-streamDone
+	if requestErr != nil {
+		return MeasureMapOutput{}, fmt.Errorf("contact measure-map worker: %w", requestErr)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return MeasureMapOutput{}, decodeRemoteRecognitionError(response)
+	}
+	if streamErr != nil {
+		return MeasureMapOutput{}, fmt.Errorf("stream measure-map input: %w", streamErr)
+	}
+	const maxMeasureMapBytes = 5 << 20
+	limited := io.LimitReader(response.Body, maxMeasureMapBytes+1)
+	decoder := json.NewDecoder(limited)
+	decoder.DisallowUnknownFields()
+	var output MeasureMapOutput
+	if err := decoder.Decode(&output); err != nil {
+		return MeasureMapOutput{}, fmt.Errorf("decode measure map: %w", err)
+	}
+	if output.EngineVersion == "" {
+		return MeasureMapOutput{}, errors.New("measure-map worker returned no engine version")
+	}
+	if err := validateMeasureMapPages(output.Pages); err != nil {
+		return MeasureMapOutput{}, err
+	}
+	return output, nil
+}
+
 func (e *RemoteRecognitionError) Error() string {
 	if e.Code == "" {
 		return e.Message
@@ -99,6 +178,13 @@ func (r HTTPRecognizer) recognizeOnce(ctx context.Context, inputPath, outputDire
 	request.Header.Set("Authorization", "Bearer "+r.Token)
 	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
 	request.Header.Set("Accept", "multipart/mixed, application/vnd.recordare.musicxml, application/vnd.recordare.musicxml+xml")
+	options := recognitionOptionsFromContext(ctx)
+	if options.SourceType != "" {
+		request.Header.Set("X-Noted-Source-Type", options.SourceType)
+	}
+	if options.Hints.ImplicitTuplets {
+		request.Header.Set("X-Noted-Implicit-Tuplets", "true")
+	}
 
 	streamDone := make(chan error, 1)
 	go func() {
@@ -128,7 +214,7 @@ func (r HTTPRecognizer) recognizeOnce(ctx context.Context, inputPath, outputDire
 
 	engine := sanitizeRemoteError(response.Header.Get("X-Noted-OMR-Engine"), 100)
 	version := sanitizeRemoteError(response.Header.Get("X-Noted-OMR-Version"), 100)
-	if (!strings.EqualFold(engine, "audiveris") && !strings.EqualFold(engine, "audiveris+homr")) || version == "" {
+	if (!strings.EqualFold(engine, "audiveris") && !strings.EqualFold(engine, "homr") && !strings.EqualFold(engine, "audiveris+homr")) || version == "" {
 		return RecognitionOutput{}, errors.New("recognition worker returned invalid engine metadata")
 	}
 	if err := os.MkdirAll(outputDirectory, 0o750); err != nil {

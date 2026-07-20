@@ -45,12 +45,22 @@ type Result struct {
 	ContentType string
 	Extension   string
 	ProjectPath string
+	Engine      string
 	Report      *omrreport.Report
 }
 
 type Recognizer interface {
 	Ready(context.Context) (string, error)
 	Recognize(context.Context, string, string) (Result, error)
+}
+
+type RecognitionOptions struct {
+	SourceType      string
+	ImplicitTuplets bool
+}
+
+type OptionRecognizer interface {
+	RecognizeWithOptions(context.Context, string, string, RecognitionOptions) (Result, error)
 }
 
 type CommandRecognizer struct {
@@ -62,6 +72,7 @@ type CommandRecognizer struct {
 	NodeCommand        string
 	SHA256Command      string
 	PreprocessScript   string
+	MeasureMapScript   string
 	RepairScript       string
 	FuseScript         string
 	AlphaTabGateScript string
@@ -88,6 +99,7 @@ func NewCommandRecognizer() *CommandRecognizer {
 		NodeCommand:        "/usr/local/bin/node",
 		SHA256Command:      "sha256sum",
 		PreprocessScript:   "/opt/noted-omr/pipeline/preprocess.py",
+		MeasureMapScript:   "/opt/noted-omr/pipeline/measure_map.py",
 		RepairScript:       "/opt/noted-omr/pipeline/repair.py",
 		FuseScript:         "/opt/noted-omr/pipeline/fuse.py",
 		AlphaTabGateScript: "/opt/noted-omr/pipeline/alphatab-gate.mjs",
@@ -133,8 +145,12 @@ func (r *CommandRecognizer) Ready(ctx context.Context) (string, error) {
 }
 
 func (r *CommandRecognizer) Recognize(ctx context.Context, inputPath, outputDirectory string) (Result, error) {
+	return r.RecognizeWithOptions(ctx, inputPath, outputDirectory, RecognitionOptions{SourceType: "pdf"})
+}
+
+func (r *CommandRecognizer) RecognizeWithOptions(ctx context.Context, inputPath, outputDirectory string, options RecognitionOptions) (Result, error) {
 	if r.pipelineEnabled() {
-		return r.recognizePipeline(ctx, inputPath, outputDirectory)
+		return r.recognizePipelineWithOptions(ctx, inputPath, outputDirectory, options)
 	}
 	return r.recognizeAudiverisOnly(ctx, inputPath, outputDirectory)
 }

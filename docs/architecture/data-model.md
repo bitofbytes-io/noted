@@ -1,7 +1,7 @@
 # Noted: POC Data Model
 
 Status: Implemented logical model with active post-POC extensions
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 ## Modeling principles
 
@@ -76,7 +76,7 @@ POC uniqueness should avoid accidental duplicate creation but must not assume ti
 
 - `id`
 - `edition_id`
-- `asset_type` (`pdf`, `musicxml` initially)
+- `asset_type` (`pdf`, `image`, `musicxml`, `midi`, `audio`)
 - `storage_key`
 - `original_filename`
 - `media_type`
@@ -89,6 +89,32 @@ POC uniqueness should avoid accidental duplicate creation but must not assume ti
 - `created_at`, `updated_at`
 
 The POC may allow identical checksums when they are attached intentionally, but should surface duplicates rather than silently create them.
+
+### media_links
+
+- `id`, `user_id`, `edition_id`
+- `kind` (`youtube`)
+- `video_id`, `title`
+- `created_at`, `updated_at`
+
+Only the validated provider ID is stored. Unique constraint: `(user_id, edition_id, kind, video_id)`.
+
+### measure_anchors
+
+- `id`, `user_id`
+- exactly one of `media_link_id` or `asset_id`
+- `measure_number`, `position_ms`
+- `created_at`, `updated_at`
+
+The measure is unique per learner/source. Anchors are user-specific even when catalog identity is shared.
+
+### measure_maps
+
+- `asset_id` (primary key), `user_id`
+- `status` (`pending`, `processing`, `ready`, `failed`)
+- `pages` (bounded JSON array of page metadata and measure rectangles)
+- `engine_version`, optional `failure_message`
+- `created_at`, `updated_at`
 
 ### learner_works
 

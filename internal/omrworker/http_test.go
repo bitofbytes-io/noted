@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -24,6 +25,25 @@ const testToken = "test-token-with-enough-entropy"
 type fakeRecognizer struct {
 	readyVersion string
 	recognize    func(context.Context, string, string) (Result, error)
+}
+
+type fakeMappingRecognizer struct{ fakeRecognizer }
+
+func (f *fakeMappingRecognizer) MapMeasures(_ context.Context, input, _ string) (MeasureMapResult, error) {
+	contents, err := os.ReadFile(input)
+	if err != nil {
+		return MeasureMapResult{}, err
+	}
+	if !bytes.Equal(contents, minimalPDF()) {
+		return MeasureMapResult{}, errors.New("measure mapper received different input bytes")
+	}
+	return MeasureMapResult{
+		EngineVersion: "audiveris-5.10.2-measures+measure-map-1-omr",
+		Pages: []MeasureMapPage{{
+			PageNumber: 1, Width: 2550, Height: 3300, DPI: 300,
+			Measures: []MeasureBox{{MeasureNumber: 1, X: 100, Y: 200, Width: 500, Height: 250}},
+		}},
+	}, nil
 }
 
 func (f *fakeRecognizer) Ready(context.Context) (string, error) {
@@ -84,6 +104,32 @@ func TestRecognizeRequiresBearerToken(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	assertErrorCode(t, response, http.StatusUnauthorized, "unauthorized")
+}
+
+func TestMeasureMapRequiresAuthAndReturnsBoundedGeometry(t *testing.T) {
+	recognizer := &fakeMappingRecognizer{fakeRecognizer: fakeRecognizer{recognize: successfulRecognition}}
+	handler := newTestHandler(t, recognizer)
+	unauthorized := multipartRequest(t, minimalPDF(), true)
+	unauthorized.URL.Path = "/v1/measure-map"
+	unauthorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	assertErrorCode(t, unauthorizedResponse, http.StatusUnauthorized, "unauthorized")
+
+	request := multipartRequest(t, minimalPDF(), true)
+	request.URL.Path = "/v1/measure-map"
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result MeasureMapResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.EngineVersion == "" || len(result.Pages) != 1 || len(result.Pages[0].Measures) != 1 {
+		t.Fatalf("measure map = %+v", result)
+	}
 }
 
 func TestRecognizeStreamsMusicXMLAndCleansJobDirectory(t *testing.T) {

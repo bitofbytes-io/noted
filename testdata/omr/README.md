@@ -10,7 +10,8 @@ expected structure, SHA-256 checksums, generation tooling, and provenance. The c
 - a clean grand-staff piano engraving;
 - a rasterized, skewed, low-contrast scan simulation with synthetic marks;
 - dense three-voice piano notation with chords, rests, accidentals, and 16th notes;
-- a forty-measure multi-page score.
+- a forty-measure multi-page score;
+- an eight-measure, Moonlight-style beamed-triplet texture with hidden tuplet numbers, composed specifically for testing implicit-tuplet recognition without copying third-party notation.
 
 The corpus is intentionally synthetic. It is safe and reproducible, but it cannot replace private,
 developer-local evaluation on legally held real scans. Put such material under the ignored

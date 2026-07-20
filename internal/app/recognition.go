@@ -45,8 +45,29 @@ type Recognizer interface {
 	Recognize(ctx context.Context, inputPath, outputDirectory string) (RecognitionOutput, error)
 }
 
+type MeasureMapOutput struct {
+	Pages         []MeasureMapPage
+	EngineVersion string
+}
+
+type MeasureMapper interface {
+	MapMeasures(ctx context.Context, inputPath, outputDirectory string) (MeasureMapOutput, error)
+}
+
+type recognitionOptions struct {
+	SourceType string
+	Hints      RecognitionHints
+}
+
+type recognitionOptionsContextKey struct{}
+
+func recognitionOptionsFromContext(ctx context.Context) recognitionOptions {
+	options, _ := ctx.Value(recognitionOptionsContextKey{}).(recognitionOptions)
+	return options
+}
+
 const recognitionJobColumns = `
-	id::text,source_asset_id::text,output_asset_id::text,status,engine,engine_version,
+	id::text,source_asset_id::text,output_asset_id::text,status,job_kind,hints,engine,engine_version,
 	COALESCE(failure_code,''),COALESCE(failure_message,''),flagged_measures,corrected_measures,
 	quality_report,project_storage_key,created_at,started_at,finished_at,updated_at`
 
@@ -223,6 +244,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func (s *Service) CreateRecognitionJob(ctx context.Context, userID, sourceAssetID string) (RecognitionJob, error) {
+	return s.CreateRecognitionJobWithHints(ctx, userID, sourceAssetID, RecognitionHints{})
+}
+
+func (s *Service) CreateRecognitionJobWithHints(ctx context.Context, userID, sourceAssetID string, hints RecognitionHints) (RecognitionJob, error) {
 	if s.Recognizer == nil {
 		return RecognitionJob{}, ErrRecognitionUnavailable
 	}
@@ -231,11 +256,15 @@ func (s *Service) CreateRecognitionJob(ctx context.Context, userID, sourceAssetI
 	}
 	var job RecognitionJob
 	query := `
-		INSERT INTO recognition_jobs(user_id,source_asset_id)
-		SELECT $1,a.id FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
-		WHERE a.id=$2 AND a.uploaded_by_user_id=$1 AND lw.user_id=$1 AND a.asset_type='pdf' AND a.archived_at IS NULL AND e.archived_at IS NULL AND a.byte_size<=$3
+		INSERT INTO recognition_jobs(user_id,source_asset_id,job_kind,hints)
+		SELECT $1,a.id,'transcribe',$4 FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
+		WHERE a.id=$2 AND a.uploaded_by_user_id=$1 AND lw.user_id=$1 AND a.asset_type IN ('pdf','image') AND a.archived_at IS NULL AND e.archived_at IS NULL AND a.byte_size<=$3
 		RETURNING ` + recognitionJobColumns
-	err := scanRecognitionJob(s.Pool.QueryRow(ctx, query, userID, sourceAssetID, maxRecognitionBytes), &job)
+	hintsJSON, err := json.Marshal(hints)
+	if err != nil {
+		return RecognitionJob{}, err
+	}
+	err = scanRecognitionJob(s.Pool.QueryRow(ctx, query, userID, sourceAssetID, maxRecognitionBytes, hintsJSON), &job)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -248,23 +277,32 @@ func (s *Service) CreateRecognitionJob(ctx context.Context, userID, sourceAssetI
 	}
 	// Wake this replica immediately. The database lease keeps this safe when a
 	// second replica's dispatcher sees the same newly queued row.
+	s.wakeRecognitionJob(job.ID)
+	return job, nil
+}
+
+func (s *Service) wakeRecognitionJob(jobID string) {
 	workerCtx := context.Background()
 	s.recognitionMu.Lock()
 	if s.recognitionContext != nil {
 		workerCtx = s.recognitionContext
 	}
 	s.recognitionMu.Unlock()
-	go s.runRecognitionJob(workerCtx, job.ID)
-	return job, nil
+	go s.runRecognitionJob(workerCtx, jobID)
 }
 
 func scanRecognitionJob(row pgx.Row, job *RecognitionJob) error {
-	var reportJSON []byte
+	var reportJSON, hintsJSON []byte
 	err := row.Scan(
-		&job.ID, &job.SourceAssetID, &job.OutputAssetID, &job.Status, &job.Engine, &job.EngineVersion,
+		&job.ID, &job.SourceAssetID, &job.OutputAssetID, &job.Status, &job.JobKind, &hintsJSON, &job.Engine, &job.EngineVersion,
 		&job.ErrorCode, &job.FailureMessage, &job.FlaggedMeasures, &job.CorrectedMeasures,
 		&reportJSON, &job.projectStorageKey, &job.CreatedAt, &job.StartedAt, &job.FinishedAt, &job.UpdatedAt,
 	)
+	if err == nil && len(hintsJSON) > 0 {
+		if decodeErr := json.Unmarshal(hintsJSON, &job.Hints); decodeErr != nil {
+			return fmt.Errorf("decode recognition hints: %w", decodeErr)
+		}
+	}
 	if err == nil && len(reportJSON) > 0 {
 		report, decodeErr := omrreport.Decode(bytes.NewReader(reportJSON))
 		if decodeErr != nil {
@@ -280,7 +318,7 @@ func scanRecognitionJob(row pgx.Row, job *RecognitionJob) error {
 
 func (s *Service) ActiveRecognitionJob(ctx context.Context, userID, sourceAssetID string) (RecognitionJob, error) {
 	var job RecognitionJob
-	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `SELECT `+recognitionJobColumns+` FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 AND status IN ('queued','processing') ORDER BY created_at DESC LIMIT 1`, userID, sourceAssetID), &job)
+	err := scanRecognitionJob(s.Pool.QueryRow(ctx, `SELECT `+recognitionJobColumns+` FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 AND job_kind='transcribe' AND status IN ('queued','processing') ORDER BY created_at DESC LIMIT 1`, userID, sourceAssetID), &job)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RecognitionJob{}, ErrNotFound
 	}
@@ -325,7 +363,7 @@ func (s *Service) ListRecognitionJobs(ctx context.Context, userID, sourceAssetID
 	if err := validateResourceID(sourceAssetID); err != nil {
 		return nil, err
 	}
-	rows, err := s.Pool.Query(ctx, `SELECT `+recognitionJobColumns+` FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 ORDER BY created_at DESC`, userID, sourceAssetID)
+	rows, err := s.Pool.Query(ctx, `SELECT `+recognitionJobColumns+` FROM recognition_jobs WHERE user_id=$1 AND source_asset_id=$2 AND job_kind='transcribe' ORDER BY created_at DESC`, userID, sourceAssetID)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +387,7 @@ func (s *Service) RetryRecognitionJob(ctx context.Context, userID, jobID string)
 	if job.Status == "queued" || job.Status == "processing" {
 		return job, nil
 	}
-	return s.CreateRecognitionJob(ctx, userID, job.SourceAssetID)
+	return s.CreateRecognitionJobWithHints(ctx, userID, job.SourceAssetID, job.Hints)
 }
 
 func (s *Service) CancelRecognitionJob(ctx context.Context, userID, jobID string) error {
@@ -376,12 +414,13 @@ func (s *Service) CancelRecognitionJob(ctx context.Context, userID, jobID string
 }
 
 type claimedRecognitionJob struct {
-	id, userID, sourceAssetID string
+	id, userID, sourceAssetID, jobKind string
+	hints                              RecognitionHints
 }
 
 func (s *Service) claimRecognitionJob(ctx context.Context, requestedJobID string) (claimedRecognitionJob, error) {
 	var job claimedRecognitionJob
-	err := s.Pool.QueryRow(ctx, `
+	row := s.Pool.QueryRow(ctx, `
 		WITH claim_guard AS MATERIALIZED (
 			SELECT pg_try_advisory_xact_lock(hashtextextended('noted-recognition-worker',0)) AS acquired
 		), candidate AS (
@@ -410,9 +449,14 @@ func (s *Service) claimRecognitionJob(ctx context.Context, requestedJobID string
 			updated_at=now()
 		FROM candidate
 		WHERE job.id=candidate.id
-		RETURNING job.id::text,job.user_id::text,job.source_asset_id::text`,
+		RETURNING job.id::text,job.user_id::text,job.source_asset_id::text,job.job_kind,job.hints`,
 		s.recognitionWorkerID, requestedJobID, int(recognitionLeaseDuration/time.Second),
-	).Scan(&job.id, &job.userID, &job.sourceAssetID)
+	)
+	var hintsJSON []byte
+	err := row.Scan(&job.id, &job.userID, &job.sourceAssetID, &job.jobKind, &hintsJSON)
+	if err == nil {
+		err = json.Unmarshal(hintsJSON, &job.hints)
+	}
 	return job, err
 }
 
@@ -482,7 +526,14 @@ func (s *Service) runClaimedRecognition(ctx context.Context, job claimedRecognit
 		return
 	}
 	defer os.RemoveAll(jobDirectory)
-	inputPath := filepath.Join(jobDirectory, "input.pdf")
+	inputExtension := ".pdf"
+	if source.AssetType == "image" {
+		inputExtension = filepath.Ext(source.OriginalFilename)
+		if inputExtension == "" {
+			inputExtension = ".image"
+		}
+	}
+	inputPath := filepath.Join(jobDirectory, "input"+inputExtension)
 	input, _, err := s.Store.Open(ctx, source.StorageKey)
 	if err != nil {
 		s.failRecognition(ctx, job.id, err)
@@ -509,6 +560,11 @@ func (s *Service) runClaimedRecognition(ctx context.Context, job claimedRecognit
 		s.failRecognition(ctx, job.id, err)
 		return
 	}
+	if job.jobKind == "measure_map" {
+		s.runClaimedMeasureMap(ctx, job, inputPath, outputDirectory)
+		return
+	}
+	ctx = context.WithValue(ctx, recognitionOptionsContextKey{}, recognitionOptions{SourceType: source.AssetType, Hints: job.hints})
 	converted, err := s.Recognizer.Recognize(ctx, inputPath, outputDirectory)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -585,6 +641,72 @@ func (s *Service) runClaimedRecognition(ctx context.Context, job claimedRecognit
 	projectStored = false
 }
 
+func (s *Service) runClaimedMeasureMap(ctx context.Context, job claimedRecognitionJob, inputPath, outputDirectory string) {
+	if s.MeasureMapper == nil {
+		s.failRecognition(ctx, job.id, ErrRecognitionUnavailable)
+		return
+	}
+	_, _ = s.Pool.Exec(context.Background(), `UPDATE measure_maps SET status='processing',failure_message=NULL,updated_at=now() WHERE asset_id=$1 AND user_id=$2`, job.sourceAssetID, job.userID)
+	result, err := s.MeasureMapper.MapMeasures(ctx, inputPath, outputDirectory)
+	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return
+		}
+		s.failRecognition(ctx, job.id, err)
+		return
+	}
+	if err := validateMeasureMapPages(result.Pages); err != nil {
+		s.failRecognition(ctx, job.id, fmt.Errorf("validate measure map: %w", err))
+		return
+	}
+	pagesJSON, err := json.Marshal(result.Pages)
+	if err != nil {
+		s.failRecognition(ctx, job.id, err)
+		return
+	}
+	tx, err := s.Pool.Begin(context.Background())
+	if err != nil {
+		s.failRecognition(ctx, job.id, err)
+		return
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+	updated, err := tx.Exec(context.Background(), `
+		UPDATE recognition_jobs SET status='succeeded',engine='audiveris-measures',engine_version=$2,
+			failure_code=NULL,failure_message=NULL,lease_owner=NULL,lease_expires_at=NULL,finished_at=now(),updated_at=now()
+		WHERE id=$1 AND job_kind='measure_map' AND status='processing' AND lease_owner=$3`, job.id, result.EngineVersion, s.recognitionWorkerID)
+	if err != nil || updated.RowsAffected() != 1 {
+		return
+	}
+	if _, err := tx.Exec(context.Background(), `UPDATE measure_maps SET status='ready',pages=$3,engine_version=$4,failure_message=NULL,updated_at=now() WHERE asset_id=$1 AND user_id=$2`, job.sourceAssetID, job.userID, pagesJSON, result.EngineVersion); err != nil {
+		return
+	}
+	_ = tx.Commit(context.Background())
+}
+
+func validateMeasureMapPages(pages []MeasureMapPage) error {
+	if len(pages) < 1 || len(pages) > 25 {
+		return errors.New("measure map must contain between 1 and 25 pages")
+	}
+	seenPages := map[int]bool{}
+	measureCount := 0
+	for _, page := range pages {
+		if page.PageNumber < 1 || seenPages[page.PageNumber] || page.Width <= 0 || page.Height <= 0 || page.DPI < 72 || page.DPI > 1200 {
+			return errors.New("measure map page metadata is invalid")
+		}
+		seenPages[page.PageNumber] = true
+		for _, box := range page.Measures {
+			measureCount++
+			if measureCount > 10000 || box.MeasureNumber < 1 || box.X < 0 || box.Y < 0 || box.Width <= 0 || box.Height <= 0 || box.X+box.Width > page.Width+1 || box.Y+box.Height > page.Height+1 {
+				return errors.New("measure map geometry is invalid")
+			}
+		}
+	}
+	if measureCount == 0 {
+		return errors.New("measure map contains no measures")
+	}
+	return nil
+}
+
 func (s *Service) finishRecognition(jobID, userID, assetID, engine, engineVersion string, report *omrreport.Report, leaseOwner, projectKey string) error {
 	var reportJSON []byte
 	var flaggedMeasures, correctedMeasures *int
@@ -646,6 +768,9 @@ func (s *Service) failRecognition(ctx context.Context, jobID string, err error) 
 		code = normalizeRecognitionFailureCode(remoteErr.Code)
 	}
 	_, _ = s.Pool.Exec(context.Background(), `UPDATE recognition_jobs SET status='failed',failure_code=$2,failure_message=$3,lease_owner=NULL,lease_expires_at=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='processing' AND lease_owner=$4`, jobID, code, message, s.recognitionWorkerID)
+	_, _ = s.Pool.Exec(context.Background(), `
+		UPDATE measure_maps mm SET status='failed',failure_message=$2,updated_at=now()
+		FROM recognition_jobs r WHERE r.id=$1 AND r.job_kind='measure_map' AND mm.asset_id=r.source_asset_id AND mm.user_id=r.user_id`, jobID, message)
 }
 
 func normalizeRecognitionFailureCode(value string) string {

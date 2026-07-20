@@ -69,7 +69,7 @@ func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, hea
 		}
 	}()
 	playbackValidation := assetstore.PlaybackValidation{Status: "not_checked", Issues: []assetstore.PlaybackIssue{}}
-	playbackCapable := false
+	playbackCapable := format.AssetType == "midi" || format.AssetType == "audio"
 	if format.AssetType == "musicxml" {
 		storedReader, _, openErr := s.Store.Open(ctx, key)
 		if openErr != nil {
@@ -115,11 +115,26 @@ func (s *Service) UploadAsset(ctx context.Context, userID, editionID string, hea
 			return Asset{}, err
 		}
 	}
+	measureMapJobID := ""
+	if format.AssetType == "pdf" || format.AssetType == "image" {
+		if _, err := tx.Exec(ctx, `INSERT INTO measure_maps(asset_id,user_id) VALUES($1,$2)`, asset.ID, userID); err != nil {
+			return Asset{}, err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO recognition_jobs(user_id,source_asset_id,job_kind,engine,engine_version)
+			VALUES($1,$2,'measure_map','audiveris-measures','audiveris-5.10.2-measures') RETURNING id::text`, userID, asset.ID,
+		).Scan(&measureMapJobID); err != nil {
+			return Asset{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Asset{}, err
 	}
 	cleanup = false
 	setAssetURLs(&asset)
+	if measureMapJobID != "" && s.MeasureMapper != nil {
+		s.wakeRecognitionJob(measureMapJobID)
+	}
 	return asset, nil
 }
 
@@ -128,7 +143,8 @@ func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID strin
 		return nil, err
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.playback_validation_status,a.playback_validation_issues,a.created_at
+		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.playback_validation_status,a.playback_validation_issues,a.created_at,
+		       (SELECT count(*) FROM measure_anchors ma WHERE ma.asset_id=a.id)::int
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
 		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.edition_id=$2 ORDER BY a.created_at`, userID, editionID)
 	if err != nil {
@@ -138,7 +154,7 @@ func (s *Service) ListEditionAssets(ctx context.Context, userID, editionID strin
 	items := []Asset{}
 	for rows.Next() {
 		var item Asset
-		if err := rows.Scan(&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.DisplayName, &item.MediaType, &item.ByteSize, &item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.PlaybackValidation.Status, &item.PlaybackValidation.Issues, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.DisplayName, &item.MediaType, &item.ByteSize, &item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.PlaybackValidation.Status, &item.PlaybackValidation.Issues, &item.CreatedAt, &item.AnchorCount); err != nil {
 			return nil, err
 		}
 		setAssetURLs(&item)
@@ -153,11 +169,12 @@ func (s *Service) getAssetRecord(ctx context.Context, userID, assetID string) (a
 	}
 	var item assetRecord
 	err := s.Pool.QueryRow(ctx, `
-		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.playback_validation_status,a.playback_validation_issues,a.created_at,a.storage_key
+		SELECT a.id::text,a.edition_id::text,a.asset_type,a.original_filename,COALESCE(a.display_name,a.original_filename),a.media_type,a.byte_size,a.sha256,COALESCE(a.source_url,''),a.rights_note,a.playback_capable,a.archived_at,a.replaces_asset_id::text,a.derived_from_asset_id::text,a.verification_state,a.playback_validation_status,a.playback_validation_issues,a.created_at,a.storage_key,
+		       (SELECT count(*) FROM measure_anchors ma WHERE ma.asset_id=a.id)::int
 		FROM score_assets a JOIN editions e ON e.id=a.edition_id JOIN learner_works lw ON lw.work_id=e.work_id
 		WHERE lw.user_id=$1 AND a.uploaded_by_user_id=$1 AND a.id=$2`, userID, assetID).Scan(
 		&item.ID, &item.EditionID, &item.AssetType, &item.OriginalFilename, &item.DisplayName, &item.MediaType, &item.ByteSize,
-		&item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.PlaybackValidation.Status, &item.PlaybackValidation.Issues, &item.CreatedAt, &item.StorageKey)
+		&item.SHA256, &item.SourceURL, &item.RightsNote, &item.PlaybackCapable, &item.ArchivedAt, &item.ReplacesAssetID, &item.DerivedFromAssetID, &item.VerificationState, &item.PlaybackValidation.Status, &item.PlaybackValidation.Issues, &item.CreatedAt, &item.StorageKey, &item.AnchorCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return assetRecord{}, ErrNotFound
 	}

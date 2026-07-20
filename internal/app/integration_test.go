@@ -240,6 +240,55 @@ func TestIntegrationOwnershipScoping(t *testing.T) {
 	}
 }
 
+func TestIntegrationPlaybackMediaAnchorsAndMeasureMap(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	ctx := context.Background()
+
+	link, err := service.CreateMediaLink(ctx, fixture.UserID, fixture.EditionID, MediaLinkInput{
+		URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", Title: "Practice recording",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link.VideoID != "dQw4w9WgXcQ" || link.AnchorCount != 0 {
+		t.Fatalf("media link = %+v", link)
+	}
+	anchors, err := service.ReplaceMediaLinkAnchors(ctx, fixture.UserID, link.ID, []AnchorInput{
+		{MeasureNumber: 8, PositionMS: 42_000}, {MeasureNumber: 1, PositionMS: 2_000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anchors) != 2 || anchors[0].MeasureNumber != 1 || anchors[1].MeasureNumber != 8 {
+		t.Fatalf("media anchors = %+v", anchors)
+	}
+	assetAnchors, err := service.ReplaceAssetAnchors(ctx, fixture.UserID, fixture.AssetID, []AnchorInput{{MeasureNumber: 3, PositionMS: 12_500}})
+	if err != nil || len(assetAnchors) != 1 {
+		t.Fatalf("asset anchors = %+v, %v", assetAnchors, err)
+	}
+	if _, err := service.Pool.Exec(ctx, `
+		INSERT INTO measure_maps(asset_id,user_id,status,pages,engine_version)
+		VALUES($1,$2,'ready',$3,'audiveris-5.10.2-measures')`, fixture.AssetID, fixture.UserID,
+		`[{"pageNumber":1,"width":2550,"height":3300,"dpi":300,"measures":[{"measureNumber":1,"x":100,"y":200,"width":500,"height":250}]}]`); err != nil {
+		t.Fatal(err)
+	}
+	measureMap, err := service.GetMeasureMap(ctx, fixture.UserID, fixture.AssetID)
+	if err != nil || measureMap.Status != "ready" || len(measureMap.Pages) != 1 || len(measureMap.Pages[0].Measures) != 1 {
+		t.Fatalf("measure map = %+v, %v", measureMap, err)
+	}
+	links, err := service.ListMediaLinks(ctx, fixture.UserID, fixture.EditionID)
+	if err != nil || len(links) != 1 || links[0].AnchorCount != 2 {
+		t.Fatalf("media links = %+v, %v", links, err)
+	}
+	if err := service.DeleteMediaLink(ctx, fixture.UserID, link.ID); err != nil {
+		t.Fatal(err)
+	}
+	if remaining, err := service.ListMediaLinkAnchors(ctx, fixture.UserID, link.ID); !errors.Is(err, ErrNotFound) || remaining != nil {
+		t.Fatalf("deleted media link anchors = %+v, %v", remaining, err)
+	}
+}
+
 func TestIntegrationCreateWorkReusesSharedCatalogIdentity(t *testing.T) {
 	service, current, _ := integrationService(t)
 	fixture := createIntegrationFixture(t, service)
@@ -424,6 +473,37 @@ func TestIntegrationUploadCleanupOnMetadataFailure(t *testing.T) {
 		if len(entries) != 0 {
 			t.Fatalf("metadata failure left %d %s object(s)", len(entries), kind)
 		}
+	}
+}
+
+func TestIntegrationUploadMIDIPlaybackAsset(t *testing.T) {
+	service, _, _ := integrationService(t)
+	fixture := createIntegrationFixture(t, service)
+	path := filepath.Join(t.TempDir(), "practice.mid")
+	midi := []byte{
+		'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96,
+		'M', 'T', 'r', 'k', 0, 0, 0, 15,
+		0, 0xc0, 0, 0, 0x90, 60, 64, 96, 0x80, 60, 64, 0, 0xff, 0x2f, 0,
+	}
+	if err := os.WriteFile(path, midi, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	asset, err := service.UploadAsset(
+		context.Background(), fixture.UserID, fixture.EditionID,
+		&multipart.FileHeader{Filename: "practice.mid", Size: int64(len(midi))}, file,
+		UploadMetadata{RightsNote: "Original CC0 MIDI fixture"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.AssetType != "midi" || !asset.PlaybackCapable || asset.MediaType != "audio/midi" {
+		t.Fatalf("MIDI asset = %+v", asset)
 	}
 }
 

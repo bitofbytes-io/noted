@@ -135,6 +135,38 @@
         "generationCommand": "node testdata/omr/generate.mjs",
         "renderer": "@coderline/alphatab 1.8.4 via @playwright/test 1.55.1"
       }
+    },
+    {
+      "id": "moonlight-style-implicit-tuplets",
+      "title": "Moonlight-style unmarked triplet texture",
+      "input": "inputs/moonlight-style-implicit-tuplets.pdf",
+      "reference": "references/moonlight-style-implicit-tuplets.musicxml",
+      "traits": [
+        "clean",
+        "piano",
+        "grand-staff",
+        "implicit-tuplets",
+        "beamed-triplets",
+        "moonlight-style-texture"
+      ],
+      "expected": {
+        "parts": 1,
+        "measures": 8,
+        "pages": 1
+      },
+      "sha256": {
+        "input": "714c4a94f2b4cccee6dadb9610331e7606b2b70187d7582a59e17a10926378ab",
+        "reference": "8028d3e13140ebc54dafc5376fc921f2d9e6616b8764047db1db004da46c8c02"
+      },
+      "provenance": {
+        "creator": "Noted Project",
+        "license": "CC0-1.0",
+        "sourceType": "project-authored synthetic notation",
+        "thirdPartyScoreSource": false,
+        "generationCommand": "node testdata/omr/generate.mjs",
+        "renderer": "@coderline/alphatab 1.8.4 via @playwright/test 1.55.1",
+        "note": "Original project-authored exercise named only for its unmarked-triplet texture; it does not reproduce Beethoven notation."
+      }
     }
   ]
 }
