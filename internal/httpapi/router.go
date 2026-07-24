@@ -46,9 +46,11 @@ func NewRouter(backend Backend, maxUploadBytes int64, allowedOrigin string) http
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Use(handler.cors)
-	router.Get("/api/health", func(writer http.ResponseWriter, _ *http.Request) {
+	health := func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	}
+	router.Get("/api/health", health)
+	router.Get("/api/ready", health)
 	router.Route("/api/pieces", func(router chi.Router) {
 		router.Get("/", handler.listPieces)
 		router.Post("/", handler.createPiece)

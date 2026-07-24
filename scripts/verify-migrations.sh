@@ -19,16 +19,39 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
 
 DATABASE_URL="$database_url" go run ./cmd/migrate
 DATABASE_URL="$database_url" go run ./cmd/migrate down
-DATABASE_URL="$database_url" go run ./cmd/migrate
 
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
-  psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
-  "SELECT table_name FROM information_schema.tables
-   WHERE table_schema='public'
-   AND table_name IN ('pieces','piece_pdfs','reader_states')
-   ORDER BY table_name" |
-  diff -u - <<'EOF'
-piece_pdfs
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
+CREATE TABLE works (id uuid PRIMARY KEY);
+INSERT INTO schema_migrations (version) VALUES ('000001_initial');
+SQL
+
+DATABASE_URL="$database_url" go run ./cmd/migrate
+
+actual=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = 'public'
+     ORDER BY table_name"
+)
+expected='piece_pdfs
 pieces
 reader_states
-EOF
+schema_migrations'
+if [ "$actual" != "$expected" ]; then
+  printf 'unexpected tables after legacy reset\nexpected:\n%s\nactual:\n%s\n' \
+    "$expected" "$actual" >&2
+  exit 1
+fi
+
+version=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT version FROM schema_migrations ORDER BY version"
+)
+if [ "$version" != "000001_binder" ]; then
+  printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
+  exit 1
+fi

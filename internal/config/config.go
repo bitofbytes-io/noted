@@ -23,12 +23,16 @@ func Load() (Config, error) {
 	if databaseURL == "" {
 		databaseURL = "postgres://noted:noted@localhost:5434/noted?sslmode=disable"
 	}
+	allowedOrigin := value("ALLOWED_ORIGIN", "")
+	if allowedOrigin == "" {
+		allowedOrigin = value("ALLOWED_ORIGINS", "http://localhost:4200")
+	}
 	cfg := Config{
 		Port:           value("PORT", "8080"),
 		DatabaseURL:    databaseURL,
 		AssetRoot:      value("ASSET_ROOT", ".local/noted-assets"),
 		MaxUploadBytes: 50 << 20,
-		AllowedOrigin:  value("ALLOWED_ORIGIN", "http://localhost:4200"),
+		AllowedOrigin:  allowedOrigin,
 	}
 	if raw := os.Getenv("MAX_UPLOAD_BYTES"); raw != "" {
 		size, err := strconv.ParseInt(raw, 10, 64)

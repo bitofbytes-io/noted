@@ -50,3 +50,16 @@ func TestLoadRejectsEmptyDatabaseSecret(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
+
+func TestLoadAcceptsDeployedAllowedOriginsName(t *testing.T) {
+	t.Setenv("ALLOWED_ORIGIN", "")
+	t.Setenv("ALLOWED_ORIGINS", "https://noted.bitofbytes.io")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AllowedOrigin != "https://noted.bitofbytes.io" {
+		t.Fatalf("AllowedOrigin = %q", cfg.AllowedOrigin)
+	}
+}
