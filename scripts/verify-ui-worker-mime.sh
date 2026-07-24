@@ -11,7 +11,6 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-docker build -f Docker/Dockerfile.ui -t "$image" .
 container=$(docker run -d -p 127.0.0.1::80 "$image")
 address=$(docker port "$container" 80/tcp | awk 'NR == 1 { print $1 }')
 base_url="http://$address"
@@ -26,15 +25,13 @@ until curl -fsS "$base_url/health" >/dev/null; do
 	sleep 1
 done
 
-for path in /alphaTab.worker.mjs /alphaTab.worklet.mjs /alphaTab.core.mjs /pdfjs/pdf.worker.min.mjs; do
-	content_type=$(curl -fsSI "$base_url$path" | awk 'tolower($1) == "content-type:" { gsub("\r", "", $2); print tolower($2) }')
-	case "$content_type" in
-		application/javascript* | text/javascript*) ;;
-		*)
-			echo "$path returned unexpected Content-Type: ${content_type:-missing}" >&2
-			exit 1
-			;;
-	esac
-done
+content_type=$(curl -fsSI "$base_url/pdfjs/pdf.worker.min.mjs" | awk 'tolower($1) == "content-type:" { gsub("\r", "", $2); print tolower($2) }')
+case "$content_type" in
+	application/javascript* | text/javascript*) ;;
+	*)
+		echo "/pdfjs/pdf.worker.min.mjs returned unexpected Content-Type: ${content_type:-missing}" >&2
+		exit 1
+		;;
+esac
 
-echo "alphaTab and PDF.js module workers use a JavaScript MIME type"
+echo "PDF.js module worker uses a JavaScript MIME type"

@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS reader_states;
+DROP TABLE IF EXISTS piece_pdfs;
+DROP TABLE IF EXISTS pieces;

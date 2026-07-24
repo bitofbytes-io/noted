@@ -1,4 +1,4 @@
-name: Build, push, and trigger Crystal deploy
+name: CI build -> push -> trigger deploy
 
 on:
   push:
@@ -15,22 +15,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install UI dependencies
         run: npm ci
         working-directory: web
       - name: Run checks
-        run: make lint test
+        run: make lint test build
 
   build-and-trigger:
     name: Publish images and trigger deployment
@@ -53,7 +53,7 @@ jobs:
       PLATFORMS: linux/arm64/v8
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

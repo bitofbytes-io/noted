@@ -23,7 +23,7 @@ LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.title="noted-ui" \
-      org.opencontainers.image.description="Noted Angular web application"
+      org.opencontainers.image.description="Noted sheet-music binder web application"
 
 EXPOSE 80
 
@@ -31,4 +31,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
-

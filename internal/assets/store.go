@@ -4,179 +4,111 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
+
+	"github.com/google/uuid"
 )
 
-var opaqueKeyPattern = regexp.MustCompile(`^(pdf|musicxml|midi|audio|image|omr)/[0-9a-f-]{36}$`)
-
-var assetDirectories = []string{
-	"temporary",
-	"originals/pdf",
-	"originals/musicxml",
-	"originals/midi",
-	"originals/audio",
-	"originals/image",
-	"originals/omr",
-}
-
-type StoredObject struct {
+type Object struct {
 	Key      string
 	Size     int64
 	Checksum string
 }
 
-type ObjectInfo struct {
-	Key  string
-	Size int64
+type ReadSeekCloser interface {
+	io.Reader
+	io.Seeker
+	io.Closer
 }
 
-type AssetStore interface {
-	Put(ctx context.Context, key string, src io.Reader) (StoredObject, error)
-	Open(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error)
-	Delete(ctx context.Context, key string) error
-	Exists(ctx context.Context, key string) (bool, error)
-	Ready(ctx context.Context) error
+type Store interface {
+	Save(context.Context, io.Reader) (Object, error)
+	Open(context.Context, string) (ReadSeekCloser, error)
+	Delete(context.Context, string) error
 }
 
-type FilesystemStore struct {
+type LocalStore struct {
 	root string
 }
 
-func NewFilesystemStore(root string) (*FilesystemStore, error) {
-	abs, err := filepath.Abs(root)
+var keyPattern = regexp.MustCompile(`^[0-9a-f]{2}/[0-9a-f-]{36}\.pdf$`)
+
+func NewLocalStore(root string) (*LocalStore, error) {
+	if root == "" {
+		return nil, fmt.Errorf("asset root is required")
+	}
+	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve asset root: %w", err)
 	}
-	for _, dir := range assetDirectories {
-		if err := os.MkdirAll(filepath.Join(abs, dir), 0o750); err != nil {
-			return nil, fmt.Errorf("create asset directory: %w", err)
-		}
+	if err := os.MkdirAll(filepath.Join(absolute, "objects"), 0o750); err != nil {
+		return nil, fmt.Errorf("create asset root: %w", err)
 	}
-	return &FilesystemStore{root: abs}, nil
+	if err := os.MkdirAll(filepath.Join(absolute, "temporary"), 0o750); err != nil {
+		return nil, fmt.Errorf("create temporary root: %w", err)
+	}
+	return &LocalStore{root: absolute}, nil
 }
 
-func (s *FilesystemStore) Put(ctx context.Context, key string, src io.Reader) (StoredObject, error) {
-	finalPath, err := s.path(key)
+func (s *LocalStore) Save(_ context.Context, source io.Reader) (Object, error) {
+	temp, err := os.CreateTemp(filepath.Join(s.root, "temporary"), "upload-*")
 	if err != nil {
-		return StoredObject{}, err
+		return Object{}, fmt.Errorf("create temporary asset: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Join(s.root, "temporary"), "upload-*")
-	if err != nil {
-		return StoredObject{}, fmt.Errorf("create temporary upload: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	tempName := temp.Name()
+	defer os.Remove(tempName)
 
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(tmp, hash), &contextReader{ctx: ctx, reader: src})
-	closeErr := tmp.Close()
+	size, copyErr := io.Copy(io.MultiWriter(temp, hash), source)
+	closeErr := temp.Close()
 	if copyErr != nil {
-		return StoredObject{}, fmt.Errorf("store upload: %w", copyErr)
+		return Object{}, fmt.Errorf("write asset: %w", copyErr)
 	}
 	if closeErr != nil {
-		return StoredObject{}, fmt.Errorf("close upload: %w", closeErr)
+		return Object{}, fmt.Errorf("close asset: %w", closeErr)
 	}
-	if err := os.Rename(tmpName, finalPath); err != nil {
-		return StoredObject{}, fmt.Errorf("finalize upload: %w", err)
+	id := uuid.NewString()
+	key := id[:2] + "/" + id + ".pdf"
+	destination := filepath.Join(s.root, "objects", filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
+		return Object{}, fmt.Errorf("create asset directory: %w", err)
 	}
-	return StoredObject{Key: key, Size: written, Checksum: hex.EncodeToString(hash.Sum(nil))}, nil
+	if err := os.Rename(tempName, destination); err != nil {
+		return Object{}, fmt.Errorf("commit asset: %w", err)
+	}
+	return Object{Key: key, Size: size, Checksum: hex.EncodeToString(hash.Sum(nil))}, nil
 }
 
-func (s *FilesystemStore) Open(_ context.Context, key string) (io.ReadCloser, ObjectInfo, error) {
+func (s *LocalStore) Open(_ context.Context, key string) (ReadSeekCloser, error) {
 	path, err := s.path(key)
 	if err != nil {
-		return nil, ObjectInfo{}, err
+		return nil, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, ObjectInfo{}, err
+		return nil, err
 	}
-	info, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, ObjectInfo{}, err
-	}
-	return file, ObjectInfo{Key: key, Size: info.Size()}, nil
+	return file, nil
 }
 
-func (s *FilesystemStore) Delete(_ context.Context, key string) error {
+func (s *LocalStore) Delete(_ context.Context, key string) error {
 	path, err := s.path(key)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
 }
 
-func (s *FilesystemStore) Exists(_ context.Context, key string) (bool, error) {
-	path, err := s.path(key)
-	if err != nil {
-		return false, err
+func (s *LocalStore) path(key string) (string, error) {
+	if !keyPattern.MatchString(key) {
+		return "", fmt.Errorf("invalid storage key")
 	}
-	_, err = os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
-}
-
-func (s *FilesystemStore) Ready(ctx context.Context) error {
-	for _, relative := range assetDirectories {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		directory := filepath.Join(s.root, relative)
-		probe, err := os.CreateTemp(directory, ".noted-ready-*")
-		if err != nil {
-			return fmt.Errorf("probe asset directory %s: %w", relative, err)
-		}
-		name := probe.Name()
-		if err := probe.Close(); err != nil {
-			_ = os.Remove(name)
-			return fmt.Errorf("close asset readiness probe: %w", err)
-		}
-		if err := os.Remove(name); err != nil {
-			return fmt.Errorf("remove asset readiness probe: %w", err)
-		}
-	}
-	return nil
-}
-
-func (s *FilesystemStore) path(key string) (string, error) {
-	if !opaqueKeyPattern.MatchString(key) {
-		return "", fmt.Errorf("unsafe asset key")
-	}
-	path := filepath.Join(s.root, "originals", filepath.FromSlash(key))
-	rel, err := filepath.Rel(s.root, path)
-	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("asset key escapes storage root")
-	}
-	return path, nil
-}
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (r *contextReader) Read(p []byte) (int, error) {
-	select {
-	case <-r.ctx.Done():
-		return 0, r.ctx.Err()
-	default:
-		return r.reader.Read(p)
-	}
+	return filepath.Join(s.root, "objects", filepath.FromSlash(key)), nil
 }

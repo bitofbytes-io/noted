@@ -2,7 +2,7 @@ package migrations
 
 import "embed"
 
-// FS contains the versioned schema used by the API and migration command.
+// FS contains the complete binder schema.
 //
 //go:embed *.sql
 var FS embed.FS

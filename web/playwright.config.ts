@@ -1,51 +1,36 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  outputDir: '../output/playwright/test-results',
-  fullyParallel: false,
-  // Both projects intentionally exercise the same seeded learner. Keep them serialized so the
-  // one-running-timer invariant is tested without one browser invalidating the other's UI state.
-  workers: 1,
-  retries: 0,
-  timeout: 90_000,
-  expect: { timeout: 15_000 },
-  reporter: [['list'], ['html', { outputFolder: '../output/playwright/report', open: 'never' }]],
+  timeout: 30_000,
+  expect: {
+    timeout: 15_000,
+  },
   use: {
     baseURL: 'http://127.0.0.1:4200',
-    screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
-    video: 'retain-on-failure',
   },
-  webServer: [
-    {
-      command: './scripts/start-e2e-api.sh',
-      cwd: '..',
-      url: 'http://127.0.0.1:8080/api/ready',
-      reuseExistingServer: false,
-      timeout: 120_000,
-    },
-    {
-      command: 'npm start -- --host 127.0.0.1',
-      cwd: '.',
-      url: 'http://127.0.0.1:4200',
-      reuseExistingServer: false,
-      timeout: 120_000,
-    },
-  ],
+  webServer: {
+    command: 'npm start -- --host 127.0.0.1 --port 4200',
+    url: 'http://127.0.0.1:4200',
+    reuseExistingServer: true,
+    timeout: 120_000,
+  },
   projects: [
     {
-      name: 'desktop-chrome',
-      use: { browserName: 'chromium', channel: 'chrome', viewport: { width: 1440, height: 1000 } },
+      name: 'desktop-chromium',
+      use: { ...devices['Desktop Chrome'] },
     },
     {
-      name: 'ipad-portrait-webkit',
+      name: 'ipad-webkit',
       use: {
-        browserName: 'webkit',
+        ...devices['Desktop Safari'],
         viewport: { width: 1024, height: 1366 },
-        hasTouch: true,
-        isMobile: true,
       },
+    },
+    {
+      name: 'phone-chromium',
+      use: { ...devices['Pixel 7'] },
     },
   ],
 });

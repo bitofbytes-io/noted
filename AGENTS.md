@@ -1,56 +1,48 @@
 # Repository Guidance
 
-## Current repository purpose
+## Product
 
-This repository is in product-definition and implementation-planning mode. Do not begin broad implementation unless the user explicitly asks to scaffold or build it.
+Noted is a single-user digital sheet-music binder. Its v1 job is to let a pianist
+upload PDF scores, find them quickly, and read them on a 13-inch iPad without
+touching the screen mid-piece.
 
-## Authoritative planning sources
+Read these before changing scope or behavior:
 
-Read these before creating an implementation plan or goals:
+1. `docs/product/requirements.md`
+2. `docs/product/piece-binder-rebuild-plan.md`
+3. `docs/design/visual-direction.md`
+4. `docs/design/design-tokens.md`
 
-1. `docs/product/poc-requirements.md`
-2. `docs/architecture/system-design.md`
-3. `docs/architecture/data-model.md`
-4. `docs/architecture/api-contract.md`
-5. `docs/implementation/handoff.md`
-6. `docs/design/visual-direction.md`
-7. `docs/design/design-tokens.md`
+The material under `docs/archive/` describes the superseded practice and
+MusicXML product. It is historical context only.
 
-Use `docs/product/discovery-brief.md` for rationale and future ideas, not as POC scope. Use `docs/product/requirements-v0.md` as longer-term requirements. When they differ, the POC requirements control POC planning.
+## v1 boundaries
 
-## POC boundaries
+- Angular frontend and Go API are separate applications in one repository.
+- PostgreSQL is required from the start.
+- PDF binaries use the Go `AssetStore` interface and the local filesystem
+  implementation under `.local/noted-assets`.
+- A piece has exactly one PDF in v1.
+- The app is single-user and has no authentication in v1.
+- Library search covers title and composer; favorites are a filter.
+- The reader has page and auto-scroll modes and persists per-piece state.
+- Practice, metronome, lessons, OMR, MusicXML, playback, annotations, IMSLP
+  automation, photo stitching, sharing, and offline mode are deferred.
 
-- Angular frontend and Go backend in one repository as separate applications.
-- PostgreSQL from the start.
-- Local filesystem asset storage behind a Go interface for the POC.
-- Google OAuth, NAS PostgreSQL, NFS, Docker Swarm, Traefik, and production backups are later production-readiness work.
-- Do not include OMR, annotations, lessons, IMSLP automation, physical-book ingestion, sharing, offline use, or MIDI/microphone assessment in the POC.
-- Run a MusicXML rendering/playback technical spike before committing the full player implementation.
+## Safety
 
-## Product invariants
+- Never commit uploaded scores, credentials, database URLs, browser state, or
+  local runtime data.
+- Never use a user filename as a filesystem path. Storage keys are opaque.
+- Keep rights-safe fixtures under `testdata/` and document their provenance.
+- A local reset may touch only the `noted` database or its dedicated Compose
+  volume. Never drop other databases or roles.
+- Keep future NFS storage behind `AssetStore`; do not expose local paths in
+  handlers or database records.
+- Production authentication and deployment remain explicit follow-up work.
 
-- Work is the learner-facing identity; editions and score assets remain distinct.
-- Learner status, favorites, tags, and practice history are user-specific.
-- PDF is a visual score asset; rich playback requires a structured score such as MusicXML.
-- Playback does not automatically record practice.
-- Practice summaries begin on Monday.
-- Primary navigation is Home, Library, Metronome, Practice, Settings.
-- The selected visual baseline is `docs/design/concepts/noted-v2-title-page-baseline.png` ("Title Page": ivory background, ink typography, forest-green accent, no dashboard sheet-music preview); tokens are specified in `docs/design/design-tokens.md`.
+## Verification
 
-## Planning expectations
-
-An implementation plan should:
-
-- Sequence demonstrable vertical goals.
-- Map acceptance criteria to POC requirement IDs.
-- Identify spikes, dependencies, risks, and fallbacks.
-- Include schema migrations, API/UI tests, and clean-checkout validation.
-- Preserve the filesystem/NFS storage abstraction and production-safe authentication boundary.
-- Keep deferred production setup visible without making it a POC blocker.
-
-## File and secret safety
-
-- Never commit uploaded scores, credentials, OAuth secrets, database URLs, browser session state, or local runtime data.
-- Use `.local/` for ignored POC asset storage.
-- Use rights-safe test fixtures under `testdata/` and document their provenance/license.
-- Production secrets must use external Swarm secrets and `_FILE` configuration.
+Run `make test`, `make lint`, and `make build` for code changes. Reader changes
+also require `make test-e2e`. Physical iPad Safari and Bluetooth pedal checks
+must be recorded separately because automated tests cannot replace them.

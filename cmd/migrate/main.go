@@ -14,33 +14,24 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	databaseURL, err := config.LoadDatabaseURL()
+	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, databaseURL)
+	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close(ctx)
-	if len(os.Args) > 1 {
-		if len(os.Args) != 2 || os.Args[1] != "down" {
-			log.Fatal("usage: migrate [down]")
-		}
-		version, err := database.RollbackLast(ctx, conn, migrations.FS)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if version == "" {
-			log.Print("no migration to roll back")
-			return
-		}
-		log.Printf("rolled back migration %s", version)
-		return
+	if len(os.Args) == 2 && os.Args[1] == "down" {
+		err = database.Rollback(ctx, conn, migrations.FS)
+	} else if len(os.Args) == 1 {
+		err = database.Migrate(ctx, conn, migrations.FS)
+	} else {
+		log.Fatal("usage: migrate [down]")
 	}
-	if err := database.Migrate(ctx, conn, migrations.FS); err != nil {
+	if err != nil {
 		log.Fatal(err)
 	}
-	log.Print("database migrations are current")
 }

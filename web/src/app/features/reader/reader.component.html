@@ -1,0 +1,163 @@
+<main
+  #stage
+  class="reader"
+  [class.controls-hidden]="!controlsVisible()"
+  [class.scroll-mode]="mode() === 'scroll'"
+  (scroll)="onStageScroll()"
+  (pointermove)="revealControls()"
+  (pointerdown)="onPointerDown($event)"
+  (pointerup)="onPointerUp($event)"
+  (click)="onScoreTap($event)"
+>
+  <header class="reader-topbar">
+    <button
+      class="icon-button"
+      type="button"
+      aria-label="Back to library"
+      title="Back"
+      (click)="back()"
+    >
+      <svg lucideArrowLeft aria-hidden="true"></svg>
+    </button>
+    <div class="reader-title">
+      <strong>{{ piece()?.title || 'Score' }}</strong>
+      <span>{{ piece()?.composer }}</span>
+    </div>
+    <span class="page-counter">{{ currentPage() }} / {{ metrics().length || '—' }}</span>
+  </header>
+
+  @if (loading()) {
+    <section class="reader-message" aria-live="polite">
+      <div class="loading-mark"></div>
+      <p>Opening score…</p>
+    </section>
+  } @else if (error()) {
+    <section class="reader-message error-message" role="alert">
+      <p>{{ error() }}</p>
+      <button type="button" (click)="back()">Return to library</button>
+    </section>
+  } @else if (mode() === 'page') {
+    <section class="page-stage" aria-label="PDF page">
+      <canvas #scoreCanvas></canvas>
+    </section>
+  } @else {
+    <section class="scroll-score" aria-label="Continuous PDF score">
+      @for (metric of metrics(); track metric.page) {
+        <figure
+          #scrollPage
+          class="scroll-page"
+          [style.width.px]="scrollPageWidth()"
+          [style.aspect-ratio]="metric.ratio"
+          [attr.data-page]="metric.page"
+        >
+          <canvas #scoreCanvas></canvas>
+          <figcaption>Page {{ metric.page }}</figcaption>
+        </figure>
+      }
+    </section>
+  }
+
+  <nav
+    #controls
+    class="reader-controls"
+    aria-label="Reader controls"
+    (click)="$event.stopPropagation(); revealControls()"
+  >
+    <div class="mode-control" aria-label="Reading mode">
+      <button
+        type="button"
+        [class.active]="mode() === 'page'"
+        [attr.aria-pressed]="mode() === 'page'"
+        title="Page mode"
+        (click)="setMode('page')"
+      >
+        <svg lucideMaximize2 aria-hidden="true"></svg>
+        <span>Page</span>
+      </button>
+      <button
+        type="button"
+        [class.active]="mode() === 'scroll'"
+        [attr.aria-pressed]="mode() === 'scroll'"
+        title="Auto-scroll mode"
+        (click)="setMode('scroll')"
+      >
+        <svg lucideRows3 aria-hidden="true"></svg>
+        <span>Scroll</span>
+      </button>
+    </div>
+
+    @if (mode() === 'page') {
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Previous page"
+        title="Previous page"
+        [disabled]="currentPage() <= 1"
+        (click)="turnPage(-1)"
+      >
+        <svg lucideChevronLeft aria-hidden="true"></svg>
+      </button>
+      <span class="compact-page">{{ currentPage() }} / {{ metrics().length }}</span>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Next page"
+        title="Next page"
+        [disabled]="currentPage() >= metrics().length"
+        (click)="turnPage(1)"
+      >
+        <svg lucideChevronRight aria-hidden="true"></svg>
+      </button>
+    } @else {
+      <button
+        class="play-button"
+        type="button"
+        [attr.aria-label]="paused() ? 'Resume auto-scroll' : 'Pause auto-scroll'"
+        [title]="paused() ? 'Resume auto-scroll' : 'Pause auto-scroll'"
+        (click)="togglePause()"
+      >
+        @if (paused()) {
+          <svg lucidePlay aria-hidden="true"></svg>
+        } @else {
+          <svg lucidePause aria-hidden="true"></svg>
+        }
+      </button>
+      <label class="speed-control">
+        <span>Speed</span>
+        <input
+          type="range"
+          min="5"
+          max="120"
+          step="1"
+          [value]="speed()"
+          (input)="changeSpeed($event)"
+        />
+        <output>{{ speed() }}</output>
+      </label>
+    }
+
+    <div class="zoom-control">
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Zoom out"
+        title="Zoom out"
+        [disabled]="zoom() <= 0.5"
+        (click)="changeZoom(-0.1)"
+      >
+        <svg lucideMinus aria-hidden="true"></svg>
+      </button>
+      <span>{{ zoom() * 100 | number: '1.0-0' }}%</span>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Zoom in"
+        title="Zoom in"
+        [disabled]="zoom() >= 2.5"
+        (click)="changeZoom(0.1)"
+      >
+        <svg lucidePlus aria-hidden="true"></svg>
+      </button>
+    </div>
+  </nav>
+</main>
