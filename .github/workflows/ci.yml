@@ -13,15 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - name: Run API tests and migration round trip
-        run: |
-          make db-up migrate seed
-          make test-api test-migrations
+      - name: Run API tests
+        run: make test-api
+      - name: Run migration round trip
+        run: make test-migrations
       - name: Run API lint
         run: |
           test -z "$(gofmt -l cmd internal migrations)"
@@ -32,11 +32,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install dependencies
@@ -52,38 +52,20 @@ jobs:
         run: npm run build
         working-directory: web
 
-  omr-evaluation:
-    name: OMR corpus and evaluator
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install alphaTab dependency
-        run: npm ci
-        working-directory: web
-      - name: Verify corpus, metrics, and alphaTab evaluator
-        run: python3 -m unittest discover -s scripts/omr-eval/tests -v
-
   e2e:
     name: Browser end-to-end tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install UI dependencies
@@ -100,6 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-      - name: Build API, UI, and OMR images
-        run: make docker-build docker-build-omr
+        uses: actions/checkout@v6
+      - name: Build API image and verify UI image
+        run: make docker-build-api test-ui-container-mime

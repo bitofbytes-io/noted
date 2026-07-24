@@ -1,4 +1,4 @@
-# Local runtime data and uploaded POC assets
+# Local runtime data and uploaded sheet-music assets
 .local/
 
 # Local configuration and secrets
@@ -11,7 +11,7 @@ local.mk
 .auth/
 .playwright-cli/
 
-# Build and dependency outputs reserved for the future scaffold
+# Build and dependency outputs
 bin/
 coverage/
 dist/

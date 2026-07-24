@@ -2,68 +2,51 @@ package app
 
 import (
 	"fmt"
-	"time"
+	"net/url"
+	"strings"
 )
 
-var allowedStatuses = map[string]bool{
-	"Interested": true, "Assigned": true, "Learning": true, "Playable": true,
-	"Polished": true, "Memorized": true, "Paused": true, "Archived": true,
-}
-
-func ValidateStatus(status string) error {
-	if !allowedStatuses[status] {
-		return ValidationError{Fields: map[string]string{"status": "choose a supported learner status"}}
+func validatePiece(input PieceInput) (PieceInput, error) {
+	input.Title = strings.TrimSpace(input.Title)
+	input.Composer = strings.TrimSpace(input.Composer)
+	input.SourceURL = strings.TrimSpace(input.SourceURL)
+	input.Notes = strings.TrimSpace(input.Notes)
+	if input.Title == "" || len(input.Title) > 300 {
+		return input, fmt.Errorf("title must be between 1 and 300 characters")
 	}
-	return nil
-}
-
-func ValidateMeasureRange(start, end, measureCount int) error {
-	fields := map[string]string{}
-	if start < 1 {
-		fields["startMeasure"] = "must be at least 1"
+	if len(input.Composer) > 300 {
+		return input, fmt.Errorf("composer must be at most 300 characters")
 	}
-	if start > measureCount {
-		fields["startMeasure"] = fmt.Sprintf("must be at most %d", measureCount)
+	if len(input.SourceURL) > 2000 {
+		return input, fmt.Errorf("source URL must be at most 2000 characters")
 	}
-	if end < start {
-		fields["endMeasure"] = "must not precede the start measure"
-	}
-	if end > measureCount {
-		fields["endMeasure"] = fmt.Sprintf("must be at most %d", measureCount)
-	}
-	if len(fields) > 0 {
-		return ValidationError{Fields: fields}
-	}
-	return nil
-}
-
-func ValidatePractice(duration int, startMeasure, endMeasure, startingBPM, endingBPM *int) error {
-	fields := map[string]string{}
-	if duration <= 0 || duration > 86400 {
-		fields["durationSeconds"] = "must be between 1 and 86400"
-	}
-	if startMeasure != nil && *startMeasure < 1 {
-		fields["startMeasure"] = "must be positive"
-	}
-	if endMeasure != nil && startMeasure == nil {
-		fields["startMeasure"] = "is required with an end measure"
-	}
-	if startMeasure != nil && endMeasure != nil && *endMeasure < *startMeasure {
-		fields["endMeasure"] = "must not precede start measure"
-	}
-	for name, bpm := range map[string]*int{"startingBpm": startingBPM, "endingBpm": endingBPM} {
-		if bpm != nil && (*bpm < 30 || *bpm > 300) {
-			fields[name] = "must be between 30 and 300"
+	if input.SourceURL != "" {
+		parsed, err := url.ParseRequestURI(input.SourceURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return input, fmt.Errorf("source URL must be an http or https URL")
 		}
 	}
-	if len(fields) > 0 {
-		return ValidationError{Fields: fields}
+	if len(input.Notes) > 10000 {
+		return input, fmt.Errorf("notes must be at most 10000 characters")
 	}
-	return nil
+	return input, nil
 }
 
-func MondayFor(t time.Time) time.Time {
-	day := (int(t.Weekday()) + 6) % 7
-	local := t.AddDate(0, 0, -day)
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+func ValidateReaderState(state ReaderState) error {
+	if state.Mode != "page" && state.Mode != "scroll" {
+		return fmt.Errorf("mode must be page or scroll")
+	}
+	if state.LastPage < 1 {
+		return fmt.Errorf("last page must be at least 1")
+	}
+	if state.ScrollPosition < 0 {
+		return fmt.Errorf("scroll position cannot be negative")
+	}
+	if state.Zoom < 0.5 || state.Zoom > 2.5 {
+		return fmt.Errorf("zoom must be between 0.5 and 2.5")
+	}
+	if state.ScrollSpeed < 5 || state.ScrollSpeed > 120 {
+		return fmt.Errorf("scroll speed must be between 5 and 120")
+	}
+	return nil
 }

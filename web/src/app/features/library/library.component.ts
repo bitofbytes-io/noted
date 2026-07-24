@@ -1,91 +1,78 @@
-import { Component, OnDestroy, OnInit, signal } from '@angular/core';
-import { FormsModule, NgForm } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { firstValueFrom, Subscription } from 'rxjs';
-import { ApiService, errorMessage, validationFields } from '../../core/api.service';
-import { learnerStatuses, Tag, WorkSummary } from '../../core/models';
+import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
+import {
+  LucideFileText,
+  LucideHeart,
+  LucideHeartOff,
+  LucidePencil,
+  LucidePlus,
+  LucideSearch,
+  LucideTrash2,
+  LucideUpload,
+  LucideX,
+} from '@lucide/angular';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { firstValueFrom } from 'rxjs';
+import { ApiService, errorMessage } from '../../core/api.service';
+import { Piece, PieceInput } from '../../core/models';
+import { titleFromFilename } from './library.utils';
+
+GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
 
 @Component({
   selector: 'app-library',
-  imports: [FormsModule, RouterLink],
+  imports: [
+    FormsModule,
+    LucideFileText,
+    LucideHeart,
+    LucideHeartOff,
+    LucidePencil,
+    LucidePlus,
+    LucideSearch,
+    LucideTrash2,
+    LucideUpload,
+    LucideX,
+  ],
   templateUrl: './library.component.html',
   styleUrl: './library.component.scss',
 })
-export class LibraryComponent implements OnInit, OnDestroy {
-  protected readonly works = signal<WorkSummary[]>([]);
-  protected readonly tags = signal<Tag[]>([]);
+export class LibraryComponent implements OnDestroy {
+  @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
+  private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
+  protected readonly pieces = signal<Piece[]>([]);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
+  protected readonly readingPdf = signal(false);
   protected readonly error = signal('');
-  protected readonly createFieldErrors = signal<Record<string, string>>({});
-  protected readonly statuses = learnerStatuses;
-  protected showCreate = false;
   protected query = '';
-  protected status = '';
-  protected favorite = '';
-  protected tag = '';
-  protected draft = {
-    title: '',
-    composer: '',
-    catalogNumber: '',
-    keySignature: '',
-    period: '',
-    editionName: 'Personal edition',
-    sourceUrl: '',
-    rightsNote: '',
-  };
-  private routeSubscription?: Subscription;
+  protected favoritesOnly = false;
+  protected editing: Piece | null = null;
+  protected form: PieceInput = emptyPiece();
+  protected selectedFile: File | null = null;
+  protected selectedPageCount = 0;
+  protected readonly maxUploadLabel = '50 MB';
+  private searchTimer?: number;
 
-  constructor(
-    private readonly api: ApiService,
-    private readonly route: ActivatedRoute,
-    private readonly router: Router,
-  ) {}
-
-  ngOnInit(): void {
-    this.routeSubscription = this.route.queryParamMap.subscribe((params) => {
-      this.query = params.get('q') ?? '';
-      this.status = params.get('status') ?? '';
-      this.favorite = params.get('favorite') ?? '';
-      this.tag = params.get('tag') ?? '';
-      void this.load();
-    });
-    void this.loadTags();
+  constructor() {
+    void this.load();
   }
 
   ngOnDestroy(): void {
-    this.routeSubscription?.unsubscribe();
+    if (this.searchTimer) window.clearTimeout(this.searchTimer);
   }
 
-  applyFilters(): void {
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: {
-        q: this.query.trim() || null,
-        status: this.status || null,
-        favorite: this.favorite || null,
-        tag: this.tag || null,
-      },
-    });
-  }
-
-  clearFilters(): void {
-    this.query = '';
-    this.status = '';
-    this.favorite = '';
-    this.tag = '';
-    this.applyFilters();
+  onSearch(): void {
+    if (this.searchTimer) window.clearTimeout(this.searchTimer);
+    this.searchTimer = window.setTimeout(() => void this.load(), 250);
   }
 
   async load(): Promise<void> {
     this.loading.set(true);
+    this.error.set('');
     try {
-      const favorite = this.favorite === '' ? null : this.favorite === 'true';
-      const response = await firstValueFrom(
-        this.api.works({ q: this.query, status: this.status, favorite, tag: this.tag }),
-      );
-      this.works.set(response.items);
-      this.error.set('');
+      this.pieces.set(await firstValueFrom(this.api.pieces(this.query, this.favoritesOnly)));
     } catch (error) {
       this.error.set(errorMessage(error));
     } finally {
@@ -93,45 +80,127 @@ export class LibraryComponent implements OnInit, OnDestroy {
     }
   }
 
-  async loadTags(): Promise<void> {
-    try {
-      this.tags.set((await firstValueFrom(this.api.tags())).items);
-    } catch {
-      this.tags.set([]);
-    }
-  }
-
-  fieldError(name: string): string {
-    return this.createFieldErrors()[name] ?? '';
-  }
-
-  clearFieldError(name: string): void {
-    const remaining = { ...this.createFieldErrors() };
-    delete remaining[name];
-    this.createFieldErrors.set(remaining);
-    if (this.error().toLowerCase().startsWith('correct the highlighted fields')) {
-      this.error.set(Object.keys(remaining).length ? 'Correct the highlighted fields.' : '');
-    }
-  }
-
-  async createWork(form: NgForm): Promise<void> {
-    this.createFieldErrors.set({});
-    if (form.invalid) {
-      form.control.markAllAsTouched();
-      this.error.set('Correct the highlighted fields.');
-      return;
-    }
-
+  openCreate(): void {
+    this.editing = null;
+    this.form = emptyPiece();
+    this.selectedFile = null;
+    this.selectedPageCount = 0;
     this.error.set('');
-    this.saving.set(true);
+    this.editor?.nativeElement.showModal();
+  }
+
+  openEdit(piece: Piece, event?: Event): void {
+    event?.stopPropagation();
+    this.editing = piece;
+    this.form = {
+      title: piece.title,
+      composer: piece.composer,
+      favorite: piece.favorite,
+      sourceUrl: piece.sourceUrl,
+      notes: piece.notes,
+    };
+    this.selectedFile = null;
+    this.selectedPageCount = 0;
+    this.error.set('');
+    this.editor?.nativeElement.showModal();
+  }
+
+  closeEditor(): void {
+    if (!this.saving()) this.editor?.nativeElement.close();
+  }
+
+  async choosePdf(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    if (!file) return;
+    this.readingPdf.set(true);
+    this.error.set('');
     try {
-      const work = await firstValueFrom(this.api.createWork(this.draft));
-      await this.router.navigate(['/works', work.id]);
+      const loadingTask = getDocument({ data: await file.arrayBuffer(), wasmUrl: '/pdfjs/wasm/' });
+      const document = await loadingTask.promise;
+      this.selectedFile = file;
+      this.selectedPageCount = document.numPages;
+      if (!this.form.title.trim()) this.form.title = titleFromFilename(file.name);
+      await loadingTask.destroy();
+    } catch {
+      this.selectedFile = null;
+      this.selectedPageCount = 0;
+      input.value = '';
+      this.error.set('The selected file could not be read as a PDF.');
+    } finally {
+      this.readingPdf.set(false);
+    }
+  }
+
+  async save(): Promise<void> {
+    if (!this.form.title.trim() || this.saving() || this.readingPdf()) return;
+    this.saving.set(true);
+    this.error.set('');
+    const wasNew = !this.editing;
+    try {
+      let piece = this.editing
+        ? await firstValueFrom(this.api.updatePiece(this.editing.id, this.form))
+        : await firstValueFrom(this.api.createPiece(this.form));
+      // Keep the created record as the retry target if the separate upload fails.
+      if (wasNew) this.editing = piece;
+      if (this.selectedFile) {
+        piece = await firstValueFrom(
+          this.api.uploadPdf(piece.id, this.selectedFile, this.selectedPageCount),
+        );
+      }
+      this.editor?.nativeElement.close();
+      await this.load();
+      if (wasNew && piece.pdf) await this.router.navigate(['/reader', piece.id]);
     } catch (error) {
-      this.createFieldErrors.set(validationFields(error));
       this.error.set(errorMessage(error));
     } finally {
       this.saving.set(false);
     }
   }
+
+  openPiece(piece: Piece): void {
+    if (piece.pdf) {
+      void this.router.navigate(['/reader', piece.id]);
+    } else {
+      this.openEdit(piece);
+    }
+  }
+
+  openPieceFromKeyboard(piece: Piece, event: Event): void {
+    if (event.target === event.currentTarget) this.openPiece(piece);
+  }
+
+  async toggleFavorite(piece: Piece, event: Event): Promise<void> {
+    event.stopPropagation();
+    try {
+      const updated = await firstValueFrom(
+        this.api.updatePiece(piece.id, { favorite: !piece.favorite }),
+      );
+      this.pieces.update((pieces) =>
+        this.favoritesOnly && !updated.favorite
+          ? pieces.filter((candidate) => candidate.id !== updated.id)
+          : pieces.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
+      );
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+  }
+
+  async deletePiece(piece: Piece): Promise<void> {
+    if (!window.confirm(`Delete “${piece.title}” and its PDF? This cannot be undone.`)) return;
+    this.saving.set(true);
+    try {
+      await firstValueFrom(this.api.deletePiece(piece.id));
+      this.editor?.nativeElement.close();
+      await this.load();
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    } finally {
+      this.saving.set(false);
+    }
+  }
+}
+
+function emptyPiece(): PieceInput {
+  return { title: '', composer: '', favorite: false, sourceUrl: '', notes: '' };
 }

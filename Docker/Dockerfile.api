@@ -12,8 +12,7 @@ COPY internal ./internal
 COPY migrations ./migrations
 
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-api ./cmd/api \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-migrate ./cmd/migrate \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-revalidate-musicxml ./cmd/revalidate-musicxml
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/noted-migrate ./cmd/migrate
 
 FROM alpine:3.23
 
@@ -21,7 +20,7 @@ ARG VERSION=dev
 ARG REVISION=unknown
 ARG SOURCE_URL=https://github.com/bitofbytes-io/noted
 
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates wget \
     && addgroup -S -g 10001 noted \
     && adduser -S -D -H -u 10001 -G noted noted \
     && mkdir -p /data/assets \
@@ -31,21 +30,16 @@ WORKDIR /app
 
 COPY --from=builder --chown=noted:noted /out/noted-api /app/noted-api
 COPY --from=builder --chown=noted:noted /out/noted-migrate /app/noted-migrate
-COPY --from=builder --chown=noted:noted /out/noted-revalidate-musicxml /app/noted-revalidate-musicxml
 
 LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.title="noted-api" \
-      org.opencontainers.image.description="Noted API and database migration service"
+      org.opencontainers.image.description="Noted sheet-music binder API"
 
 ENV APP_ENV=production \
-    AUTH_MODE=google \
     PORT=8080 \
-    LOG_LEVEL=info \
     DATABASE_URL_FILE=/run/secrets/noted_database_url \
-    AUTH_GOOGLE_CLIENT_ID_FILE=/run/secrets/noted_google_client_id \
-    AUTH_GOOGLE_CLIENT_SECRET_FILE=/run/secrets/noted_google_client_secret \
     ASSET_ROOT=/data/assets
 
 USER noted
@@ -53,6 +47,6 @@ USER noted
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:8080/api/ready || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/api/health || exit 1
 
 CMD ["/app/noted-api"]

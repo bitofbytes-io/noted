@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"log/slog"
 	"net/http"
@@ -13,9 +12,8 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/assets"
-	"github.com/bitofbytes-io/noted/internal/auth"
 	"github.com/bitofbytes-io/noted/internal/config"
-	httptransport "github.com/bitofbytes-io/noted/internal/transport/http"
+	"github.com/bitofbytes-io/noted/internal/httpapi"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -26,66 +24,36 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	level := slog.LevelInfo
-	if cfg.LogLevel == "debug" {
-		level = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("configure database", "error", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 	defer pool.Close()
-	store, err := assets.NewFilesystemStore(cfg.AssetRoot)
+	if err := pool.Ping(ctx); err != nil {
+		log.Fatal(err)
+	}
+	store, err := assets.NewLocalStore(cfg.AssetRoot)
 	if err != nil {
-		logger.Error("configure asset storage", "error", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
-	service := app.NewService(pool, store)
-	authService := auth.NewService(pool, cfg.AllowedEmails, cfg.SessionTTL)
-	switch {
-	case cfg.OMRBaseURL != "":
-		service.WithRecognizer(app.HTTPRecognizer{BaseURL: cfg.OMRBaseURL, Token: cfg.OMRToken})
-	case cfg.AudiverisCommand != "":
-		service.WithRecognizer(app.CommandRecognizer{Command: cfg.AudiverisCommand, Version: "5.10.2"})
-	}
-	stopRecognitionWorker := func() {}
-	if service.Recognizer != nil {
-		workerCtx, stopWorker := context.WithCancel(ctx)
-		stopRecognitionWorker = stopWorker
-		defer stopRecognitionWorker()
-		if err := service.RecoverRecognitionJobs(workerCtx); err != nil {
-			logger.Error("recover score recognition jobs", "error", err)
-			os.Exit(1)
-		}
-	}
-
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httptransport.NewRouter(service, authService, cfg, logger),
-		ReadTimeout:       5 * time.Minute,
-		WriteTimeout:      5 * time.Minute,
+		Handler:           httpapi.NewRouter(app.NewService(pool, store), cfg.MaxUploadBytes, cfg.AllowedOrigin),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
-		logger.Info("Noted API listening", "address", server.Addr, "environment", cfg.AppEnv)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("serve API", "error", err)
-			os.Exit(1)
+		slog.Info("Noted API listening", "address", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
 		}
 	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-	stopRecognitionWorker()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown", "error", err)
+	<-ctx.Done()
+	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stop()
+	if err := server.Shutdown(shutdown); err != nil {
+		slog.Error("API shutdown failed", "error", err)
 	}
 }

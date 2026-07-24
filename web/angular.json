@@ -5,15 +5,9 @@
     "packageManager": "npm",
     "analytics": false
   },
-  "newProjectRoot": "projects",
   "projects": {
     "web": {
       "projectType": "application",
-      "schematics": {
-        "@schematics/angular:component": {
-          "style": "scss"
-        }
-      },
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",
@@ -24,36 +18,10 @@
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
-            "allowedCommonJsDependencies": ["@tonejs/midi"],
             "assets": [
               {
                 "glob": "**/*",
                 "input": "public"
-              },
-              {
-                "glob": "**/*",
-                "input": "node_modules/@coderline/alphatab/dist/font",
-                "output": "/alphatab/font"
-              },
-              {
-                "glob": "sonivox.sf2",
-                "input": "node_modules/@coderline/alphatab/dist/soundfont",
-                "output": "/alphatab/soundfont"
-              },
-              {
-                "glob": "alphaTab.core.mjs",
-                "input": "node_modules/@coderline/alphatab/dist",
-                "output": "/"
-              },
-              {
-                "glob": "alphaTab.worker.mjs",
-                "input": "node_modules/@coderline/alphatab/dist",
-                "output": "/"
-              },
-              {
-                "glob": "alphaTab.worklet.mjs",
-                "input": "node_modules/@coderline/alphatab/dist",
-                "output": "/"
               },
               {
                 "glob": "pdf.worker.min.mjs",
@@ -73,13 +41,13 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "500kB",
+                  "maximumWarning": "650kB",
                   "maximumError": "1MB"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "7kB",
-                  "maximumError": "8kB"
+                  "maximumWarning": "12kB",
+                  "maximumError": "16kB"
                 }
               ],
               "outputHashing": "all"
@@ -95,15 +63,9 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "proxyConfig": "proxy.conf.json",
-            "prebundle": {
-              "exclude": ["@coderline/alphatab"]
-            }
+            "proxyConfig": "proxy.conf.json"
           },
           "configurations": {
-            "production": {
-              "buildTarget": "web:build:production"
-            },
             "development": {
               "buildTarget": "web:build:development"
             }

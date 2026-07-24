@@ -3,94 +3,32 @@ package assets
 import (
 	"context"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestFilesystemStoreRejectsUnsafeKeys(t *testing.T) {
-	store, err := NewFilesystemStore(t.TempDir())
+func TestLocalStoreUsesOpaqueKeysAndRejectsTraversal(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	unsafe := []string{"../secret", "pdf/../../secret", "pdf/user-file.pdf", "/etc/passwd"}
-	for _, key := range unsafe {
-		if _, err := store.Put(context.Background(), key, strings.NewReader("secret")); err == nil {
-			t.Fatalf("expected key %q to be rejected", key)
-		}
-	}
-}
-
-func TestFilesystemStoreReadinessProbesRequiredDirectories(t *testing.T) {
-	root := t.TempDir()
-	store, err := NewFilesystemStore(root)
+	object, err := store.Save(context.Background(), strings.NewReader("%PDF-fixture"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Ready(context.Background()); err != nil {
-		t.Fatalf("new store should be ready: %v", err)
+	if strings.Contains(object.Key, "fixture") || object.Size != 12 {
+		t.Fatalf("unexpected object: %#v", object)
 	}
-	if err := os.RemoveAll(filepath.Join(root, "originals", "pdf")); err != nil {
-		t.Fatal(err)
+	if _, err := store.Open(context.Background(), "../../etc/passwd"); err == nil {
+		t.Fatal("expected traversal key to be rejected")
 	}
-	if err := store.Ready(context.Background()); err == nil {
-		t.Fatal("store reported ready after a required asset directory was removed")
-	}
-}
-
-func TestFilesystemStoreReadinessHonorsCancellation(t *testing.T) {
-	store, err := NewFilesystemStore(t.TempDir())
+	reader, err := store.Open(context.Background(), object.Key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := store.Ready(ctx); err == nil {
-		t.Fatal("store readiness ignored a canceled context")
-	}
-}
-
-func TestFilesystemStoreRoundTripAndDelete(t *testing.T) {
-	store, err := NewFilesystemStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := "pdf/11111111-1111-4111-8111-111111111111"
-	stored, err := store.Put(context.Background(), key, strings.NewReader("%PDF-test"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Size != 9 || stored.Checksum == "" {
-		t.Fatalf("unexpected stored object: %#v", stored)
-	}
-	reader, _, err := store.Open(context.Background(), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contents, _ := io.ReadAll(reader)
-	reader.Close()
-	if string(contents) != "%PDF-test" {
-		t.Fatalf("unexpected contents %q", contents)
-	}
-	if err := store.Delete(context.Background(), key); err != nil {
-		t.Fatal(err)
-	}
-	exists, err := store.Exists(context.Background(), key)
-	if err != nil || exists {
-		t.Fatalf("expected deleted object, exists=%v err=%v", exists, err)
-	}
-}
-
-func TestFilesystemStoreAcceptsEveryOpaqueAssetKind(t *testing.T) {
-	store, err := NewFilesystemStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, kind := range []string{"pdf", "musicxml", "midi", "audio", "image", "omr"} {
-		key := kind + "/11111111-1111-4111-8111-111111111111"
-		if _, err := store.Put(context.Background(), key, strings.NewReader("fixture")); err != nil {
-			t.Fatalf("put %s: %v", kind, err)
-		}
+	defer reader.Close()
+	body, _ := io.ReadAll(reader)
+	if string(body) != "%PDF-fixture" {
+		t.Fatalf("unexpected stored body %q", body)
 	}
 }
