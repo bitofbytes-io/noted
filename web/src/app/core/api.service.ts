@@ -1,11 +1,19 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Piece, PieceInput, ReaderState } from './models';
+import { Piece, PieceInput, ReaderState, Session } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
+
+  session(): Observable<Session> {
+    return this.http.get<Session>('/api/session');
+  }
+
+  logout(): Observable<void> {
+    return this.http.delete<void>('/api/session');
+  }
 
   pieces(query = '', favorite = false): Observable<Piece[]> {
     let params = new HttpParams();

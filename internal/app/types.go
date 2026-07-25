@@ -2,6 +2,13 @@ package app
 
 import "time"
 
+type User struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	AvatarURL   string `json:"avatarUrl,omitempty"`
+}
+
 type PDF struct {
 	OriginalFilename string    `json:"originalFilename"`
 	SizeBytes        int64     `json:"sizeBytes"`

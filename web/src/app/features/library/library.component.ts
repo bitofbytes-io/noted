@@ -15,7 +15,7 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { Piece, PieceInput } from '../../core/models';
+import { Piece, PieceInput, Session } from '../../core/models';
 import { titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
@@ -46,6 +46,8 @@ export class LibraryComponent implements OnDestroy {
   protected readonly saving = signal(false);
   protected readonly readingPdf = signal(false);
   protected readonly error = signal('');
+  protected readonly session = signal<Session | null>(null);
+  protected readonly signingOut = signal(false);
   protected query = '';
   protected favoritesOnly = false;
   protected editing: Piece | null = null;
@@ -56,7 +58,28 @@ export class LibraryComponent implements OnDestroy {
   private searchTimer?: number;
 
   constructor() {
+    void this.loadSession();
     void this.load();
+  }
+
+  async loadSession(): Promise<void> {
+    try {
+      this.session.set(await firstValueFrom(this.api.session()));
+    } catch {
+      this.session.set(null);
+    }
+  }
+
+  async logout(): Promise<void> {
+    if (this.signingOut()) return;
+    this.signingOut.set(true);
+    try {
+      await firstValueFrom(this.api.logout());
+      window.location.reload();
+    } catch (error) {
+      this.error.set(errorMessage(error));
+      this.signingOut.set(false);
+    }
   }
 
   ngOnDestroy(): void {

@@ -6,7 +6,7 @@ API_IMAGE_REPO ?= noted-api
 UI_IMAGE_REPO ?= noted-ui
 PLATFORMS ?= linux/arm64/v8
 
-.PHONY: setup db-up db-down db-reset migrate api-run web-start local test test-api test-web test-migrations test-e2e test-ui-container-mime lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-push docker-push-api docker-push-ui docker-publish docker-buildx docker-buildx-api docker-buildx-ui
+.PHONY: setup db-up db-down db-reset migrate api-run web-start local test test-api test-web test-integration test-migrations test-e2e test-ui-container-mime lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-push docker-push-api docker-push-ui docker-publish docker-buildx docker-buildx-api docker-buildx-ui
 
 configure-image:
 	$(eval SHORT_SHA := $(shell git rev-parse --short=7 HEAD 2>/dev/null))
@@ -114,6 +114,9 @@ test-api:
 
 test-web:
 	cd web && npm test -- --watch=false
+
+test-integration: db-up
+	./scripts/run-integration-tests.sh
 
 test-migrations: db-up
 	./scripts/verify-migrations.sh

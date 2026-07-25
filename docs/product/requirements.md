@@ -1,7 +1,7 @@
 # Noted Digital Binder v1 Requirements
 
 Status: Authoritative implementation scope
-Last updated: 2026-07-23
+Last updated: 2026-07-25
 
 ## Product outcome
 
@@ -19,6 +19,12 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-004: A user can search title and composer and filter favorites.
 - BND-005: Selecting a piece with a PDF opens its reader directly.
 - BND-006: A user can upload or replace the one PDF attached to a piece.
+- BND-007: Production users sign in with one of the explicitly allow-listed,
+  verified Google accounts.
+- BND-008: Each piece, its PDF, notes, favorite state, and reader state are
+  private to its owning user.
+- BND-009: A user cannot discover, fetch, or mutate another user's piece by
+  guessing its identifier.
 
 ### PDF storage and delivery
 
@@ -59,10 +65,9 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 
 ## Deferred
 
-Authentication, production NAS/NFS/Traefik deployment, practice tracking,
-weekly summaries, metronome, learning, OMR, MusicXML, synthesized or reference
-playback, annotations, IMSLP fetching, photo stitching, sharing, and offline
-mode are not part of v1.
+Practice tracking, weekly summaries, metronome, learning, OMR, MusicXML,
+synthesized or reference playback, annotations, IMSLP fetching, photo
+stitching, sharing, and offline mode are not part of v1.
 
 ## Acceptance flow
 

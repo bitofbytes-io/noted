@@ -16,32 +16,36 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 )
 
 type Backend interface {
-	ListPieces(context.Context, string, *bool) ([]app.Piece, error)
-	GetPiece(context.Context, string) (app.Piece, error)
-	CreatePiece(context.Context, app.PieceInput) (app.Piece, error)
-	UpdatePiece(context.Context, string, app.PiecePatch) (app.Piece, error)
-	DeletePiece(context.Context, string) error
-	UploadPDF(context.Context, string, string, int, io.Reader) (app.Piece, error)
-	PDFSource(context.Context, string) (app.PDFSource, assets.ReadSeekCloser, error)
-	GetReaderState(context.Context, string) (app.ReaderState, error)
-	PutReaderState(context.Context, string, app.ReaderState) (app.ReaderState, error)
+	ListPieces(context.Context, string, string, *bool) ([]app.Piece, error)
+	GetPiece(context.Context, string, string) (app.Piece, error)
+	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
+	UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error)
+	DeletePiece(context.Context, string, string) error
+	UploadPDF(context.Context, string, string, string, int, io.Reader) (app.Piece, error)
+	PDFSource(context.Context, string, string) (app.PDFSource, assets.ReadSeekCloser, error)
+	GetReaderState(context.Context, string, string) (app.ReaderState, error)
+	PutReaderState(context.Context, string, string, app.ReaderState) (app.ReaderState, error)
 }
 
 type Handler struct {
 	backend        Backend
+	auth           Authenticator
+	config         config.Config
 	maxUploadBytes int64
 	allowedOrigin  string
 }
 
-func NewRouter(backend Backend, maxUploadBytes int64, allowedOrigin string) http.Handler {
+func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) http.Handler {
 	handler := &Handler{
-		backend: backend, maxUploadBytes: maxUploadBytes, allowedOrigin: allowedOrigin,
+		backend: backend, auth: authenticator, config: cfg,
+		maxUploadBytes: cfg.MaxUploadBytes, allowedOrigin: cfg.AllowedOrigin,
 	}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
@@ -51,18 +55,25 @@ func NewRouter(backend Backend, maxUploadBytes int64, allowedOrigin string) http
 	}
 	router.Get("/api/health", health)
 	router.Get("/api/ready", health)
-	router.Route("/api/pieces", func(router chi.Router) {
-		router.Get("/", handler.listPieces)
-		router.Post("/", handler.createPiece)
-		router.Route("/{pieceID}", func(router chi.Router) {
-			router.Get("/", handler.getPiece)
-			router.Patch("/", handler.updatePiece)
-			router.Delete("/", handler.deletePiece)
-			router.Post("/pdf", handler.uploadPDF)
-			router.Get("/pdf", handler.servePDF)
-			router.Head("/pdf", handler.servePDF)
-			router.Get("/reader-state", handler.getReaderState)
-			router.Put("/reader-state", handler.putReaderState)
+	router.Get("/api/auth/google", handler.startGoogleLogin)
+	router.Get("/api/auth/google/callback", handler.googleCallback)
+	router.Get("/api/session", handler.session)
+	router.Delete("/api/session", handler.logout)
+	router.Group(func(router chi.Router) {
+		router.Use(handler.authenticatedUser)
+		router.Route("/api/pieces", func(router chi.Router) {
+			router.Get("/", handler.listPieces)
+			router.Post("/", handler.createPiece)
+			router.Route("/{pieceID}", func(router chi.Router) {
+				router.Get("/", handler.getPiece)
+				router.Patch("/", handler.updatePiece)
+				router.Delete("/", handler.deletePiece)
+				router.Post("/pdf", handler.uploadPDF)
+				router.Get("/pdf", handler.servePDF)
+				router.Head("/pdf", handler.servePDF)
+				router.Get("/reader-state", handler.getReaderState)
+				router.Put("/reader-state", handler.putReaderState)
+			})
 		})
 	})
 	return router
@@ -78,7 +89,9 @@ func (h *Handler) listPieces(writer http.ResponseWriter, request *http.Request) 
 		}
 		favorite = &parsed
 	}
-	pieces, err := h.backend.ListPieces(request.Context(), request.URL.Query().Get("q"), favorite)
+	pieces, err := h.backend.ListPieces(
+		request.Context(), currentUser(request).ID, request.URL.Query().Get("q"), favorite,
+	)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -91,7 +104,7 @@ func (h *Handler) getPiece(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	piece, err := h.backend.GetPiece(request.Context(), id)
+	piece, err := h.backend.GetPiece(request.Context(), currentUser(request).ID, id)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -105,7 +118,7 @@ func (h *Handler) createPiece(writer http.ResponseWriter, request *http.Request)
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
-	piece, err := h.backend.CreatePiece(request.Context(), input)
+	piece, err := h.backend.CreatePiece(request.Context(), currentUser(request).ID, input)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -124,7 +137,7 @@ func (h *Handler) updatePiece(writer http.ResponseWriter, request *http.Request)
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
-	piece, err := h.backend.UpdatePiece(request.Context(), id, patch)
+	piece, err := h.backend.UpdatePiece(request.Context(), currentUser(request).ID, id, patch)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -137,7 +150,7 @@ func (h *Handler) deletePiece(writer http.ResponseWriter, request *http.Request)
 	if !ok {
 		return
 	}
-	if err := h.backend.DeletePiece(request.Context(), id); err != nil {
+	if err := h.backend.DeletePiece(request.Context(), currentUser(request).ID, id); err != nil {
 		handleError(writer, err)
 		return
 	}
@@ -175,7 +188,9 @@ func (h *Handler) uploadPDF(writer http.ResponseWriter, request *http.Request) {
 		reader: io.MultiReader(strings.NewReader(string(signature)), file),
 		left:   h.maxUploadBytes,
 	}
-	piece, err := h.backend.UploadPDF(request.Context(), id, filename, pageCount, limited)
+	piece, err := h.backend.UploadPDF(
+		request.Context(), currentUser(request).ID, id, filename, pageCount, limited,
+	)
 	if err != nil {
 		if errors.Is(err, errUploadTooLarge) {
 			writeError(writer, http.StatusRequestEntityTooLarge, "PDF exceeds the upload limit")
@@ -192,7 +207,7 @@ func (h *Handler) servePDF(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	source, reader, err := h.backend.PDFSource(request.Context(), id)
+	source, reader, err := h.backend.PDFSource(request.Context(), currentUser(request).ID, id)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -211,7 +226,7 @@ func (h *Handler) getReaderState(writer http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	state, err := h.backend.GetReaderState(request.Context(), id)
+	state, err := h.backend.GetReaderState(request.Context(), currentUser(request).ID, id)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -229,7 +244,7 @@ func (h *Handler) putReaderState(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
-	state, err := h.backend.PutReaderState(request.Context(), id, state)
+	state, err := h.backend.PutReaderState(request.Context(), currentUser(request).ID, id, state)
 	if err != nil {
 		handleError(writer, err)
 		return
@@ -242,6 +257,7 @@ func (h *Handler) cors(next http.Handler) http.Handler {
 		origin := request.Header.Get("Origin")
 		if origin != "" && origin == h.allowedOrigin {
 			writer.Header().Set("Access-Control-Allow-Origin", origin)
+			writer.Header().Set("Access-Control-Allow-Credentials", "true")
 			writer.Header().Set("Vary", "Origin")
 			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			writer.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,POST,PATCH,PUT,DELETE,OPTIONS")

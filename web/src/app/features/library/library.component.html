@@ -1,10 +1,24 @@
 <main class="library">
   <header class="masthead">
     <a class="wordmark" href="/" aria-label="Noted library">Noted</a>
-    <button class="add-button" type="button" (click)="openCreate()">
-      <svg lucidePlus aria-hidden="true"></svg>
-      <span>Add piece</span>
-    </button>
+    <div class="masthead-actions">
+      @if (session()?.user; as user) {
+        <div class="account" [title]="user.email">
+          <span>{{ user.displayName }}</span>
+          @if (session()?.development) {
+            <small>DEV</small>
+          } @else {
+            <button type="button" (click)="logout()" [disabled]="signingOut()">
+              {{ signingOut() ? 'Signing out…' : 'Sign out' }}
+            </button>
+          }
+        </div>
+      }
+      <button class="add-button" type="button" (click)="openCreate()">
+        <svg lucidePlus aria-hidden="true"></svg>
+        <span>Add piece</span>
+      </button>
+    </div>
   </header>
 
   <section class="library-head" aria-labelledby="library-title">

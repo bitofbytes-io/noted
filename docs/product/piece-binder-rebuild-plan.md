@@ -1,7 +1,7 @@
 # Noted Rebuild: Digital Sheet-Music Binder
 
 Status: Authoritative plan for the next implementation pass
-Last updated: 2026-07-23
+Last updated: 2026-07-25
 
 ## Overview
 
@@ -20,10 +20,11 @@ One job: sit at the piano, pull up the iPad, search your digitized pieces, open 
   - **Page mode**: fit-to-page, turn via tap zones, swipe, and keyboard PageDown/arrows — Bluetooth page-turn pedals emulate keyboards, so pedal support comes free.
   - **Auto-scroll mode**: continuous vertical scroll at an adjustable speed (lets you zoom wider than one page), tap to pause/resume.
 - Per-piece resume: remember last page/position, mode, zoom, and scroll speed.
+- Private per-user binders protected by allow-listed Google OAuth in production.
 
 ### Explicitly deferred
 
-Documented, not built: practice tracking and weekly summaries, metronome, learning/lessons, OMR/MusicXML/playback, measure selection, YouTube references, annotations, automated IMSLP fetching (bot-blocked), photo-to-piece stitching, sharing, authentication.
+Documented, not built: practice tracking and weekly summaries, metronome, learning/lessons, OMR/MusicXML/playback, measure selection, YouTube references, annotations, automated IMSLP fetching (bot-blocked), photo-to-piece stitching, and sharing.
 
 ## Codebase reset (same repo, fresh build)
 
@@ -31,19 +32,29 @@ Documented, not built: practice tracking and weekly summaries, metronome, learni
 - Delete old application code: `cmd/`, `internal/`, `web/`, `omr/`, `migrations/`, `scripts/`, old Docker/compose/Makefile targets. Rebuild with the same stack: Angular frontend, Go API, PostgreSQL.
 - Keep the safety invariants that still apply: filesystem asset storage behind a Go interface under gitignored `.local/`, opaque storage keys (never user filenames as paths), no committed scores or secrets, rights-safe fixtures in `testdata/`.
 - Keep the "Title Page" visual direction and design tokens (`docs/design/design-tokens.md`) — carry those docs forward rather than archiving them.
-- v1 is single-user with no auth; production deployment (NAS, Traefik, OAuth) stays a documented follow-up, not a blocker.
+- Local development uses a seeded learner. Production uses Google OAuth with an
+  explicit household email allow-list, opaque sessions, and private user-owned
+  pieces.
 
 ## Database
 
 - Local dev keeps the `compose.local.yml` Postgres (user/db `noted`). Reset = drop and recreate only the `noted` database's tables (or simply remove the local `noted-postgres` Docker volume, which contains nothing else). No other databases or roles are touched — same rule applies if pointing at the shared Postgres later.
 - New minimal schema (fresh migration 000001):
-  - `pieces`: id, title, composer, favorite, source_url, notes, timestamps.
+  - `users`: Google/development identity and profile metadata.
+  - `user_sessions` and `oauth_login_states`: hashed opaque browser
+    authentication state.
+  - `pieces`: id, user_id, title, composer, favorite, source_url, notes,
+    timestamps.
   - `piece_pdfs`: piece_id (unique — one PDF per piece in v1), storage_key, original_filename, size, checksum, page_count, uploaded_at.
   - `reader_states`: piece_id, mode, last_page/scroll_position, zoom, scroll_speed, updated_at.
 
 ## API (Go)
 
-Small JSON API: CRUD for pieces, multipart PDF upload attached to a piece, PDF streaming with range-request support (needed for pdf.js on Safari), reader-state get/put, and search (`?q=` on title/composer, `?favorite=true`).
+Small JSON API: Google OAuth/session routes plus authenticated CRUD for pieces,
+multipart PDF upload attached to a piece, PDF streaming with range-request
+support (needed for pdf.js on Safari), reader-state get/put, and search
+(`?q=` on title/composer, `?favorite=true`). Every binder operation resolves
+the current user server-side.
 
 ## Frontend (Angular)
 

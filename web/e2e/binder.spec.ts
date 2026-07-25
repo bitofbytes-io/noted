@@ -23,6 +23,22 @@ const piece = {
 
 test.beforeEach(async ({ page }) => {
   const pdf = await readFile(resolve('../testdata/fixtures/noted-exercise.pdf'));
+  await page.route('**/api/session', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        authenticated: true,
+        authMode: 'development',
+        development: true,
+        user: {
+          id: 'db53bb2a-b720-407a-8941-cd4459f69e79',
+          email: 'learner@noted.local',
+          displayName: 'Local learner',
+        },
+      }),
+    });
+  });
   await page.route('**/api/pieces/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -82,6 +98,25 @@ test.beforeEach(async ({ page }) => {
       body: JSON.stringify([piece]),
     });
   });
+});
+
+test('unauthenticated visitors see the Google sign-in gate', async ({ page }) => {
+  await page.route('**/api/session', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        authenticated: false,
+        authMode: 'google',
+        development: false,
+      }),
+    });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Your scores, ready when you are.' }),
+  ).toBeVisible();
 });
 
 test('adds a PDF with a filename-prefilled title and opens it', async ({ page }) => {

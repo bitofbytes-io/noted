@@ -38,6 +38,7 @@ LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.description="Noted sheet-music binder API"
 
 ENV APP_ENV=production \
+    AUTH_MODE=google \
     PORT=8080 \
     DATABASE_URL_FILE=/run/secrets/noted_database_url \
     ASSET_ROOT=/data/assets

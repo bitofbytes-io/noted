@@ -24,6 +24,36 @@
   text-decoration: none;
 }
 
+.masthead-actions,
+.account {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.account {
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.account small {
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  color: var(--green);
+  letter-spacing: 0.08em;
+}
+
+.account button {
+  min-height: var(--tap-min);
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
 .add-button,
 .primary-button {
   min-height: 48px;
@@ -43,6 +73,16 @@
 .add-button:hover,
 .primary-button:hover:not(:disabled) {
   background: var(--green-dark);
+}
+
+@media (max-width: 640px) {
+  .account > span {
+    display: none;
+  }
+
+  .masthead-actions {
+    gap: 10px;
+  }
 }
 
 .library-head {

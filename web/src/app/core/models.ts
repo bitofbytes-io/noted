@@ -1,3 +1,17 @@
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
+export interface Session {
+  authenticated: boolean;
+  authMode: 'development' | 'google';
+  development: boolean;
+  user?: User;
+}
+
 export interface PiecePdf {
   originalFilename: string;
   sizeBytes: number;
