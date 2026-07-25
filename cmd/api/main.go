@@ -12,6 +12,7 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/bitofbytes-io/noted/internal/auth"
 	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/bitofbytes-io/noted/internal/httpapi"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,8 +40,12 @@ func main() {
 		log.Fatal(err)
 	}
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           httpapi.NewRouter(app.NewService(pool, store), cfg.MaxUploadBytes, cfg.AllowedOrigin),
+		Addr: ":" + cfg.Port,
+		Handler: httpapi.NewRouter(
+			app.NewService(pool, store),
+			auth.NewService(pool, cfg.AllowedEmails, cfg.SessionTTL),
+			cfg,
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

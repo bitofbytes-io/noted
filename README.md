@@ -1,8 +1,8 @@
 # Noted
 
-Noted is a single-user digital sheet-music binder. Add PDF scores, search by
-title or composer, and read them in a full-screen iPad-friendly reader with
-keyboard/pedal page turns or adjustable auto-scroll.
+Noted is a private digital sheet-music binder. Approved users keep separate PDF
+score libraries, search by title or composer, and read them in a full-screen
+iPad-friendly reader with keyboard/pedal page turns or adjustable auto-scroll.
 
 The current scope is defined by
 [`docs/product/requirements.md`](docs/product/requirements.md). The previous
@@ -41,6 +41,18 @@ make web-start
 Configuration defaults are in `.env.example`. Uploaded PDFs use opaque storage
 keys beneath `.local/noted-assets`; both `.env` and `.local/` are ignored.
 
+Local development defaults to `AUTH_MODE=development` and resolves
+`DEV_USER_EMAIL` to a seeded learner. Production requires `AUTH_MODE=google`,
+`AUTH_GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_CLIENT_SECRET`,
+`AUTH_GOOGLE_REDIRECT_URL`, `AUTH_GOOGLE_ALLOWED_EMAILS`, and `FRONTEND_URL`.
+Client credentials support the corresponding `_FILE` variables. Browser
+sessions are opaque, database-backed, and default to a 12-hour lifetime.
+
+The ownership migration intentionally refuses to run while pre-authentication
+pieces remain. Delete those pieces through the current UI first so `AssetStore`
+also removes their PDF objects; for disposable local data, `make db-reset`
+provides the narrower clean-start alternative.
+
 `make db-reset` is intentionally narrow: it removes only the Docker Compose
 project named `noted`, including its dedicated `noted-postgres` volume, then
 recreates and migrates it. It does not drop other databases or roles.
@@ -76,10 +88,16 @@ or Enter).
 - `POST/GET /api/pieces/{id}/pdf`
 - `GET/PUT /api/pieces/{id}/reader-state`
 - `GET /api/health`
+- `GET /api/session`
+- `DELETE /api/session`
+- `GET /api/auth/google`
+- `GET /api/auth/google/callback`
 
 PDF responses use `http.ServeContent`, including byte-range support required by
 PDF.js on Safari. The storage implementation is behind `assets.Store` so a
 future NFS-backed production deployment does not change handlers.
+All piece, PDF, and reader-state routes resolve the authenticated user
+server-side; another user's identifier is returned as not found.
 
 ## Deployment
 
@@ -88,9 +106,9 @@ UI images to the private registry, and trigger the Crystal deployment
 repository through its SSH hook. This follows the same Tailscale, registry, and
 deployment-ref flow as the other bitofbytes-io applications.
 
-The API image reads PostgreSQL credentials from the external
-`noted_database_url` secret and stores PDFs under `/data/assets`, which must be
-mounted from persistent storage. Authentication, NAS PostgreSQL and NFS
-provisioning, backups, Traefik configuration, and monitoring remain deployment
-environment work. The current unauthenticated single-user build must not be
-exposed publicly.
+The API image reads PostgreSQL and Google credentials from the external
+`noted_database_url`, `noted_google_client_id`, and
+`noted_google_client_secret` secrets and stores PDFs under `/data/assets`,
+which must be mounted from persistent storage. NAS PostgreSQL/NFS provisioning,
+backups, Traefik configuration, and monitoring remain deployment-environment
+work.

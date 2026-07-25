@@ -2,9 +2,9 @@
 
 ## Product
 
-Noted is a single-user digital sheet-music binder. Its v1 job is to let a pianist
-upload PDF scores, find them quickly, and read them on a 13-inch iPad without
-touching the screen mid-piece.
+Noted is a private multi-user digital sheet-music binder. Its job is to let each
+approved pianist upload PDF scores, find them quickly, and read them on a
+13-inch iPad without touching the screen mid-piece.
 
 Read these before changing scope or behavior:
 
@@ -23,7 +23,10 @@ MusicXML product. It is historical context only.
 - PDF binaries use the Go `AssetStore` interface and the local filesystem
   implementation under `.local/noted-assets`.
 - A piece has exactly one PDF in v1.
-- The app is single-user and has no authentication in v1.
+- Production uses allow-listed Google OAuth; local development resolves one
+  clearly identified seeded learner.
+- Every piece is owned by exactly one user. Its PDF and reader state inherit
+  authorization through that piece and are never shared implicitly.
 - Library search covers title and composer; favorites are a filter.
 - The reader has page and auto-scroll modes and persists per-piece state.
 - Practice, metronome, lessons, OMR, MusicXML, playback, annotations, IMSLP
@@ -39,7 +42,7 @@ MusicXML product. It is historical context only.
   volume. Never drop other databases or roles.
 - Keep future NFS storage behind `AssetStore`; do not expose local paths in
   handlers or database records.
-- Production authentication and deployment remain explicit follow-up work.
+- OAuth credentials, sessions, uploaded scores, and user data remain private.
 
 ## Verification
 

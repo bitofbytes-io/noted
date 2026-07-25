@@ -38,9 +38,13 @@ const pieceColumns = `
 	p.created_at, p.updated_at,
 	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at`
 
-func (s *Service) ListPieces(ctx context.Context, query string, favorite *bool) ([]Piece, error) {
-	args := []any{}
-	clauses := []string{"TRUE"}
+func (s *Service) ListPieces(
+	ctx context.Context,
+	userID, query string,
+	favorite *bool,
+) ([]Piece, error) {
+	args := []any{userID}
+	clauses := []string{"p.user_id=$1"}
 	if query = strings.TrimSpace(query); query != "" {
 		args = append(args, "%"+query+"%")
 		clauses = append(clauses, fmt.Sprintf("(p.title ILIKE $%d OR p.composer ILIKE $%d)", len(args), len(args)))
@@ -69,11 +73,11 @@ func (s *Service) ListPieces(ctx context.Context, query string, favorite *bool) 
 	return pieces, rows.Err()
 }
 
-func (s *Service) GetPiece(ctx context.Context, id string) (Piece, error) {
+func (s *Service) GetPiece(ctx context.Context, userID, id string) (Piece, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+pieceColumns+`
 		FROM pieces p LEFT JOIN piece_pdfs f ON f.piece_id=p.id
-		WHERE p.id=$1`, id)
+		WHERE p.id=$1 AND p.user_id=$2`, id, userID)
 	piece, err := scanPiece(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Piece{}, ErrNotFound
@@ -81,7 +85,7 @@ func (s *Service) GetPiece(ctx context.Context, id string) (Piece, error) {
 	return piece, err
 }
 
-func (s *Service) CreatePiece(ctx context.Context, input PieceInput) (Piece, error) {
+func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInput) (Piece, error) {
 	input, err := validatePiece(input)
 	if err != nil {
 		return Piece{}, err
@@ -89,18 +93,22 @@ func (s *Service) CreatePiece(ctx context.Context, input PieceInput) (Piece, err
 	var id string
 	id = uuid.NewString()
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO pieces (id, title, composer, favorite, source_url, notes)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		id, input.Title, input.Composer, input.Favorite, input.SourceURL, input.Notes,
+		INSERT INTO pieces (id, user_id, title, composer, favorite, source_url, notes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		id, userID, input.Title, input.Composer, input.Favorite, input.SourceURL, input.Notes,
 	).Scan(&id)
 	if err != nil {
 		return Piece{}, err
 	}
-	return s.GetPiece(ctx, id)
+	return s.GetPiece(ctx, userID, id)
 }
 
-func (s *Service) UpdatePiece(ctx context.Context, id string, patch PiecePatch) (Piece, error) {
-	current, err := s.GetPiece(ctx, id)
+func (s *Service) UpdatePiece(
+	ctx context.Context,
+	userID, id string,
+	patch PiecePatch,
+) (Piece, error) {
+	current, err := s.GetPiece(ctx, userID, id)
 	if err != nil {
 		return Piece{}, err
 	}
@@ -129,18 +137,18 @@ func (s *Service) UpdatePiece(ctx context.Context, id string, patch PiecePatch) 
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			notes=$6, updated_at=now() WHERE id=$1`,
-		id, input.Title, input.Composer, input.Favorite, input.SourceURL, input.Notes)
+			notes=$6, updated_at=now() WHERE id=$1 AND user_id=$7`,
+		id, input.Title, input.Composer, input.Favorite, input.SourceURL, input.Notes, userID)
 	if err != nil {
 		return Piece{}, err
 	}
 	if tag.RowsAffected() == 0 {
 		return Piece{}, ErrNotFound
 	}
-	return s.GetPiece(ctx, id)
+	return s.GetPiece(ctx, userID, id)
 }
 
-func (s *Service) DeletePiece(ctx context.Context, id string) error {
+func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -150,14 +158,14 @@ func (s *Service) DeletePiece(ctx context.Context, id string) error {
 	err = tx.QueryRow(ctx, `
 		SELECT f.storage_key FROM pieces p
 		LEFT JOIN piece_pdfs f ON f.piece_id=p.id
-		WHERE p.id=$1 FOR UPDATE OF p`, id).Scan(&key)
+		WHERE p.id=$1 AND p.user_id=$2 FOR UPDATE OF p`, id, userID).Scan(&key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM pieces WHERE id=$1`, id); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM pieces WHERE id=$1 AND user_id=$2`, id, userID); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -171,7 +179,7 @@ func (s *Service) DeletePiece(ctx context.Context, id string) error {
 
 func (s *Service) UploadPDF(
 	ctx context.Context,
-	id, filename string,
+	userID, id, filename string,
 	pageCount int,
 	source io.Reader,
 ) (Piece, error) {
@@ -197,7 +205,9 @@ func (s *Service) UploadPDF(
 		return Piece{}, err
 	}
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1)`, id).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1 AND user_id=$2)`,
+		id, userID).Scan(&exists); err != nil {
 		return Piece{}, err
 	}
 	if !exists {
@@ -230,14 +240,19 @@ func (s *Service) UploadPDF(
 	if oldKey != "" {
 		_ = s.store.Delete(ctx, oldKey)
 	}
-	return s.GetPiece(ctx, id)
+	return s.GetPiece(ctx, userID, id)
 }
 
-func (s *Service) PDFSource(ctx context.Context, id string) (PDFSource, assets.ReadSeekCloser, error) {
+func (s *Service) PDFSource(
+	ctx context.Context,
+	userID, id string,
+) (PDFSource, assets.ReadSeekCloser, error) {
 	var source PDFSource
 	err := s.pool.QueryRow(ctx, `
-		SELECT original_filename, storage_key, uploaded_at
-		FROM piece_pdfs WHERE piece_id=$1`, id,
+		SELECT f.original_filename, f.storage_key, f.uploaded_at
+		FROM piece_pdfs f
+		JOIN pieces p ON p.id=f.piece_id
+		WHERE f.piece_id=$1 AND p.user_id=$2`, id, userID,
 	).Scan(&source.OriginalFilename, &source.StorageKey, &source.UploadedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PDFSource{}, nil, ErrNotFound
@@ -252,17 +267,21 @@ func (s *Service) PDFSource(ctx context.Context, id string) (PDFSource, assets.R
 	return source, reader, err
 }
 
-func (s *Service) GetReaderState(ctx context.Context, id string) (ReaderState, error) {
+func (s *Service) GetReaderState(ctx context.Context, userID, id string) (ReaderState, error) {
 	var state ReaderState
 	err := s.pool.QueryRow(ctx, `
-		SELECT piece_id, mode, last_page, scroll_position, zoom, scroll_speed,
-			scroll_paused, updated_at
-		FROM reader_states WHERE piece_id=$1`, id,
+		SELECT r.piece_id, r.mode, r.last_page, r.scroll_position, r.zoom, r.scroll_speed,
+			r.scroll_paused, r.updated_at
+		FROM reader_states r
+		JOIN pieces p ON p.id=r.piece_id
+		WHERE r.piece_id=$1 AND p.user_id=$2`, id, userID,
 	).Scan(&state.PieceID, &state.Mode, &state.LastPage, &state.ScrollPosition,
 		&state.Zoom, &state.ScrollSpeed, &state.ScrollPaused, &state.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
-		if scanErr := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1)`, id).Scan(&exists); scanErr != nil {
+		if scanErr := s.pool.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1 AND user_id=$2)`,
+			id, userID).Scan(&exists); scanErr != nil {
 			return ReaderState{}, scanErr
 		}
 		if !exists {
@@ -276,10 +295,23 @@ func (s *Service) GetReaderState(ctx context.Context, id string) (ReaderState, e
 	return state, err
 }
 
-func (s *Service) PutReaderState(ctx context.Context, id string, state ReaderState) (ReaderState, error) {
+func (s *Service) PutReaderState(
+	ctx context.Context,
+	userID, id string,
+	state ReaderState,
+) (ReaderState, error) {
 	state.PieceID = id
 	if err := ValidateReaderState(state); err != nil {
 		return ReaderState{}, err
+	}
+	var owned bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1 AND user_id=$2)`,
+		id, userID).Scan(&owned); err != nil {
+		return ReaderState{}, err
+	}
+	if !owned {
+		return ReaderState{}, ErrNotFound
 	}
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO reader_states

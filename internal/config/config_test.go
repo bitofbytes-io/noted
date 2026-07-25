@@ -63,3 +63,31 @@ func TestLoadAcceptsDeployedAllowedOriginsName(t *testing.T) {
 		t.Fatalf("AllowedOrigin = %q", cfg.AllowedOrigin)
 	}
 }
+
+func TestLoadNormalizesAndDeduplicatesAllowedEmails(t *testing.T) {
+	t.Setenv("AUTH_MODE", "google")
+	t.Setenv("AUTH_GOOGLE_CLIENT_ID", "client")
+	t.Setenv("AUTH_GOOGLE_CLIENT_SECRET", "secret")
+	t.Setenv("AUTH_GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback")
+	t.Setenv("AUTH_GOOGLE_ALLOWED_EMAILS", " DanWater1@gmail.com,danwater1@gmail.com, AIDEN.RAY.WATERS@gmail.com ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AllowedEmails) != 2 ||
+		cfg.AllowedEmails[0] != "danwater1@gmail.com" ||
+		cfg.AllowedEmails[1] != "aiden.ray.waters@gmail.com" {
+		t.Fatalf("AllowedEmails = %#v", cfg.AllowedEmails)
+	}
+}
+
+func TestProductionRequiresGoogleAuthentication(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("AUTH_MODE", "development")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}

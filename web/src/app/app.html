@@ -1,0 +1,33 @@
+@if (loadingSession()) {
+  <main class="auth-gate" aria-live="polite">
+    <section class="auth-card">
+      <span class="wordmark-mark" aria-hidden="true">N</span>
+      <p>Opening Noted…</p>
+    </section>
+  </main>
+} @else if (apiOffline()) {
+  <main class="auth-gate">
+    <section class="auth-card" role="alert">
+      <span class="wordmark-mark" aria-hidden="true">N</span>
+      <p class="overline">CONNECTION UNAVAILABLE</p>
+      <h1>Noted cannot reach its API.</h1>
+      <p>Check the service and try refreshing this page.</p>
+      <button class="primary-action" type="button" (click)="reload()">Try again</button>
+    </section>
+  </main>
+} @else if (!session()?.authenticated) {
+  <main class="auth-gate">
+    <section class="auth-card sign-in-card">
+      <div class="auth-wordmark">
+        <span class="wordmark-mark" aria-hidden="true">N</span>
+        <strong>Noted</strong>
+      </div>
+      <p class="overline">PRIVATE SHEET-MUSIC BINDER</p>
+      <h1>Your scores, ready when you are.</h1>
+      <p>Sign in with an approved Google account to open your private library.</p>
+      <a class="primary-action" href="/api/auth/google">Continue with Google</a>
+    </section>
+  </main>
+} @else {
+  <router-outlet />
+}
