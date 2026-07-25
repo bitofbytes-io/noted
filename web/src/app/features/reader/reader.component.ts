@@ -70,6 +70,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private scrollFrame?: number;
   private autoScrollFrame?: number;
   private autoScrollTimestamp = 0;
+  private autoScrollRemainder = 0;
   private hideTimer?: number;
   private saveTimer?: number;
   private pointerStart?: { x: number; y: number };
@@ -327,13 +328,17 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     if (this.autoScrollFrame) cancelAnimationFrame(this.autoScrollFrame);
     this.autoScrollFrame = undefined;
     this.autoScrollTimestamp = 0;
+    this.autoScrollRemainder = 0;
     if (this.mode() !== 'scroll' || this.paused() || this.destroyed) return;
     const tick = (timestamp: number): void => {
       if (this.mode() !== 'scroll' || this.paused() || this.destroyed) return;
       if (this.autoScrollTimestamp) {
         const elapsed = Math.min(0.1, (timestamp - this.autoScrollTimestamp) / 1000);
         const stage = this.stage.nativeElement;
-        stage.scrollTop += this.speed() * elapsed;
+        const distance = this.autoScrollRemainder + this.speed() * elapsed;
+        const wholePixels = Math.floor(distance);
+        this.autoScrollRemainder = distance - wholePixels;
+        if (wholePixels > 0) stage.scrollTop += wholePixels;
         const reachedEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
         if (reachedEnd) {
           this.paused.set(true);
