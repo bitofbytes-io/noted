@@ -133,7 +133,7 @@ test('adds a PDF with a filename-prefilled title and opens it', async ({ page })
   await expect(page.locator('canvas')).toBeVisible();
 });
 
-test('places Add piece to the left of the right-aligned account controls', async ({ page }) => {
+test('keeps Add piece right-aligned when account controls are present', async ({ page }) => {
   await page.route('**/api/session', async (route) => {
     await route.fulfill({
       status: 200,
@@ -165,8 +165,8 @@ test('places Add piece to the left of the right-aligned account controls', async
   expect(addPieceBox).not.toBeNull();
   expect(accountBox).not.toBeNull();
   expect(actionsBox).not.toBeNull();
-  expect(addPieceBox!.x + addPieceBox!.width).toBeLessThan(accountBox!.x);
-  expect(accountBox!.x + accountBox!.width).toBeCloseTo(actionsBox!.x + actionsBox!.width, 0);
+  expect(accountBox!.x + accountBox!.width).toBeLessThan(addPieceBox!.x);
+  expect(addPieceBox!.x + addPieceBox!.width).toBeCloseTo(actionsBox!.x + actionsBox!.width, 0);
 });
 
 test('search-first library opens directly into the score reader', async ({ page }, testInfo) => {
