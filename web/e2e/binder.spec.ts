@@ -133,6 +133,42 @@ test('adds a PDF with a filename-prefilled title and opens it', async ({ page })
   await expect(page.locator('canvas')).toBeVisible();
 });
 
+test('places Add piece to the left of the right-aligned account controls', async ({ page }) => {
+  await page.route('**/api/session', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        authenticated: true,
+        authMode: 'google',
+        development: false,
+        user: {
+          id: 'db53bb2a-b720-407a-8941-cd4459f69e79',
+          email: 'danwater1@gmail.com',
+          displayName: 'Daniel Waters',
+        },
+      }),
+    });
+  });
+  await page.goto('/');
+
+  const actions = page.locator('.masthead-actions');
+  const addPiece = actions.getByRole('button', { name: 'Add piece' });
+  const account = actions.locator('.account');
+  await expect(addPiece).toBeVisible();
+  await expect(account.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await expect(account).toHaveAttribute('title', 'danwater1@gmail.com');
+
+  const addPieceBox = await addPiece.boundingBox();
+  const accountBox = await account.boundingBox();
+  const actionsBox = await actions.boundingBox();
+  expect(addPieceBox).not.toBeNull();
+  expect(accountBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  expect(addPieceBox!.x + addPieceBox!.width).toBeLessThan(accountBox!.x);
+  expect(accountBox!.x + accountBox!.width).toBeCloseTo(actionsBox!.x + actionsBox!.width, 0);
+});
+
 test('search-first library opens directly into the score reader', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
@@ -180,15 +216,15 @@ test('reader exposes page and auto-scroll controls', async ({ page }, testInfo) 
     (request) =>
       request.url().endsWith('/reader-state') &&
       request.method() === 'PUT' &&
-      request.postData()?.includes('"scrollSpeed":48') === true,
+      request.postData()?.includes('"scrollSpeed":5') === true,
   );
-  await page.getByRole('slider').fill('48');
+  await page.getByRole('slider').fill('5');
   const savedState = (await saveRequest).postDataJSON() as {
     mode: string;
     scrollSpeed: number;
   };
   expect(savedState.mode).toBe('scroll');
-  expect(savedState.scrollSpeed).toBe(48);
+  expect(savedState.scrollSpeed).toBe(5);
   await page.getByRole('button', { name: 'Resume auto-scroll' }).click();
   const pauseButton = page.getByRole('button', { name: 'Pause auto-scroll' });
   await expect(pauseButton).toBeVisible();
