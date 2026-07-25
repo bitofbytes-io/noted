@@ -72,11 +72,25 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err != nil || resolved.ID != userA.ID {
 		t.Fatalf("resolved user = %+v, error = %v", resolved, err)
 	}
-	if err := googleAuth.DeleteSession(ctx, token); err != nil {
+	secondToken, _, err := googleAuth.NewSession(ctx, userA.ID, "integration-test-2", "192.0.2.11")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := googleAuth.ResolveSession(ctx, token); !errors.Is(err, auth.ErrNotAuthenticated) {
-		t.Fatalf("deleted session resolved with error %v", err)
+	authWithoutUserA := auth.NewService(pool, []string{"owner-b@example.test"}, time.Hour)
+	if _, err := authWithoutUserA.ResolveSession(ctx, token); !errors.Is(err, auth.ErrNotAuthenticated) {
+		t.Fatalf("removed allow-list user resolved with error %v", err)
+	}
+	if _, err := googleAuth.ResolveSession(ctx, secondToken); !errors.Is(err, auth.ErrNotAuthenticated) {
+		t.Fatalf("second session for removed allow-list user resolved with error %v", err)
+	}
+	var remainingSessions int
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_sessions WHERE user_id=$1`, userA.ID,
+	).Scan(&remainingSessions); err != nil {
+		t.Fatal(err)
+	}
+	if remainingSessions != 0 {
+		t.Fatalf("remaining sessions for removed allow-list user = %d, want 0", remainingSessions)
 	}
 
 	pieceA, err := service.CreatePiece(ctx, userA.ID, app.PieceInput{

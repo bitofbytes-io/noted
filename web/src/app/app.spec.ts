@@ -1,6 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
@@ -49,9 +49,22 @@ describe('App authentication gate', () => {
     sessionResponse = of({ authenticated: false, authMode: 'google', development: false });
     await render();
 
-    const link = fixture.nativeElement.querySelector('a[href="/api/auth/google"]');
+    const link = fixture.nativeElement.querySelector('a[href="/api/auth/google?returnTo=%2F"]');
     expect(link).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Continue with Google');
+  });
+
+  it('preserves a bookmarked reader route through Google sign-in', async () => {
+    sessionResponse = of({ authenticated: false, authMode: 'google', development: false });
+    vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue(
+      '/reader/piece-123?mode=scroll#page-4',
+    );
+    await render();
+
+    const link: HTMLAnchorElement | null = fixture.nativeElement.querySelector('a.primary-action');
+    expect(link?.getAttribute('href')).toBe(
+      '/api/auth/google?returnTo=%2Freader%2Fpiece-123%3Fmode%3Dscroll%23page-4',
+    );
   });
 
   it('renders the application for the development learner', async () => {
@@ -63,7 +76,9 @@ describe('App authentication gate', () => {
     await render();
     TestBed.inject(SessionExpiryEvents).notify();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('a[href="/api/auth/google"]')).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('a[href="/api/auth/google?returnTo=%2F"]'),
+    ).not.toBeNull();
   });
 
   it('distinguishes an offline API from an unauthenticated session', async () => {

@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from './core/api.service';
 import { Session } from './core/models';
@@ -19,6 +19,7 @@ export class App implements OnInit {
   protected readonly apiOffline = signal(false);
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
   private readonly sessionExpiry = inject(SessionExpiryEvents);
 
   constructor() {
@@ -43,6 +44,10 @@ export class App implements OnInit {
 
   reload(): void {
     window.location.reload();
+  }
+
+  protected googleSignInURL(): string {
+    return `/api/auth/google?returnTo=${encodeURIComponent(this.router.url || '/')}`;
   }
 
   private showSignInGate(): void {
