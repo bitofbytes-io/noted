@@ -333,9 +333,9 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       if (this.autoScrollTimestamp) {
         const elapsed = Math.min(0.1, (timestamp - this.autoScrollTimestamp) / 1000);
         const stage = this.stage.nativeElement;
-        const previous = stage.scrollTop;
         stage.scrollTop += this.speed() * elapsed;
-        if (stage.scrollTop === previous && stage.scrollTop > 0) {
+        const reachedEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+        if (reachedEnd) {
           this.paused.set(true);
           this.queueSave();
           return;

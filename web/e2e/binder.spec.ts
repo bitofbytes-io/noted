@@ -155,7 +155,13 @@ test('reader exposes page and auto-scroll controls', async ({ page }, testInfo) 
   expect(savedState.mode).toBe('scroll');
   expect(savedState.scrollSpeed).toBe(48);
   await page.getByRole('button', { name: 'Resume auto-scroll' }).click();
-  await expect(page.getByRole('button', { name: 'Pause auto-scroll' })).toBeVisible();
+  const pauseButton = page.getByRole('button', { name: 'Pause auto-scroll' });
+  await expect(pauseButton).toBeVisible();
+  await expect
+    .poll(() => page.locator('.reader').evaluate((reader) => reader.scrollTop))
+    .toBeGreaterThan(0);
+  await page.waitForTimeout(250);
+  await expect(pauseButton).toBeVisible();
   const canvas = page.locator('.scroll-page canvas').first();
   await expect
     .poll(() =>
