@@ -51,6 +51,24 @@ func TestLoadRejectsEmptyDatabaseSecret(t *testing.T) {
 	}
 }
 
+func TestLoadDatabaseURLDoesNotRequireApplicationAuthentication(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://migration/noted")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("AUTH_MODE", "google")
+	t.Setenv("AUTH_GOOGLE_CLIENT_ID", "")
+	t.Setenv("AUTH_GOOGLE_CLIENT_SECRET", "")
+	t.Setenv("AUTH_GOOGLE_REDIRECT_URL", "")
+	t.Setenv("AUTH_GOOGLE_ALLOWED_EMAILS", "")
+
+	databaseURL, err := LoadDatabaseURL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if databaseURL != "postgres://migration/noted" {
+		t.Fatalf("databaseURL = %q", databaseURL)
+	}
+}
+
 func TestLoadAcceptsDeployedAllowedOriginsName(t *testing.T) {
 	t.Setenv("ALLOWED_ORIGIN", "")
 	t.Setenv("ALLOWED_ORIGINS", "https://noted.bitofbytes.io")
