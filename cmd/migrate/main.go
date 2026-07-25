@@ -14,12 +14,12 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	cfg, err := config.Load()
+	databaseURL, err := config.LoadDatabaseURL()
 	if err != nil {
 		log.Fatal(err)
 	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
+	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}

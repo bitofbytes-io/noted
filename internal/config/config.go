@@ -28,7 +28,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	databaseURL, err := getEnvOrFile("DATABASE_URL")
+	databaseURL, err := LoadDatabaseURL()
 	if err != nil {
 		return Config{}, err
 	}
@@ -39,9 +39,6 @@ func Load() (Config, error) {
 	googleSecret, err := getEnvOrFile("AUTH_GOOGLE_CLIENT_SECRET")
 	if err != nil {
 		return Config{}, err
-	}
-	if databaseURL == "" {
-		databaseURL = "postgres://noted:noted@localhost:5434/noted?sslmode=disable"
 	}
 	allowedOrigin := value("ALLOWED_ORIGIN", "")
 	if allowedOrigin == "" {
@@ -81,6 +78,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func LoadDatabaseURL() (string, error) {
+	databaseURL, err := getEnvOrFile("DATABASE_URL")
+	if err != nil {
+		return "", err
+	}
+	if databaseURL == "" {
+		databaseURL = "postgres://noted:noted@localhost:5434/noted?sslmode=disable"
+	}
+	return databaseURL, nil
 }
 
 func (c Config) Validate() error {
