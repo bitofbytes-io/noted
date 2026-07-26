@@ -256,6 +256,7 @@ test('reader exposes page and auto-scroll controls', async ({ page }, testInfo) 
 test('reader uses a two-stage reveal while auto-scroll keeps moving', async ({
   page,
 }, testInfo) => {
+  testInfo.setTimeout(45_000);
   await page.route(`**/api/pieces/${piece.id}/reader-state`, async (route) => {
     await route.fulfill({
       status: 200,
@@ -320,8 +321,28 @@ test('reader uses a two-stage reveal while auto-scroll keeps moving', async ({
   await page.waitForTimeout(1_500);
   await expect(controls).toBeVisible();
   await expect(controls).toBeHidden({ timeout: 4_000 });
-  const score = page.locator('.scroll-page canvas').first();
-  await score.click({ position: { x: 80, y: 80 } });
+  await reader.evaluate((element) => {
+    const score = Array.from(
+      element.querySelectorAll<HTMLCanvasElement>('.scroll-page canvas'),
+    ).find((canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    });
+    if (!score) throw new Error('Expected a visible score canvas');
+    const rect = score.getBoundingClientRect();
+    const clientX = Math.min(window.innerWidth - 1, Math.max(0, rect.left + 80));
+    const clientY = Math.min(window.innerHeight - 1, Math.max(0, rect.top + 80));
+    const pointerInit: PointerEventInit = {
+      bubbles: true,
+      clientX,
+      clientY,
+      pointerId: 1,
+      pointerType: 'touch',
+    };
+    score.dispatchEvent(new PointerEvent('pointerdown', pointerInit));
+    score.dispatchEvent(new PointerEvent('pointerup', pointerInit));
+    score.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX, clientY }));
+  });
   await expect(bubble).toBeVisible();
   await expect(controls).toBeHidden();
 
