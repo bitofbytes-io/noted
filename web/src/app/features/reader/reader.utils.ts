@@ -13,16 +13,33 @@ export interface ReaderPointerMove extends ReaderPointerPosition {
   pointerType: string;
 }
 
+export interface ReaderPointerTracking {
+  baseline: ReaderPointerMove | undefined;
+  moved: boolean;
+}
+
 const pointerMovementThreshold = 3;
 
-export function isFinePointerMovement(
-  previous: ReaderPointerPosition | undefined,
+export function trackFinePointerMovement(
+  previous: ReaderPointerMove | undefined,
   event: ReaderPointerMove,
-): boolean {
-  if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return false;
-  if (!previous) return false;
-  return (
+): ReaderPointerTracking {
+  if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') {
+    return { baseline: undefined, moved: false };
+  }
+  if (!previous || previous.pointerType !== event.pointerType) {
+    return { baseline: pointerBaseline(event), moved: false };
+  }
+  const moved =
     Math.hypot(event.clientX - previous.clientX, event.clientY - previous.clientY) >=
-    pointerMovementThreshold
-  );
+    pointerMovementThreshold;
+  return { baseline: moved ? pointerBaseline(event) : previous, moved };
+}
+
+function pointerBaseline(event: ReaderPointerMove): ReaderPointerMove {
+  return {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    pointerType: event.pointerType,
+  };
 }

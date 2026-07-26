@@ -29,7 +29,7 @@ import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { PageMetric, PdfDocument } from './pdf-document.service';
-import { ReaderPointerPosition, isFinePointerMovement, pageDeltaForKey } from './reader.utils';
+import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 
 @Component({
   selector: 'app-reader',
@@ -82,7 +82,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private hideTimer?: number;
   private saveTimer?: number;
   private pointerStart?: { x: number; y: number };
-  private lastPointerPosition?: ReaderPointerPosition;
+  private pointerMovementBaseline?: ReaderPointerMove;
   private swiped = false;
   private renderedWidths = new Map<number, number>();
   private destroyed = false;
@@ -210,14 +210,12 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   }
 
   onPointerMove(event: PointerEvent): void {
-    if (isFinePointerMovement(this.lastPointerPosition, event)) this.offerControls();
-    this.lastPointerPosition = { clientX: event.clientX, clientY: event.clientY };
+    if (this.trackPointerMovement(event)) this.offerControls();
   }
 
   onChromePointerMove(event: PointerEvent): void {
     event.stopPropagation();
-    if (isFinePointerMovement(this.lastPointerPosition, event)) this.onChromeActivity();
-    this.lastPointerPosition = { clientX: event.clientX, clientY: event.clientY };
+    if (this.trackPointerMovement(event)) this.onChromeActivity();
   }
 
   onPointerUp(event: PointerEvent): void {
@@ -295,6 +293,12 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private offerControls(): void {
     if (this.loading() || this.error() || this.controlsVisible()) return;
     this.controlsBubbleVisible.set(true);
+  }
+
+  private trackPointerMovement(event: PointerEvent): boolean {
+    const tracking = trackFinePointerMovement(this.pointerMovementBaseline, event);
+    this.pointerMovementBaseline = tracking.baseline;
+    return tracking.moved;
   }
 
   scrollPageWidth(): number {
