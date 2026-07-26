@@ -30,8 +30,14 @@ sets the visual language, not the archived dashboard information architecture.
 - The reader is an immersive `100dvh` route with a dark neutral surround and a
   white PDF page. The actual score is the visual asset.
 - A safe-area-aware top bar holds back, title/composer, and page position.
-- A compact dark toolbar floats above the bottom safe area and auto-hides after
-  inactivity. It wraps into stable rows on narrow phones.
+- The top bar and compact dark toolbar auto-hide after three seconds of true
+  inactivity. Score taps and genuine fine-pointer movement then reveal only a
+  circular, 44px-minimum controls bubble above the lower-right safe area.
+  Activating the bubble opens both bars; activity inside them resets the hide
+  timer. Scrolling, touch-panning, and auto-scroll motion leave them hidden.
+- The full toolbar floats above the bottom safe area and wraps into stable rows
+  on narrow phones. The bubble is absent while the toolbar is open, so the two
+  affordances never overlap.
 - Page mode uses left/right tap zones, horizontal swipes, and keyboard/pedal
   input. Auto-scroll mode uses a green play/pause control, speed slider, and
   zoom controls.

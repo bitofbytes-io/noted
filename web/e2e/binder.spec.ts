@@ -252,3 +252,105 @@ test('reader exposes page and auto-scroll controls', async ({ page }, testInfo) 
     .toBeGreaterThan(50);
   await page.screenshot({ path: testInfo.outputPath('scroll-reader.png') });
 });
+
+test('reader uses a two-stage reveal while auto-scroll keeps moving', async ({
+  page,
+}, testInfo) => {
+  testInfo.setTimeout(45_000);
+  await page.route(`**/api/pieces/${piece.id}/reader-state`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        pieceId: piece.id,
+        mode: 'scroll',
+        lastPage: 1,
+        scrollPosition: 0,
+        zoom: 1,
+        scrollSpeed: 32,
+        scrollPaused: false,
+      }),
+    });
+  });
+
+  await page.goto(`/reader/${piece.id}`);
+  const reader = page.locator('.reader');
+  const controls = page.locator('.reader-controls');
+  const topbar = page.locator('.reader-topbar');
+  const bubble = page.getByRole('button', { name: 'Show reader controls' });
+  await expect(page.locator('.scroll-page canvas').first()).toBeVisible();
+
+  await expect(controls).toBeHidden({ timeout: 5_000 });
+  await expect(topbar).toBeHidden();
+  const hiddenAtScrollTop = await reader.evaluate((element) => element.scrollTop);
+  await expect
+    .poll(() => reader.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(hiddenAtScrollTop);
+
+  await reader.evaluate((element) => {
+    element.dispatchEvent(
+      new PointerEvent('pointermove', {
+        bubbles: true,
+        clientX: 100,
+        clientY: 100,
+        pointerType: 'mouse',
+      }),
+    );
+  });
+  await page.mouse.wheel(0, 80);
+  await expect(controls).toBeHidden();
+  await expect(bubble).toBeHidden();
+
+  await page.mouse.move(120, 160);
+  await page.mouse.move(140, 160);
+  await expect(bubble).toBeVisible();
+  await expect(controls).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('reader-controls-bubble.png') });
+
+  await bubble.click();
+  await expect(bubble).toBeHidden();
+  await expect(topbar).toBeVisible();
+  await expect(controls).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause auto-scroll' })).toBeVisible();
+
+  await page.waitForTimeout(2_000);
+  const controlsBox = await controls.boundingBox();
+  expect(controlsBox).not.toBeNull();
+  await page.mouse.move(controlsBox!.x + 20, controlsBox!.y + 20);
+  await page.mouse.move(controlsBox!.x + 28, controlsBox!.y + 20);
+  await page.waitForTimeout(1_500);
+  await expect(controls).toBeVisible();
+  await expect(controls).toBeHidden({ timeout: 4_000 });
+  await reader.evaluate((element) => {
+    const score = Array.from(
+      element.querySelectorAll<HTMLCanvasElement>('.scroll-page canvas'),
+    ).find((canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    });
+    if (!score) throw new Error('Expected a visible score canvas');
+    const rect = score.getBoundingClientRect();
+    const clientX = Math.min(window.innerWidth - 1, Math.max(0, rect.left + 80));
+    const clientY = Math.min(window.innerHeight - 1, Math.max(0, rect.top + 80));
+    const pointerInit: PointerEventInit = {
+      bubbles: true,
+      clientX,
+      clientY,
+      pointerId: 1,
+      pointerType: 'touch',
+    };
+    score.dispatchEvent(new PointerEvent('pointerdown', pointerInit));
+    score.dispatchEvent(new PointerEvent('pointerup', pointerInit));
+    score.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX, clientY }));
+  });
+  await expect(bubble).toBeVisible();
+  await expect(controls).toBeHidden();
+
+  await bubble.focus();
+  await page.keyboard.press('Enter');
+  await expect(topbar).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resume auto-scroll' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to library' })).toBeFocused();
+  await page.waitForTimeout(3_200);
+  await expect(controls).toBeVisible();
+});

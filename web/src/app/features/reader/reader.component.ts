@@ -7,6 +7,7 @@ import {
   QueryList,
   ViewChild,
   ViewChildren,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -22,12 +23,13 @@ import {
   LucidePlay,
   LucidePlus,
   LucideRows3,
+  LucideSlidersHorizontal,
 } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { PageMetric, PdfDocument } from './pdf-document.service';
-import { pageDeltaForKey } from './reader.utils';
+import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 
 @Component({
   selector: 'app-reader',
@@ -42,12 +44,14 @@ import { pageDeltaForKey } from './reader.utils';
     LucidePlay,
     LucidePlus,
     LucideRows3,
+    LucideSlidersHorizontal,
   ],
   templateUrl: './reader.component.html',
   styleUrl: './reader.component.scss',
 })
 export class ReaderComponent implements AfterViewInit, OnDestroy {
   @ViewChild('stage', { static: true }) private stage!: ElementRef<HTMLElement>;
+  @ViewChild('topbar') private topbar?: ElementRef<HTMLElement>;
   @ViewChild('controls') private controls?: ElementRef<HTMLElement>;
   @ViewChildren('scoreCanvas') private canvases!: QueryList<ElementRef<HTMLCanvasElement>>;
   @ViewChildren('scrollPage') private scrollPages!: QueryList<ElementRef<HTMLElement>>;
@@ -65,6 +69,10 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   protected readonly speed = signal(32);
   protected readonly paused = signal(true);
   protected readonly controlsVisible = signal(true);
+  protected readonly controlsBubbleVisible = signal(false);
+  protected readonly chromeVisible = computed(
+    () => this.loading() || Boolean(this.error()) || this.controlsVisible(),
+  );
   private resizeObserver?: ResizeObserver;
   private renderFrame?: number;
   private scrollFrame?: number;
@@ -74,6 +82,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private hideTimer?: number;
   private saveTimer?: number;
   private pointerStart?: { x: number; y: number };
+  private pointerMovementBaseline?: ReaderPointerMove;
   private swiped = false;
   private renderedWidths = new Map<number, number>();
   private destroyed = false;
@@ -144,7 +153,6 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     if (this.mode() === 'scroll') this.updateCurrentPage();
     this.mode.set(mode);
     this.renderedWidths.clear();
-    this.revealControls();
     setTimeout(() => {
       if (mode === 'scroll') this.scrollToPage(this.currentPage(), false);
       this.scheduleRender();
@@ -174,14 +182,12 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   changeSpeed(event: Event): void {
     this.speed.set(Number((event.target as HTMLInputElement).value));
-    this.revealControls();
     this.queueSave();
   }
 
   togglePause(): void {
     if (this.mode() !== 'scroll') return;
     this.paused.update((paused) => !paused);
-    this.revealControls();
     this.syncAutoScroll();
     this.queueSave();
   }
@@ -203,6 +209,15 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.swiped = false;
   }
 
+  onPointerMove(event: PointerEvent): void {
+    if (this.trackPointerMovement(event)) this.offerControls();
+  }
+
+  onChromePointerMove(event: PointerEvent): void {
+    event.stopPropagation();
+    if (this.trackPointerMovement(event)) this.onChromeActivity();
+  }
+
   onPointerUp(event: PointerEvent): void {
     if (!this.pointerStart) return;
     const deltaX = event.clientX - this.pointerStart.x;
@@ -214,12 +229,23 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  onPointerCancel(): void {
+    this.pointerStart = undefined;
+    this.swiped = false;
+  }
+
   onScoreTap(event: MouseEvent): void {
     if (this.swiped) {
       this.swiped = false;
       return;
     }
-    if ((event.target as HTMLElement).closest('.reader-controls, .reader-topbar')) return;
+    if (
+      (event.target as HTMLElement).closest(
+        '.reader-controls, .reader-topbar, .reader-controls-bubble',
+      )
+    )
+      return;
+    this.offerControls();
     if (this.mode() === 'scroll') {
       this.togglePause();
       return;
@@ -228,14 +254,13 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     const position = (event.clientX - rect.left) / rect.width;
     if (position < 0.34) this.turnPage(-1);
     else if (position > 0.66) this.turnPage(1);
-    else this.revealControls();
   }
 
   @HostListener('window:keydown', ['$event'])
   onKeydown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select, button')) return;
-    this.revealControls();
+    this.offerControls();
     if (this.mode() === 'scroll' && [' ', 'Enter'].includes(event.key)) {
       event.preventDefault();
       this.togglePause();
@@ -248,9 +273,32 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  revealControls(): void {
+  showControls(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const keyboardActivation = event instanceof MouseEvent && event.detail === 0;
+    this.controlsBubbleVisible.set(false);
     this.controlsVisible.set(true);
     this.scheduleHide();
+    if (keyboardActivation) {
+      setTimeout(() => this.topbar?.nativeElement.querySelector('button')?.focus());
+    }
+  }
+
+  onChromeActivity(): void {
+    this.controlsVisible.set(true);
+    this.scheduleHide();
+  }
+
+  private offerControls(): void {
+    if (this.loading() || this.error() || this.controlsVisible()) return;
+    this.controlsBubbleVisible.set(true);
+  }
+
+  private trackPointerMovement(event: PointerEvent): boolean {
+    const tracking = trackFinePointerMovement(this.pointerMovementBaseline, event);
+    this.pointerMovementBaseline = tracking.baseline;
+    return tracking.moved;
   }
 
   scrollPageWidth(): number {
@@ -354,8 +402,13 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   private scheduleHide(): void {
     if (this.hideTimer) window.clearTimeout(this.hideTimer);
+    if (this.loading() || this.error()) return;
     this.hideTimer = window.setTimeout(() => {
-      if (this.controls?.nativeElement.contains(document.activeElement)) {
+      const activeElement = document.activeElement;
+      if (
+        (activeElement && this.topbar?.nativeElement.contains(activeElement)) ||
+        (activeElement && this.controls?.nativeElement.contains(activeElement))
+      ) {
         this.scheduleHide();
         return;
       }

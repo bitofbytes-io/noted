@@ -60,7 +60,12 @@ the current user server-side.
 
 - Navigation collapses to Library (home) and the Reader; Settings only if needed.
 - Library: search-first layout, favorites surfaced, tap a piece to open the reader directly (piano-side speed is the point — no intermediate detail page unless editing metadata).
-- Reader renders with `pdfjs-dist` directly (canvas control needed for auto-scroll and custom chrome): immersive full-viewport route, controls appear on tap and auto-hide, explicit back action — same interaction pattern already validated in the old score player.
+- Reader renders with `pdfjs-dist` directly (canvas control needed for auto-scroll
+  and custom chrome): immersive full-viewport route with an explicit back action.
+  The full header and toolbar auto-hide; later score taps or genuine fine-pointer
+  movement reveal only a compact lower-right controls bubble. Activating that
+  bubble opens the full chrome for three seconds of true inactivity. Score
+  scrolling, touch-panning, and auto-scroll motion never reveal or prolong it.
 
 ## Sequenced goals
 
@@ -69,7 +74,9 @@ the current user server-side.
 3. **Pieces + upload**: create/edit pieces, upload PDF from phone or desktop browser, list in library.
 4. **Find**: search, favorites, library UX tuned for iPad.
 5. **Play — page mode**: full-screen reader, tap/swipe/keyboard page turns, fit modes, resume last page.
-6. **Play — auto-scroll**: adjustable-speed scroll, pause/resume, per-piece speed memory.
+6. **Play — auto-scroll**: adjustable-speed scroll, pause/resume, per-piece speed
+   memory, and a two-stage controls bubble that keeps auto-scroll content motion
+   from exposing the full reader chrome.
 7. **Validate**: real scores on iPad Safari at the piano; API tests (upload safety, search) and reader e2e; verify a Bluetooth pedal or keyboard turns pages.
 
 ## Implementation checklist
