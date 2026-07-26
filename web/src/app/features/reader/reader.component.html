@@ -1,15 +1,26 @@
 <main
   #stage
   class="reader"
-  [class.controls-hidden]="!controlsVisible()"
+  [class.controls-hidden]="!chromeVisible()"
   [class.scroll-mode]="mode() === 'scroll'"
   (scroll)="onStageScroll()"
-  (pointermove)="revealControls()"
+  (pointermove)="onPointerMove($event)"
   (pointerdown)="onPointerDown($event)"
   (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerCancel()"
   (click)="onScoreTap($event)"
 >
-  <header class="reader-topbar">
+  <header
+    #topbar
+    class="reader-topbar"
+    [attr.aria-hidden]="chromeVisible() ? null : 'true'"
+    [attr.inert]="chromeVisible() ? null : ''"
+    (pointerdown)="$event.stopPropagation(); onChromeActivity()"
+    (pointermove)="onChromePointerMove($event)"
+    (click)="$event.stopPropagation(); onChromeActivity()"
+    (keydown)="onChromeActivity()"
+    (focusin)="onChromeActivity()"
+  >
     <button
       class="icon-button"
       type="button"
@@ -57,11 +68,32 @@
     </section>
   }
 
+  @if (!loading() && !error() && !controlsVisible() && controlsBubbleVisible()) {
+    <button
+      class="reader-controls-bubble"
+      type="button"
+      aria-label="Show reader controls"
+      title="Show reader controls"
+      (pointerdown)="$event.stopPropagation()"
+      (pointerup)="$event.stopPropagation()"
+      (click)="showControls($event)"
+    >
+      <svg lucideSlidersHorizontal aria-hidden="true"></svg>
+    </button>
+  }
+
   <nav
     #controls
     class="reader-controls"
     aria-label="Reader controls"
-    (click)="$event.stopPropagation(); revealControls()"
+    [attr.aria-hidden]="chromeVisible() ? null : 'true'"
+    [attr.inert]="chromeVisible() ? null : ''"
+    (pointerdown)="$event.stopPropagation(); onChromeActivity()"
+    (pointermove)="onChromePointerMove($event)"
+    (click)="$event.stopPropagation(); onChromeActivity()"
+    (keydown)="onChromeActivity()"
+    (focusin)="onChromeActivity()"
+    (input)="onChromeActivity()"
   >
     <div class="mode-control" aria-label="Reading mode">
       <button

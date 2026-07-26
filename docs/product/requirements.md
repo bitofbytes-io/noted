@@ -41,7 +41,11 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 ### Reader
 
 - BND-020: The reader is an immersive, safe-area-aware full-viewport route with
-  an explicit back action and controls that appear on interaction and auto-hide.
+  an explicit back action. After the full header and toolbar auto-hide, a score
+  tap or genuine fine-pointer movement reveals only a compact lower-right
+  controls bubble; activating that bubble opens the full chrome for three
+  seconds of true inactivity. Scrolling, touch-panning, and auto-scroll content
+  motion do not reveal or prolong the full chrome.
 - BND-021: Page mode fits a page, supports zoom, and turns pages using tap zones,
   horizontal swipes, Arrow keys, PageUp, PageDown, Space, and Enter.
 - BND-022: Page mode never turns while focus is in a form control.

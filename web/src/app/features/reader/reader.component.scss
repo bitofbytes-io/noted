@@ -35,7 +35,10 @@
   gap: 12px;
   background: rgb(26 26 26 / 92%);
   border-bottom: 1px solid rgb(255 255 255 / 18%);
-  transition: opacity 250ms ease;
+  visibility: visible;
+  transition:
+    opacity 250ms ease,
+    visibility 0s linear;
 }
 
 .reader-title {
@@ -134,13 +137,54 @@
   border: 1px solid rgb(255 255 255 / 24%);
   background: rgb(26 26 26 / 94%);
   color: white;
-  transition: opacity 250ms ease;
+  visibility: visible;
+  transition:
+    opacity 250ms ease,
+    visibility 0s linear;
 }
 
 .controls-hidden .reader-topbar,
 .controls-hidden .reader-controls {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  transition-delay: 0s, 250ms;
+}
+
+.reader-controls-bubble {
+  position: fixed;
+  z-index: 21;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  width: 52px;
+  min-width: 44px;
+  height: 52px;
+  min-height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 999px;
+  background: rgb(26 26 26 / 88%);
+  color: white;
+  cursor: pointer;
+  touch-action: manipulation;
+  animation: controls-bubble-in 150ms ease;
+}
+
+.reader-controls-bubble:hover {
+  background: var(--green);
+}
+
+.reader-controls-bubble svg {
+  width: 21px;
+  height: 21px;
+}
+
+@keyframes controls-bubble-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .icon-button,
@@ -250,6 +294,11 @@
 }
 
 @media (max-width: 720px) {
+  .reader-controls-bubble {
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
   .reader-controls {
     width: calc(100vw - 20px);
     min-height: 60px;
@@ -274,7 +323,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .reader-topbar,
-  .reader-controls {
+  .reader-controls,
+  .reader-controls-bubble {
     transition: none;
+    animation: none;
   }
 }
