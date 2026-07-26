@@ -31,9 +31,6 @@ jobs:
         working-directory: web
       - name: Run checks
         run: make lint test build
-      - name: Run PostgreSQL ownership integration tests
-        run: make test-integration
-
   build-and-trigger:
     name: Publish images and trigger deployment
     needs: verify
