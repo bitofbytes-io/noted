@@ -20,7 +20,9 @@ sets the visual language, not the archived dashboard information architecture.
 - Search by title or composer is prominent and underlined rather than boxed.
 - Favorites are a compact filter next to search.
 - Pieces are hairline-separated rows, not covers or cards.
-- Each row prioritizes title, composer, PDF availability, and page count.
+- Each row prioritizes title, composer, PDF availability, and page count. When a
+  listening URL exists, a labeled 44px-minimum Listen action opens it in a new tab
+  without activating the row.
 - Add is the single green pill action. Edit, favorite, and delete use familiar
   line icons with accessible labels.
 - Metadata and PDF upload use one square-edged modal with a bordered drop zone.
@@ -41,8 +43,9 @@ sets the visual language, not the archived dashboard information architecture.
 - Page mode uses left/right tap zones, horizontal swipes, and keyboard/pedal
   input. Auto-scroll mode uses a green play/pause control, speed slider, and
   zoom controls.
-- Forest green indicates the active mode and primary action. There is no
-  playback cursor, notation highlighting, annotation entry, or practice UI.
+- Forest green indicates the active mode and primary action. There is no in-app
+  or synchronized reference audio playback, playback cursor, notation
+  highlighting, annotation entry, or practice UI.
 - Auto-scroll pages retain clear gaps and render only near the viewport.
 
 ## Responsive behavior

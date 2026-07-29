@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -25,6 +26,12 @@ type fakeBackend struct {
 	listQuery    string
 	listFavorite *bool
 	listUserID   string
+	createInput  app.PieceInput
+	createUserID string
+	createErr    error
+	patchInput   app.PiecePatch
+	patchUserID  string
+	patchPieceID string
 	uploadName   string
 	uploadBody   string
 	pdfFilename  string
@@ -41,11 +48,17 @@ func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, fav
 func (*fakeBackend) GetPiece(context.Context, string, string) (app.Piece, error) {
 	return app.Piece{ID: testPieceID}, nil
 }
-func (*fakeBackend) CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error) {
-	return app.Piece{ID: testPieceID}, nil
+func (fake *fakeBackend) CreatePiece(_ context.Context, userID string, input app.PieceInput) (app.Piece, error) {
+	fake.createUserID, fake.createInput = userID, input
+	return app.Piece{ID: testPieceID, ListeningURL: input.ListeningURL}, fake.createErr
 }
-func (*fakeBackend) UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error) {
-	return app.Piece{ID: testPieceID}, nil
+func (fake *fakeBackend) UpdatePiece(_ context.Context, userID, pieceID string, patch app.PiecePatch) (app.Piece, error) {
+	fake.patchUserID, fake.patchPieceID, fake.patchInput = userID, pieceID, patch
+	piece := app.Piece{ID: testPieceID}
+	if patch.ListeningURL != nil {
+		piece.ListeningURL = *patch.ListeningURL
+	}
+	return piece, nil
 }
 func (*fakeBackend) DeletePiece(context.Context, string, string) error { return nil }
 func (fake *fakeBackend) UploadPDF(_ context.Context, _, _ string, name string, _ int, body io.Reader) (app.Piece, error) {
@@ -120,6 +133,53 @@ func TestListPassesSearchAndFavoriteFilters(t *testing.T) {
 	if response.Code != http.StatusOK || fake.listQuery != "bach" ||
 		fake.listUserID != testUserID || fake.listFavorite == nil || !*fake.listFavorite {
 		t.Fatalf("filters not passed: status=%d query=%q favorite=%v", response.Code, fake.listQuery, fake.listFavorite)
+	}
+}
+
+func TestCreateAndPatchPassListeningURL(t *testing.T) {
+	fake := &fakeBackend{}
+	createBody := strings.NewReader(`{
+		"title":"Prelude","sourceUrl":"https://scores.example.test/prelude",
+		"listeningUrl":"https://listen.example.test/prelude"
+	}`)
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/pieces/", createBody)
+	createResponse := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated || fake.createUserID != testUserID ||
+		fake.createInput.ListeningURL != "https://listen.example.test/prelude" ||
+		fake.createInput.SourceURL != "https://scores.example.test/prelude" ||
+		!strings.Contains(createResponse.Body.String(), `"listeningUrl":"https://listen.example.test/prelude"`) {
+		t.Fatalf("create did not preserve distinct URLs: status=%d input=%+v body=%s",
+			createResponse.Code, fake.createInput, createResponse.Body.String())
+	}
+
+	patchRequest := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/pieces/"+testPieceID+"/",
+		strings.NewReader(`{"listeningUrl":"https://listen.example.test/revised"}`),
+	)
+	patchResponse := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(patchResponse, patchRequest)
+	if patchResponse.Code != http.StatusOK || fake.patchUserID != testUserID ||
+		fake.patchPieceID != testPieceID || fake.patchInput.ListeningURL == nil ||
+		*fake.patchInput.ListeningURL != "https://listen.example.test/revised" {
+		t.Fatalf("patch did not preserve listening URL: status=%d patch=%+v body=%s",
+			patchResponse.Code, fake.patchInput, patchResponse.Body.String())
+	}
+}
+
+func TestCreateReturnsListeningURLValidationError(t *testing.T) {
+	fake := &fakeBackend{createErr: errors.New("listening URL must be an http or https URL")}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/pieces/",
+		strings.NewReader(`{"title":"Prelude","listeningUrl":"file:///tmp/recording.mp3"}`),
+	)
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest ||
+		!strings.Contains(response.Body.String(), "listening URL must be an http or https URL") {
+		t.Fatalf("expected listening URL validation failure, got %d %s", response.Code, response.Body.String())
 	}
 }
 

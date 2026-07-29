@@ -95,9 +95,15 @@ func TestIntegrationUserOwnership(t *testing.T) {
 
 	pieceA, err := service.CreatePiece(ctx, userA.ID, app.PieceInput{
 		Title: "Private prelude", Composer: "Composer A", Favorite: true,
+		SourceURL:    "https://scores.example.test/prelude",
+		ListeningURL: "  https://listen.example.test/prelude  ",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if pieceA.SourceURL != "https://scores.example.test/prelude" ||
+		pieceA.ListeningURL != "https://listen.example.test/prelude" {
+		t.Fatalf("created piece URLs = source %q, listening %q", pieceA.SourceURL, pieceA.ListeningURL)
 	}
 	pieceB, err := service.CreatePiece(ctx, userB.ID, app.PieceInput{
 		Title: "Private sonata", Composer: "Composer B",
@@ -109,6 +115,9 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err != nil || len(listA) != 1 || listA[0].ID != pieceA.ID {
 		t.Fatalf("user A list = %+v, error = %v", listA, err)
 	}
+	if listA[0].ListeningURL != pieceA.ListeningURL {
+		t.Fatalf("user A list listening URL = %q, want %q", listA[0].ListeningURL, pieceA.ListeningURL)
+	}
 	listB, err := service.ListPieces(ctx, userB.ID, "", nil)
 	if err != nil || len(listB) != 1 || listB[0].ID != pieceB.ID {
 		t.Fatalf("user B list = %+v, error = %v", listB, err)
@@ -119,6 +128,16 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	}
 	if _, err := service.UpdatePiece(ctx, userB.ID, pieceA.ID, app.PiecePatch{}); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("cross-user UpdatePiece error = %v", err)
+	}
+	updatedListeningURL := "https://listen.example.test/prelude-revised"
+	updatedA, err := service.UpdatePiece(ctx, userA.ID, pieceA.ID, app.PiecePatch{
+		ListeningURL: &updatedListeningURL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedA.ListeningURL != updatedListeningURL || updatedA.SourceURL != pieceA.SourceURL {
+		t.Fatalf("updated piece URLs = source %q, listening %q", updatedA.SourceURL, updatedA.ListeningURL)
 	}
 	if err := service.DeletePiece(ctx, userB.ID, pieceA.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("cross-user DeletePiece error = %v", err)

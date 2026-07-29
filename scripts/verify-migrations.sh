@@ -20,6 +20,7 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
 DATABASE_URL="$database_url" go run ./cmd/migrate
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
@@ -56,7 +57,8 @@ version=$(
     "SELECT version FROM schema_migrations ORDER BY version"
 )
 if [ "$version" != "000001_binder
-000002_users_and_ownership" ]; then
+000002_users_and_ownership
+000003_piece_listening_url" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -72,6 +74,9 @@ VALUES (
   'Owned piece'
 );
 SQL
+
+# Roll back the additive listening URL migration before exercising the ownership guard.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 if DATABASE_URL="$database_url" go run ./cmd/migrate down >/dev/null 2>&1; then
   echo "ownership rollback unexpectedly succeeded with private pieces present" >&2

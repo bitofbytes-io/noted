@@ -34,7 +34,7 @@ func NewService(pool *pgxpool.Pool, store assets.Store) *Service {
 }
 
 const pieceColumns = `
-	p.id, p.title, p.composer, p.favorite, p.source_url, p.notes,
+	p.id, p.title, p.composer, p.favorite, p.source_url, p.listening_url, p.notes,
 	p.created_at, p.updated_at,
 	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at`
 
@@ -93,9 +93,11 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 	var id string
 	id = uuid.NewString()
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO pieces (id, user_id, title, composer, favorite, source_url, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-		id, userID, input.Title, input.Composer, input.Favorite, input.SourceURL, input.Notes,
+		INSERT INTO pieces
+			(id, user_id, title, composer, favorite, source_url, listening_url, notes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+		id, userID, input.Title, input.Composer, input.Favorite, input.SourceURL,
+		input.ListeningURL, input.Notes,
 	).Scan(&id)
 	if err != nil {
 		return Piece{}, err
@@ -114,7 +116,7 @@ func (s *Service) UpdatePiece(
 	}
 	input := PieceInput{
 		Title: current.Title, Composer: current.Composer, Favorite: current.Favorite,
-		SourceURL: current.SourceURL, Notes: current.Notes,
+		SourceURL: current.SourceURL, ListeningURL: current.ListeningURL, Notes: current.Notes,
 	}
 	if patch.Title != nil {
 		input.Title = *patch.Title
@@ -128,6 +130,9 @@ func (s *Service) UpdatePiece(
 	if patch.SourceURL != nil {
 		input.SourceURL = *patch.SourceURL
 	}
+	if patch.ListeningURL != nil {
+		input.ListeningURL = *patch.ListeningURL
+	}
 	if patch.Notes != nil {
 		input.Notes = *patch.Notes
 	}
@@ -137,8 +142,9 @@ func (s *Service) UpdatePiece(
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			notes=$6, updated_at=now() WHERE id=$1 AND user_id=$7`,
-		id, input.Title, input.Composer, input.Favorite, input.SourceURL, input.Notes, userID)
+			listening_url=$6, notes=$7, updated_at=now() WHERE id=$1 AND user_id=$8`,
+		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
+		input.ListeningURL, input.Notes, userID)
 	if err != nil {
 		return Piece{}, err
 	}
@@ -349,7 +355,7 @@ func scanPiece(row rowScanner) (Piece, error) {
 	var uploaded *time.Time
 	err := row.Scan(
 		&piece.ID, &piece.Title, &piece.Composer, &piece.Favorite,
-		&piece.SourceURL, &piece.Notes, &piece.CreatedAt, &piece.UpdatedAt,
+		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.CreatedAt, &piece.UpdatedAt,
 		&filename, &size, &checksum, &pages, &uploaded,
 	)
 	if err != nil {

@@ -243,7 +243,31 @@ input[type='checkbox'] {
 
 .row-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
+}
+
+.listen-action {
+  min-height: var(--tap-min);
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.listen-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+.listen-action:hover {
+  color: var(--green-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .icon-button {
@@ -358,6 +382,24 @@ input[type='checkbox'] {
   resize: vertical;
 }
 
+.field-help,
+.field-error {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.field-help {
+  color: var(--ink-muted);
+}
+
+.field-error {
+  color: var(--danger);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
 .upload-field {
   position: relative;
   min-height: 76px;
@@ -463,12 +505,8 @@ input[type='checkbox'] {
 
   .row-actions {
     grid-column: 2;
-    justify-self: end;
-    margin-top: -48px;
-  }
-
-  .piece-copy {
-    padding-right: 92px;
+    justify-self: start;
+    flex-wrap: wrap;
   }
 
   .editor {
