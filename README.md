@@ -75,11 +75,18 @@ cd web
 npx playwright install chromium webkit
 ```
 
-Automated reader coverage checks PDF canvas rendering, mode controls, and the
-iPad-sized viewport. Final acceptance still requires opening representative
-large scans on the physical 13-inch iPad in Safari and confirming that the
-actual Bluetooth pedal emits a supported key (`PageDown`, `ArrowRight`, Space,
-or Enter).
+Automated reader coverage checks PDF canvas rendering, mode controls, screen
+wake-lock lifecycle, and the iPad-sized viewport. Final acceptance still
+requires opening representative large scans on the physical 13-inch iPad in
+Safari and confirming that:
+
+- A short Auto-Lock interval does not sleep the display on a static page, during
+  active auto-scroll, or while auto-scroll is paused.
+- Backgrounding and returning to Safari restores the keep-awake behavior, and
+  returning to the library restores normal Auto-Lock behavior.
+- Low Power Mode or another wake-lock denial leaves the reader usable.
+- The actual Bluetooth pedal emits a supported key (`PageDown`, `ArrowRight`,
+  Space, or Enter) and continues to control the reader.
 
 ## API
 

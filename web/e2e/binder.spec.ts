@@ -303,6 +303,113 @@ test('reader exposes page and auto-scroll controls', async ({ page }, testInfo) 
   await page.screenshot({ path: testInfo.outputPath('scroll-reader.png') });
 });
 
+test('reader holds one wake lock through play modes and releases it on exit', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { requests: 0, releases: 0 };
+    Object.defineProperty(window, '__notedWakeLockTest', { value: state });
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: async (type: string) => {
+          if (type !== 'screen') throw new Error(`Unexpected wake lock type: ${type}`);
+          state.requests += 1;
+          const sentinel = new EventTarget() as EventTarget & {
+            release: () => Promise<void>;
+          };
+          let released = false;
+          sentinel.release = async () => {
+            if (released) return;
+            released = true;
+            state.releases += 1;
+            sentinel.dispatchEvent(new Event('release'));
+          };
+          return sentinel;
+        },
+      },
+    });
+  });
+
+  const wakeLockState = () =>
+    page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __notedWakeLockTest: { requests: number; releases: number };
+          }
+        ).__notedWakeLockTest,
+    );
+
+  await page.goto(`/reader/${piece.id}`);
+  await expect.poll(async () => (await wakeLockState()).requests).toBe(1);
+  await expect(page.getByText(piece.title)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scroll' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Scroll' }).click();
+  const autoScrollButton = page.getByRole('button', { name: 'Resume auto-scroll' });
+  await expect(autoScrollButton).toBeVisible();
+  await autoScrollButton.evaluate((button: HTMLButtonElement) => {
+    button.click();
+    button.click();
+  });
+  await expect(page.getByRole('button', { name: 'Resume auto-scroll' })).toBeVisible();
+  expect(await wakeLockState()).toEqual({ requests: 1, releases: 0 });
+
+  await page.getByRole('button', { name: 'Back to library' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect.poll(async () => (await wakeLockState()).releases).toBe(1);
+});
+
+test('stopped toolbar pointer activation retries a rejected wake lock', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { requests: 0, releases: 0 };
+    Object.defineProperty(window, '__notedWakeLockRetryTest', { value: state });
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: async () => {
+          state.requests += 1;
+          if (state.requests === 1) throw new Error('User activation required');
+          const sentinel = new EventTarget() as EventTarget & {
+            release: () => Promise<void>;
+          };
+          let released = false;
+          sentinel.release = async () => {
+            if (released) return;
+            released = true;
+            state.releases += 1;
+            sentinel.dispatchEvent(new Event('release'));
+          };
+          return sentinel;
+        },
+      },
+    });
+  });
+
+  const wakeLockState = () =>
+    page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __notedWakeLockRetryTest: { requests: number; releases: number };
+          }
+        ).__notedWakeLockRetryTest,
+    );
+
+  await page.goto(`/reader/${piece.id}`);
+  await expect.poll(async () => (await wakeLockState()).requests).toBe(1);
+  await expect(page.getByText(piece.title)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scroll' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Scroll' }).click();
+  await expect.poll(async () => (await wakeLockState()).requests).toBe(2);
+  await page.getByRole('button', { name: 'Resume auto-scroll' }).click();
+  expect(await wakeLockState()).toEqual({ requests: 2, releases: 0 });
+
+  await page.getByRole('button', { name: 'Back to library' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect.poll(async () => (await wakeLockState()).releases).toBe(1);
+});
+
 test('reader uses a two-stage reveal while auto-scroll keeps moving', async ({
   page,
 }, testInfo) => {
