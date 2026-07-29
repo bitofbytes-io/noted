@@ -19,31 +19,34 @@ type PDF struct {
 }
 
 type Piece struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Composer  string    `json:"composer"`
-	Favorite  bool      `json:"favorite"`
-	SourceURL string    `json:"sourceUrl"`
-	Notes     string    `json:"notes"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	PDF       *PDF      `json:"pdf"`
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Composer     string    `json:"composer"`
+	Favorite     bool      `json:"favorite"`
+	SourceURL    string    `json:"sourceUrl"`
+	ListeningURL string    `json:"listeningUrl"`
+	Notes        string    `json:"notes"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	PDF          *PDF      `json:"pdf"`
 }
 
 type PieceInput struct {
-	Title     string `json:"title"`
-	Composer  string `json:"composer"`
-	Favorite  bool   `json:"favorite"`
-	SourceURL string `json:"sourceUrl"`
-	Notes     string `json:"notes"`
+	Title        string `json:"title"`
+	Composer     string `json:"composer"`
+	Favorite     bool   `json:"favorite"`
+	SourceURL    string `json:"sourceUrl"`
+	ListeningURL string `json:"listeningUrl"`
+	Notes        string `json:"notes"`
 }
 
 type PiecePatch struct {
-	Title     *string `json:"title"`
-	Composer  *string `json:"composer"`
-	Favorite  *bool   `json:"favorite"`
-	SourceURL *string `json:"sourceUrl"`
-	Notes     *string `json:"notes"`
+	Title        *string `json:"title"`
+	Composer     *string `json:"composer"`
+	Favorite     *bool   `json:"favorite"`
+	SourceURL    *string `json:"sourceUrl"`
+	ListeningURL *string `json:"listeningUrl"`
+	Notes        *string `json:"notes"`
 }
 
 type ReaderState struct {

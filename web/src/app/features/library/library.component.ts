@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
   LucideFileText,
+  LucideHeadphones,
   LucideHeart,
   LucideHeartOff,
   LucidePencil,
@@ -16,7 +17,7 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { Piece, PieceInput, Session } from '../../core/models';
-import { titleFromFilename } from './library.utils';
+import { listeningUrlError, titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
 
@@ -25,6 +26,7 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
   imports: [
     FormsModule,
     LucideFileText,
+    LucideHeadphones,
     LucideHeart,
     LucideHeartOff,
     LucidePencil,
@@ -120,6 +122,7 @@ export class LibraryComponent implements OnDestroy {
       composer: piece.composer,
       favorite: piece.favorite,
       sourceUrl: piece.sourceUrl,
+      listeningUrl: piece.listeningUrl,
       notes: piece.notes,
     };
     this.selectedFile = null;
@@ -156,7 +159,14 @@ export class LibraryComponent implements OnDestroy {
   }
 
   async save(): Promise<void> {
-    if (!this.form.title.trim() || this.saving() || this.readingPdf()) return;
+    this.form.listeningUrl = this.form.listeningUrl.trim();
+    if (
+      !this.form.title.trim() ||
+      this.listeningUrlValidationError() ||
+      this.saving() ||
+      this.readingPdf()
+    )
+      return;
     this.saving.set(true);
     this.error.set('');
     const wasNew = !this.editing;
@@ -193,6 +203,10 @@ export class LibraryComponent implements OnDestroy {
     if (event.target === event.currentTarget) this.openPiece(piece);
   }
 
+  protected listeningUrlValidationError(): string {
+    return listeningUrlError(this.form.listeningUrl);
+  }
+
   async toggleFavorite(piece: Piece, event: Event): Promise<void> {
     event.stopPropagation();
     try {
@@ -225,5 +239,12 @@ export class LibraryComponent implements OnDestroy {
 }
 
 function emptyPiece(): PieceInput {
-  return { title: '', composer: '', favorite: false, sourceUrl: '', notes: '' };
+  return {
+    title: '',
+    composer: '',
+    favorite: false,
+    sourceUrl: '',
+    listeningUrl: '',
+    notes: '',
+  };
 }
