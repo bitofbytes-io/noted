@@ -10,6 +10,7 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Composer = strings.TrimSpace(input.Composer)
 	input.SourceURL = strings.TrimSpace(input.SourceURL)
+	input.ListeningURL = strings.TrimSpace(input.ListeningURL)
 	input.Notes = strings.TrimSpace(input.Notes)
 	if input.Title == "" || len(input.Title) > 300 {
 		return input, fmt.Errorf("title must be between 1 and 300 characters")
@@ -17,19 +18,30 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 	if len(input.Composer) > 300 {
 		return input, fmt.Errorf("composer must be at most 300 characters")
 	}
-	if len(input.SourceURL) > 2000 {
-		return input, fmt.Errorf("source URL must be at most 2000 characters")
+	if err := validateOptionalURL("source URL", input.SourceURL); err != nil {
+		return input, err
 	}
-	if input.SourceURL != "" {
-		parsed, err := url.ParseRequestURI(input.SourceURL)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return input, fmt.Errorf("source URL must be an http or https URL")
-		}
+	if err := validateOptionalURL("listening URL", input.ListeningURL); err != nil {
+		return input, err
 	}
 	if len(input.Notes) > 10000 {
 		return input, fmt.Errorf("notes must be at most 10000 characters")
 	}
 	return input, nil
+}
+
+func validateOptionalURL(label, value string) error {
+	if len(value) > 2000 {
+		return fmt.Errorf("%s must be at most 2000 characters", label)
+	}
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return fmt.Errorf("%s must be an http or https URL", label)
+	}
+	return nil
 }
 
 func ValidateReaderState(state ReaderState) error {

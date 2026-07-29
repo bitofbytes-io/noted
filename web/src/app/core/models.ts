@@ -27,6 +27,7 @@ export interface Piece {
   composer: string;
   favorite: boolean;
   sourceUrl: string;
+  listeningUrl: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -38,6 +39,7 @@ export interface PieceInput {
   composer: string;
   favorite: boolean;
   sourceUrl: string;
+  listeningUrl: string;
   notes: string;
 }
 

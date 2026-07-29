@@ -96,6 +96,21 @@
               <span>{{ piece.pdf ? piece.pdf.pageCount + ' pages' : 'PDF needed' }}</span>
             </div>
             <div class="row-actions">
+              @if (piece.listeningUrl) {
+                <a
+                  class="listen-action"
+                  [href]="piece.listeningUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  [attr.aria-label]="'Listen to ' + piece.title + ' in a new tab'"
+                  title="Listen in a new tab"
+                  (click)="$event.stopPropagation()"
+                  (keydown)="$event.stopPropagation()"
+                >
+                  <svg lucideHeadphones aria-hidden="true"></svg>
+                  <span>Listen</span>
+                </a>
+              }
               <button
                 class="icon-button"
                 type="button"
@@ -163,6 +178,29 @@
       />
     </label>
     <label class="field">
+      <span>Listening URL</span>
+      <input
+        name="listeningUrl"
+        type="url"
+        maxlength="2000"
+        placeholder="https://www.youtube.com/…"
+        [(ngModel)]="form.listeningUrl"
+        (blur)="form.listeningUrl = form.listeningUrl.trim()"
+        [attr.aria-invalid]="listeningUrlValidationError() ? 'true' : null"
+        [attr.aria-describedby]="
+          listeningUrlValidationError()
+            ? 'listening-url-help listening-url-error'
+            : 'listening-url-help'
+        "
+      />
+      <small id="listening-url-help" class="field-help">
+        Link to a recording, such as YouTube. It opens in a new tab.
+      </small>
+      @if (listeningUrlValidationError(); as validationError) {
+        <small id="listening-url-error" class="field-error">{{ validationError }}</small>
+      }
+    </label>
+    <label class="field">
       <span>Notes</span>
       <textarea name="notes" rows="3" maxlength="10000" [(ngModel)]="form.notes"></textarea>
     </label>
@@ -204,7 +242,9 @@
       <button
         class="primary-button"
         type="submit"
-        [disabled]="saving() || readingPdf() || !form.title.trim()"
+        [disabled]="
+          saving() || readingPdf() || !form.title.trim() || !!listeningUrlValidationError()
+        "
       >
         {{ saving() ? 'Saving…' : editing ? 'Save changes' : 'Add piece' }}
       </button>

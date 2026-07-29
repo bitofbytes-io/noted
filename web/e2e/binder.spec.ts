@@ -8,6 +8,7 @@ const piece = {
   composer: 'J. S. Bach',
   favorite: true,
   sourceUrl: '',
+  listeningUrl: 'https://listen.example.test/prelude',
   notes: '',
   createdAt: '2026-07-23T12:00:00Z',
   updatedAt: '2026-07-23T12:00:00Z',
@@ -131,6 +132,55 @@ test('adds a PDF with a filename-prefilled title and opens it', async ({ page })
   await dialog.getByRole('button', { name: 'Add piece' }).click();
   await expect(page).toHaveURL(new RegExp(`/reader/${piece.id}$`));
   await expect(page.locator('canvas')).toBeVisible();
+});
+
+test('creates and edits a listening URL using the single URL field', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Add piece' }).click();
+  const createDialog = page.getByRole('dialog');
+  await createDialog.getByLabel('Title').fill('Listening test');
+  await createDialog.getByLabel('Listening URL').fill('https://listen.example.test/new-piece');
+  const createRequestPromise = page.waitForRequest(
+    (request) => request.url().endsWith('/api/pieces/') && request.method() === 'POST',
+  );
+  await createDialog.getByRole('button', { name: 'Add piece' }).click();
+  const createBody = (await createRequestPromise).postDataJSON() as {
+    listeningUrl: string;
+  };
+  expect(createBody.listeningUrl).toBe('https://listen.example.test/new-piece');
+
+  await page.getByRole('button', { name: 'Edit piece' }).click();
+  const editDialog = page.getByRole('dialog');
+  await expect(editDialog.getByLabel('Listening URL')).toHaveValue(piece.listeningUrl);
+  await editDialog.getByLabel('Listening URL').fill('https://listen.example.test/revised-piece');
+  const updateRequestPromise = page.waitForRequest(
+    (request) => request.url().includes(`/api/pieces/${piece.id}/`) && request.method() === 'PATCH',
+  );
+  await editDialog.getByRole('button', { name: 'Save changes' }).click();
+  const updateBody = (await updateRequestPromise).postDataJSON() as {
+    listeningUrl: string;
+  };
+  expect(updateBody.listeningUrl).toBe('https://listen.example.test/revised-piece');
+});
+
+test('opens Listen safely in a new tab without opening the reader', async ({ page, context }) => {
+  await context.route('https://listen.example.test/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<title>Recording</title>',
+    });
+  });
+  await page.goto('/');
+  const listen = page.getByRole('link', { name: 'Listen to Prelude in C in a new tab' });
+  await expect(listen).toHaveAttribute('target', '_blank');
+  await expect(listen).toHaveAttribute('rel', 'noopener noreferrer');
+  const popupPromise = context.waitForEvent('page');
+  await listen.click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(piece.listeningUrl);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page).not.toHaveURL(/\/reader\//);
 });
 
 test('keeps Add piece right-aligned when account controls are present', async ({ page }) => {

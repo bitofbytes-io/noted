@@ -14,15 +14,17 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 
 - BND-001: The first screen is a search-first library.
 - BND-002: A user can create, edit, and delete a piece with title, composer,
-  favorite, optional source URL, and optional notes.
+  favorite, optional source URL, optional listening URL, and optional notes.
 - BND-003: Choosing a PDF prefills its filename as the editable title.
 - BND-004: A user can search title and composer and filter favorites.
 - BND-005: Selecting a piece with a PDF opens its reader directly.
 - BND-006: A user can upload or replace the one PDF attached to a piece.
 - BND-007: Production users sign in with one of the explicitly allow-listed,
   verified Google accounts.
-- BND-008: Each piece, its PDF, notes, favorite state, and reader state are
-  private to its owning user.
+- BND-008: Each piece, its PDF, notes, source and listening URLs, favorite state,
+  and reader state are private to its owning user.
+- BND-019: When a listening URL is present, the library exposes a safe outbound
+  Listen action that opens the recording in a new tab without opening the reader.
 - BND-009: A user cannot discover, fetch, or mutate another user's piece by
   guessing its identifier.
 
@@ -70,13 +72,13 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 ## Deferred
 
 Practice tracking, weekly summaries, metronome, learning, OMR, MusicXML,
-synthesized or reference playback, annotations, IMSLP fetching, photo
-stitching, sharing, and offline mode are not part of v1.
+synthesized or in-app/reference playback, playback synchronization, annotations,
+IMSLP fetching, photo stitching, sharing, and offline mode are not part of v1.
 
 ## Acceptance flow
 
 1. Add a piece from a phone or desktop, using the filename-prefilled title.
-2. Upload its PDF and find it by title or composer.
+2. Optionally add a listening URL, upload its PDF, and find it by title or composer.
 3. Favorite it and verify the favorites filter.
 4. Open it directly from the library.
 5. Turn pages with taps, a swipe, and PageDown/ArrowRight.

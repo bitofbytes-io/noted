@@ -14,8 +14,12 @@ One job: sit at the piano, pull up the iPad, search your digitized pieces, open 
 ### In scope (v1)
 
 - Upload PDF scores (from iPhone document scan, flatbed scanner, or manually downloaded IMSLP PDFs — all arrive as PDFs, no photo stitching).
-- Piece metadata: title, composer, favorite, optional source URL and notes. Manual entry with smart defaults (e.g., prefill title from filename); automated metadata is a later enhancement.
-- Library: list, search by title/composer, filter favorites.
+- Piece metadata: title, composer, favorite, optional source URL, optional
+  listening URL, and notes. A listening URL is an outbound HTTP(S) link only;
+  manual entry uses smart defaults (e.g., prefill title from filename), while
+  automated metadata is a later enhancement.
+- Library: list, search by title/composer, filter favorites, and open an optional
+  listening link in a new tab without entering the reader.
 - Reader optimized for 13-inch iPad Safari: full-screen score, two modes:
   - **Page mode**: fit-to-page, turn via tap zones, swipe, and keyboard PageDown/arrows — Bluetooth page-turn pedals emulate keyboards, so pedal support comes free.
   - **Auto-scroll mode**: continuous vertical scroll at an adjustable speed (lets you zoom wider than one page), tap to pause/resume.
@@ -24,7 +28,10 @@ One job: sit at the piano, pull up the iPad, search your digitized pieces, open 
 
 ### Explicitly deferred
 
-Documented, not built: practice tracking and weekly summaries, metronome, learning/lessons, OMR/MusicXML/playback, measure selection, YouTube references, annotations, automated IMSLP fetching (bot-blocked), photo-to-piece stitching, and sharing.
+Documented, not built: practice tracking and weekly summaries, metronome,
+learning/lessons, OMR/MusicXML, synthesized or in-app/reference playback,
+playback synchronization, measure selection, annotations, automated IMSLP
+fetching (bot-blocked), photo-to-piece stitching, and sharing.
 
 ## Codebase reset (same repo, fresh build)
 
@@ -43,7 +50,7 @@ Documented, not built: practice tracking and weekly summaries, metronome, learni
   - `users`: Google/development identity and profile metadata.
   - `user_sessions` and `oauth_login_states`: hashed opaque browser
     authentication state.
-  - `pieces`: id, user_id, title, composer, favorite, source_url, notes,
+  - `pieces`: id, user_id, title, composer, favorite, source_url, listening_url, notes,
     timestamps.
   - `piece_pdfs`: piece_id (unique — one PDF per piece in v1), storage_key, original_filename, size, checksum, page_count, uploaded_at.
   - `reader_states`: piece_id, mode, last_page/scroll_position, zoom, scroll_speed, updated_at.
@@ -59,7 +66,10 @@ the current user server-side.
 ## Frontend (Angular)
 
 - Navigation collapses to Library (home) and the Reader; Settings only if needed.
-- Library: search-first layout, favorites surfaced, tap a piece to open the reader directly (piano-side speed is the point — no intermediate detail page unless editing metadata).
+- Library: search-first layout, favorites surfaced, tap a piece to open the reader
+  directly, or use its distinct Listen action to open an outbound recording in a
+  new tab (piano-side speed is the point — no intermediate detail page unless
+  editing metadata).
 - Reader renders with `pdfjs-dist` directly (canvas control needed for auto-scroll
   and custom chrome): immersive full-viewport route with an explicit back action.
   The full header and toolbar auto-hide; later score taps or genuine fine-pointer
