@@ -20,6 +20,7 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
 DATABASE_URL="$database_url" go run ./cmd/migrate
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
