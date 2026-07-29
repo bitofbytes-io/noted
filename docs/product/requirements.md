@@ -56,6 +56,10 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-024: Reader state persists per piece: mode, page, scroll position, zoom,
   scroll speed, and auto-scroll pause state.
 - BND-025: Returning to a piece restores its saved reading position and settings.
+- BND-026: While a score is open, supported browsers keep the display awake in
+  page and auto-scroll modes. The wake lock is released when the reader is
+  hidden, closed, or fails to load, and reacquired when the visible reader
+  resumes; unsupported or denied wake locks do not interrupt reading.
 
 ### Quality and operations
 

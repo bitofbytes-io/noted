@@ -30,6 +30,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { PageMetric, PdfDocument } from './pdf-document.service';
 import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
+import { ScreenWakeLock } from './screen-wake-lock';
 
 @Component({
   selector: 'app-reader',
@@ -59,6 +60,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly pdf = new PdfDocument();
+  private readonly wakeLock = new ScreenWakeLock();
   protected readonly piece = signal<Piece | null>(null);
   protected readonly metrics = signal<PageMetric[]>([]);
   protected readonly loading = signal(true);
@@ -90,6 +92,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   async ngAfterViewInit(): Promise<void> {
     this.pieceId = this.route.snapshot.paramMap.get('pieceId') ?? '';
+    this.wakeLock.start();
     this.canvases.changes.subscribe(() => this.scheduleRender());
     this.scrollPages.changes.subscribe(() => this.scheduleRender());
     this.resizeObserver = new ResizeObserver(() => {
@@ -103,6 +106,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.wakeLock.stop();
     this.saveNow();
     this.resizeObserver?.disconnect();
     if (this.renderFrame) cancelAnimationFrame(this.renderFrame);
@@ -139,6 +143,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         this.syncAutoScroll();
       });
     } catch (error) {
+      this.wakeLock.stop();
       this.error.set(errorMessage(error));
       this.loading.set(false);
     }
