@@ -92,7 +92,8 @@ Safari and confirming that:
 
 - `GET/POST /api/pieces/`
 - `GET/PATCH/DELETE /api/pieces/{id}/`
-- `POST/GET /api/pieces/{id}/pdf`
+- `POST/GET/HEAD /api/pieces/{id}/pdf`
+- `GET/HEAD /api/pieces/{id}/pdf/download`
 - `GET/PUT /api/pieces/{id}/reader-state`
 - `GET /api/health`
 - `GET /api/session`
@@ -101,8 +102,10 @@ Safari and confirming that:
 - `GET /api/auth/google/callback`
 
 PDF responses use `http.ServeContent`, including byte-range support required by
-PDF.js on Safari. The storage implementation is behind `assets.Store` so a
-future NFS-backed production deployment does not change handlers.
+PDF.js on Safari. The `/pdf` route displays inline, while `/pdf/download` sends
+the current file as an attachment using its safe original filename. The storage
+implementation is behind `assets.Store` so a future NFS-backed production
+deployment does not change handlers.
 All piece, PDF, and reader-state routes resolve the authenticated user
 server-side; another user's identifier is returned as not found.
 

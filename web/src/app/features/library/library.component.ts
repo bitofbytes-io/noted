@@ -2,6 +2,7 @@ import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@an
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
+  LucideDownload,
   LucideFileText,
   LucideHeadphones,
   LucideHeart,
@@ -25,6 +26,7 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
   selector: 'app-library',
   imports: [
     FormsModule,
+    LucideDownload,
     LucideFileText,
     LucideHeadphones,
     LucideHeart,

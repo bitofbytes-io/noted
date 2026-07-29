@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+const fixturePdfPath = resolve('../testdata/fixtures/noted-exercise.pdf');
+
 const piece = {
   id: '4f607127-fb97-4b22-90f5-1b9bec77b739',
   title: 'Prelude in C',
@@ -23,7 +25,7 @@ const piece = {
 };
 
 test.beforeEach(async ({ page }) => {
-  const pdf = await readFile(resolve('../testdata/fixtures/noted-exercise.pdf'));
+  const pdf = await readFile(fixturePdfPath);
   await page.route('**/api/session', async (route) => {
     await route.fulfill({
       status: 200,
@@ -43,6 +45,18 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/pieces/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname.endsWith('/pdf/download')) {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'attachment; filename="prelude.pdf"',
+          'Cache-Control': 'private, max-age=0, must-revalidate',
+        },
+        body: pdf,
+      });
+      return;
+    }
     if (url.pathname.endsWith('/pdf')) {
       if (request.method() === 'POST') {
         await route.fulfill({
@@ -124,14 +138,61 @@ test('adds a PDF with a filename-prefilled title and opens it', async ({ page })
   await page.goto('/');
   await page.getByRole('button', { name: 'Add piece' }).click();
   const dialog = page.getByRole('dialog');
-  await dialog
-    .locator('input[type="file"]')
-    .setInputFiles(resolve('../testdata/fixtures/noted-exercise.pdf'));
+  await expect(dialog.getByRole('link', { name: 'Download current PDF' })).toHaveCount(0);
+  await dialog.locator('input[type="file"]').setInputFiles(fixturePdfPath);
   await expect(dialog.getByLabel('Title')).toHaveValue('noted exercise');
   await dialog.getByLabel('Composer').fill('Fixture composer');
   await dialog.getByRole('button', { name: 'Add piece' }).click();
   await expect(page).toHaveURL(new RegExp(`/reader/${piece.id}$`));
   await expect(page.locator('canvas')).toBeVisible();
+});
+
+test('edit makes the current PDF downloadable while keeping replacement available', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit piece' }).click();
+
+  const dialog = page.getByRole('dialog');
+  const replacementPicker = dialog.locator('input[type="file"]');
+  await expect(dialog.getByText('Replace prelude.pdf')).toBeVisible();
+  await expect(replacementPicker).toHaveAttribute('accept', 'application/pdf,.pdf');
+
+  const downloadAction = dialog.getByRole('link', { name: 'Download current PDF' });
+  await expect(downloadAction).toHaveAttribute('href', `/api/pieces/${piece.id}/pdf/download`);
+  const actionBox = await downloadAction.boundingBox();
+  expect(actionBox).not.toBeNull();
+  expect(actionBox!.height).toBeGreaterThanOrEqual(44);
+
+  await downloadAction.focus();
+  await expect(downloadAction).toBeFocused();
+
+  await page.screenshot({ path: testInfo.outputPath('edit-pdf-actions.png') });
+});
+
+test('download uses the current PDF filename and exact bytes', async ({ page, browserName }) => {
+  test.skip(
+    browserName === 'webkit',
+    'Headless WebKit bypasses Playwright page routes for attachment downloads.',
+  );
+  const fixturePdf = await readFile(fixturePdfPath);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit piece' }).click();
+
+  const dialog = page.getByRole('dialog');
+  const replacementPicker = dialog.locator('input[type="file"]');
+  const downloadAction = dialog.getByRole('link', { name: 'Download current PDF' });
+  const downloadPromise = page.waitForEvent('download');
+  await downloadAction.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('prelude.pdf');
+  const downloadedPath = await download.path();
+  expect(downloadedPath).not.toBeNull();
+  expect((await readFile(downloadedPath!)).equals(fixturePdf)).toBe(true);
+
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Replace prelude.pdf')).toBeVisible();
+  await expect(replacementPicker).toBeAttached();
 });
 
 test('creates and edits a listening URL using the single URL field', async ({ page }) => {

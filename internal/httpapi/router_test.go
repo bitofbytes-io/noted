@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -33,6 +34,11 @@ type fakeBackend struct {
 	patchPieceID string
 	uploadName   string
 	uploadBody   string
+	pdfFilename  string
+	pdfBody      []byte
+	pdfError     error
+	pdfUserID    string
+	pdfPieceID   string
 }
 
 func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool) ([]app.Piece, error) {
@@ -60,9 +66,24 @@ func (fake *fakeBackend) UploadPDF(_ context.Context, _, _ string, name string, 
 	fake.uploadName, fake.uploadBody = name, string(content)
 	return app.Piece{ID: testPieceID}, err
 }
-func (*fakeBackend) PDFSource(context.Context, string, string) (app.PDFSource, assets.ReadSeekCloser, error) {
-	body := &seekReadCloser{Reader: bytes.NewReader([]byte("0123456789"))}
-	return app.PDFSource{OriginalFilename: "score.pdf", UploadedAt: time.Unix(1, 0)}, body, nil
+func (fake *fakeBackend) PDFSource(
+	_ context.Context,
+	userID, pieceID string,
+) (app.PDFSource, assets.ReadSeekCloser, error) {
+	fake.pdfUserID, fake.pdfPieceID = userID, pieceID
+	if fake.pdfError != nil {
+		return app.PDFSource{}, nil, fake.pdfError
+	}
+	filename := fake.pdfFilename
+	if filename == "" {
+		filename = "score.pdf"
+	}
+	body := fake.pdfBody
+	if body == nil {
+		body = []byte("0123456789")
+	}
+	reader := &seekReadCloser{Reader: bytes.NewReader(body)}
+	return app.PDFSource{OriginalFilename: filename, UploadedAt: time.Unix(1, 0)}, reader, nil
 }
 func (*fakeBackend) GetReaderState(context.Context, string, string) (app.ReaderState, error) {
 	return app.ReaderState{PieceID: testPieceID, Mode: "page", LastPage: 1, Zoom: 1, ScrollSpeed: 32}, nil
@@ -221,5 +242,75 @@ func TestPDFSupportsRanges(t *testing.T) {
 	testRouter(&fakeBackend{}, 1024).ServeHTTP(response, request)
 	if response.Code != http.StatusPartialContent || response.Body.String() != "2345" {
 		t.Fatalf("unexpected range response: %d %q", response.Code, response.Body.String())
+	}
+	if disposition := response.Header().Get("Content-Disposition"); disposition != `inline; filename=score.pdf` {
+		t.Fatalf("Content-Disposition = %q, want inline filename", disposition)
+	}
+	if cacheControl := response.Header().Get("Cache-Control"); cacheControl != "private, max-age=0, must-revalidate" {
+		t.Fatalf("Cache-Control = %q", cacheControl)
+	}
+}
+
+func TestPDFDownloadServesExactBytesAsSafeAttachment(t *testing.T) {
+	wantBody := []byte("%PDF-current-score")
+	fake := &fakeBackend{pdfFilename: `../../Daniel's cleaned score.pdf`, pdfBody: wantBody}
+	request := httptest.NewRequest(http.MethodGet, "/api/pieces/"+testPieceID+"/pdf/download", nil)
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected response: %d %s", response.Code, response.Body.String())
+	}
+	if !bytes.Equal(response.Body.Bytes(), wantBody) {
+		t.Fatalf("download body = %q, want %q", response.Body.Bytes(), wantBody)
+	}
+	mediaType, parameters, err := mime.ParseMediaType(response.Header().Get("Content-Disposition"))
+	if err != nil {
+		t.Fatalf("parse Content-Disposition: %v", err)
+	}
+	if mediaType != "attachment" || parameters["filename"] != "Daniel's cleaned score.pdf" {
+		t.Fatalf("Content-Disposition = %q", response.Header().Get("Content-Disposition"))
+	}
+	if response.Header().Get("Content-Type") != "application/pdf" {
+		t.Fatalf("Content-Type = %q", response.Header().Get("Content-Type"))
+	}
+	if response.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("Accept-Ranges = %q", response.Header().Get("Accept-Ranges"))
+	}
+	if response.Header().Get("Cache-Control") != "private, max-age=0, must-revalidate" {
+		t.Fatalf("Cache-Control = %q", response.Header().Get("Cache-Control"))
+	}
+	if fake.pdfUserID != testUserID || fake.pdfPieceID != testPieceID {
+		t.Fatalf("PDFSource called with user=%q piece=%q", fake.pdfUserID, fake.pdfPieceID)
+	}
+}
+
+func TestPDFDownloadSupportsHead(t *testing.T) {
+	request := httptest.NewRequest(http.MethodHead, "/api/pieces/"+testPieceID+"/pdf/download", nil)
+	response := httptest.NewRecorder()
+	testRouter(&fakeBackend{}, 1024).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.Len() != 0 {
+		t.Fatalf("unexpected HEAD response: %d body=%q", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Content-Length") != "10" {
+		t.Fatalf("Content-Length = %q, want 10", response.Header().Get("Content-Length"))
+	}
+	if disposition := response.Header().Get("Content-Disposition"); disposition != `attachment; filename=score.pdf` {
+		t.Fatalf("Content-Disposition = %q, want attachment filename", disposition)
+	}
+}
+
+func TestPDFDownloadReturnsUniformNotFoundForUnavailablePiece(t *testing.T) {
+	fake := &fakeBackend{pdfError: app.ErrNotFound}
+	request := httptest.NewRequest(http.MethodGet, "/api/pieces/"+testPieceID+"/pdf/download", nil)
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound || response.Body.String() != "{\"error\":\"piece not found\"}\n" {
+		t.Fatalf("unexpected not-found response: %d %q", response.Code, response.Body.String())
+	}
+	if fake.pdfUserID != testUserID || fake.pdfPieceID != testPieceID {
+		t.Fatalf("PDFSource called with user=%q piece=%q", fake.pdfUserID, fake.pdfPieceID)
 	}
 }
