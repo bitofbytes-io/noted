@@ -391,6 +391,23 @@ input[type='checkbox'] {
   color: var(--ink-muted);
 }
 
+.download-action {
+  min-height: var(--tap-min);
+  margin-top: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--green);
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.download-action:hover {
+  background: var(--green-soft);
+}
+
 .editor-actions {
   display: flex;
   flex-wrap: wrap;

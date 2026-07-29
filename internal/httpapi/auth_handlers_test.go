@@ -54,6 +54,22 @@ func TestGoogleModeRejectsMissingSession(t *testing.T) {
 	}
 }
 
+func TestGoogleModeRejectsUnauthenticatedPDFDownload(t *testing.T) {
+	router := NewRouter(&fakeBackend{}, &fakeAuthenticator{}, config.Config{
+		AppEnv: "test", AuthMode: "google", MaxUploadBytes: 1024,
+	})
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/pieces/"+testPieceID+"/pdf/download",
+		nil,
+	)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestRemoteIP(t *testing.T) {
 	if actual := remoteIP("192.0.2.10:4567"); actual != "192.0.2.10" {
 		t.Fatalf("remoteIP with port = %q", actual)

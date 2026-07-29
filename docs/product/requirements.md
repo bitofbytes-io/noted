@@ -1,7 +1,7 @@
 # Noted Digital Binder v1 Requirements
 
 Status: Authoritative implementation scope
-Last updated: 2026-07-25
+Last updated: 2026-07-28
 
 ## Product outcome
 
@@ -37,6 +37,8 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-014: PDF responses support HTTP byte ranges and inline display.
 - BND-015: Replacing or deleting a PDF cleans up the old stored object without
   leaving the database pointing at a missing replacement.
+- BND-016: A user can download the current PDF attached to their own piece using
+  its safe original filename, so they can edit it outside Noted before replacing it.
 
 ### Reader
 
@@ -77,8 +79,9 @@ stitching, sharing, and offline mode are not part of v1.
 
 1. Add a piece from a phone or desktop, using the filename-prefilled title.
 2. Upload its PDF and find it by title or composer.
-3. Favorite it and verify the favorites filter.
-4. Open it directly from the library.
-5. Turn pages with taps, a swipe, and PageDown/ArrowRight.
-6. Switch to auto-scroll, adjust speed and zoom, pause, leave, and return.
-7. Verify the prior mode, position, zoom, and speed are restored.
+3. Download the current PDF from the edit dialog and verify the original filename.
+4. Favorite it and verify the favorites filter.
+5. Open it directly from the library.
+6. Turn pages with taps, a swipe, and PageDown/ArrowRight.
+7. Switch to auto-scroll, adjust speed and zoom, pause, leave, and return.
+8. Verify the prior mode, position, zoom, and speed are restored.

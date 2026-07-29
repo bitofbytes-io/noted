@@ -188,6 +188,13 @@
       <small>PDF up to {{ maxUploadLabel }}</small>
     </label>
 
+    @if (editing?.pdf; as pdf) {
+      <a class="download-action" [href]="pdf.contentUrl + '/download'">
+        <svg lucideDownload aria-hidden="true"></svg>
+        <span>Download current PDF</span>
+      </a>
+    }
+
     @if (error()) {
       <p class="notice" role="alert">{{ error() }}</p>
     }

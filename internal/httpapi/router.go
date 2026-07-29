@@ -71,6 +71,8 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 				router.Post("/pdf", handler.uploadPDF)
 				router.Get("/pdf", handler.servePDF)
 				router.Head("/pdf", handler.servePDF)
+				router.Get("/pdf/download", handler.downloadPDF)
+				router.Head("/pdf/download", handler.downloadPDF)
 				router.Get("/reader-state", handler.getReaderState)
 				router.Put("/reader-state", handler.putReaderState)
 			})
@@ -203,6 +205,18 @@ func (h *Handler) uploadPDF(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) servePDF(writer http.ResponseWriter, request *http.Request) {
+	h.servePDFContent(writer, request, "inline")
+}
+
+func (h *Handler) downloadPDF(writer http.ResponseWriter, request *http.Request) {
+	h.servePDFContent(writer, request, "attachment")
+}
+
+func (h *Handler) servePDFContent(
+	writer http.ResponseWriter,
+	request *http.Request,
+	dispositionType string,
+) {
 	id, ok := pieceID(writer, request)
 	if !ok {
 		return
@@ -213,12 +227,13 @@ func (h *Handler) servePDF(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	defer reader.Close()
-	disposition := mime.FormatMediaType("inline", map[string]string{"filename": source.OriginalFilename})
+	filename := safeFilename(source.OriginalFilename)
+	disposition := mime.FormatMediaType(dispositionType, map[string]string{"filename": filename})
 	writer.Header().Set("Content-Type", "application/pdf")
 	writer.Header().Set("Content-Disposition", disposition)
 	writer.Header().Set("Accept-Ranges", "bytes")
 	writer.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
-	http.ServeContent(writer, request, source.OriginalFilename, source.UploadedAt, reader)
+	http.ServeContent(writer, request, filename, source.UploadedAt, reader)
 }
 
 func (h *Handler) getReaderState(writer http.ResponseWriter, request *http.Request) {
