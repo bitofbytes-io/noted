@@ -13,7 +13,8 @@ import (
 func TestProductionSessionCookieSecurity(t *testing.T) {
 	handler := Handler{config: config.Config{AppEnv: "production"}}
 	recorder := httptest.NewRecorder()
-	handler.setSessionCookie(recorder, "opaque-token", time.Now().Add(time.Hour))
+	expiresAt := time.Now().Add(90 * 24 * time.Hour)
+	handler.setSessionCookie(recorder, "opaque-token", expiresAt)
 
 	cookies := recorder.Result().Cookies()
 	if len(cookies) != 1 {
@@ -26,6 +27,12 @@ func TestProductionSessionCookieSecurity(t *testing.T) {
 	if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode ||
 		cookie.Path != "/" {
 		t.Fatalf("session cookie is missing security attributes: %+v", cookie)
+	}
+	if !cookie.Expires.Equal(expiresAt.Truncate(time.Second)) {
+		t.Fatalf("cookie expiry = %v, want session expiry %v", cookie.Expires, expiresAt)
+	}
+	if cookie.MaxAge <= 0 {
+		t.Fatalf("cookie MaxAge = %d, want a persistent session cookie", cookie.MaxAge)
 	}
 }
 

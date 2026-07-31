@@ -5,7 +5,32 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestLoadDefaultsSessionTTLToNinetyDays(t *testing.T) {
+	t.Setenv("SESSION_TTL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 90 * 24 * time.Hour; cfg.SessionTTL != want {
+		t.Fatalf("SessionTTL = %v, want %v", cfg.SessionTTL, want)
+	}
+}
+
+func TestLoadUsesSessionTTLOverride(t *testing.T) {
+	t.Setenv("SESSION_TTL", "12h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 12 * time.Hour; cfg.SessionTTL != want {
+		t.Fatalf("SessionTTL = %v, want %v", cfg.SessionTTL, want)
+	}
+}
 
 func TestLoadReadsDatabaseURLFromSecretFile(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
