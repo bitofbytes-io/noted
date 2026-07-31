@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const defaultSessionTTL = 90 * 24 * time.Hour
+
 type Config struct {
 	Port           string
 	AppEnv         string
@@ -58,7 +60,7 @@ func Load() (Config, error) {
 		GoogleSecret:   googleSecret,
 		GoogleRedirect: strings.TrimSpace(os.Getenv("AUTH_GOOGLE_REDIRECT_URL")),
 		AllowedEmails:  normalizeEmails(parseCSV(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS"))),
-		SessionTTL:     12 * time.Hour,
+		SessionTTL:     defaultSessionTTL,
 	}
 	if raw := os.Getenv("MAX_UPLOAD_BYTES"); raw != "" {
 		size, err := strconv.ParseInt(raw, 10, 64)

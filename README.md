@@ -46,7 +46,9 @@ Local development defaults to `AUTH_MODE=development` and resolves
 `AUTH_GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_CLIENT_SECRET`,
 `AUTH_GOOGLE_REDIRECT_URL`, `AUTH_GOOGLE_ALLOWED_EMAILS`, and `FRONTEND_URL`.
 Client credentials support the corresponding `_FILE` variables. Browser
-sessions are opaque, database-backed, and default to a 12-hour lifetime.
+sessions are opaque, database-backed, fixed at sign-in, and default to a
+90-day lifetime. Set `SESSION_TTL=12h` to roll back to the former 12-hour
+duration; a configured positive `SESSION_TTL` overrides the default.
 
 The ownership migration intentionally refuses to run while pre-authentication
 pieces remain. Delete those pieces through the current UI first so `AssetStore`
