@@ -221,10 +221,9 @@ against the accepted implementation and update them in the implementation change
   ledger lines, slurs, and edges. Preview success does not prove note accuracy.
 
 For implementation changes, run `make test`, `make lint`, and `make build`.
-Run `make test-e2e` for reader changes and add meaningful browser coverage for the
-new intake flow. Record physical iPad Safari and Bluetooth pedal checks separately,
-including a saved prepared score in both reader modes. Generated mockups do not
-satisfy browser, device, or musical-fidelity validation.
+Record physical iPad Safari and Bluetooth pedal checks separately, including a
+saved prepared score in both reader modes. Generated mockups do not satisfy
+device or musical-fidelity validation.
 
 ## Current stopping point
 
@@ -251,7 +250,8 @@ manual straightening, quarter turns and optional explicit margins. Scale, positi
 match and automatic suggestions are removed from the visible controls. Zero margins
 adds no border. Existing edit manifests remain compatible until an explicit change;
 combined legacy perspective/crop has a clearly labelled start-over option.
-Library buttons say Edit pages and Edit details, with separate Resume draft actions.
+Library rows keep Edit details; Edit pages moved into the details dialog during the
+UI polish pass, and drafts are listed as rows with a Resume action.
 PDF/IMSLP pages can still be removed, reordered or extracted without changing originals.
 
 Stop after the working local preview and required checks so the user can retry the

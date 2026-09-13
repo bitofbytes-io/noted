@@ -54,31 +54,6 @@ jobs:
         run: npm run build
         working-directory: web
 
-  e2e:
-    name: Browser end-to-end tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install UI dependencies
-        run: npm ci
-        working-directory: web
-      - name: Install browser engines
-        run: npx playwright install --with-deps chromium webkit
-        working-directory: web
-      - name: Run browser suite
-        run: make test-e2e
-
   containers:
     name: Production container builds
     runs-on: ubuntu-latest

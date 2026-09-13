@@ -89,8 +89,16 @@ export class ApiService {
 export function errorMessage(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
     const body = error.error as { error?: unknown } | null;
-    if (typeof body?.error === 'string') return body.error;
+    if (typeof body?.error === 'string') return sentence(body.error);
     if (error.status === 0) return 'Noted could not reach the API.';
   }
-  return error instanceof Error ? error.message : 'Something went wrong.';
+  return error instanceof Error ? sentence(error.message) : 'Something went wrong.';
+}
+
+/** API errors arrive as lowercase fragments; present them as a sentence. */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return 'Something went wrong.';
+  const capitalised = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  return /[.!?]$/.test(capitalised) ? capitalised : `${capitalised}.`;
 }

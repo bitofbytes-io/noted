@@ -61,7 +61,7 @@ describe('App authentication gate', () => {
     );
     await render();
 
-    const link: HTMLAnchorElement | null = fixture.nativeElement.querySelector('a.primary-action');
+    const link: HTMLAnchorElement | null = fixture.nativeElement.querySelector('a.btn-primary');
     expect(link?.getAttribute('href')).toBe(
       '/api/auth/google?returnTo=%2Freader%2Fpiece-123%3Fmode%3Dscroll%23page-4',
     );

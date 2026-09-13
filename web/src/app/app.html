@@ -1,31 +1,29 @@
 @if (loadingSession()) {
   <main class="auth-gate" aria-live="polite">
     <section class="auth-card">
-      <span class="wordmark-mark" aria-hidden="true">N</span>
+      <img class="auth-mark" src="noted-favicon-v2.svg" alt="" width="40" height="40" />
       <p>Opening Noted…</p>
     </section>
   </main>
 } @else if (apiOffline()) {
   <main class="auth-gate">
     <section class="auth-card" role="alert">
-      <span class="wordmark-mark" aria-hidden="true">N</span>
-      <p class="overline">CONNECTION UNAVAILABLE</p>
+      <img class="auth-mark" src="noted-favicon-v2.svg" alt="" width="40" height="40" />
       <h1>Noted cannot reach its API.</h1>
-      <p>Check the service and try refreshing this page.</p>
-      <button class="primary-action" type="button" (click)="reload()">Try again</button>
+      <p>Check that the service is running, then try again.</p>
+      <button class="btn-primary" type="button" (click)="reload()">Try again</button>
     </section>
   </main>
 } @else if (!session()?.authenticated) {
   <main class="auth-gate">
-    <section class="auth-card sign-in-card">
+    <section class="auth-card">
       <div class="auth-wordmark">
-        <span class="wordmark-mark" aria-hidden="true">N</span>
-        <strong>Noted</strong>
+        <img class="auth-mark" src="noted-favicon-v2.svg" alt="" width="40" height="40" />
+        <span>Noted</span>
       </div>
-      <p class="overline">PRIVATE SHEET-MUSIC BINDER</p>
       <h1>Your scores, ready when you are.</h1>
       <p>Sign in with an approved Google account to open your private library.</p>
-      <a class="primary-action" [href]="googleSignInURL()">Continue with Google</a>
+      <a class="btn-primary" [href]="googleSignInURL()">Continue with Google</a>
     </section>
   </main>
 } @else {

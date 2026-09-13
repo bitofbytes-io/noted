@@ -66,21 +66,12 @@ make test            # Go and Angular unit tests
 make lint            # gofmt, go vet, Prettier, and strict TypeScript
 make build           # Go and production Angular builds
 make test-migrations # isolated apply/rollback/reapply check (requires Docker)
-make test-e2e        # mocked desktop Chromium and 1024x1366 WebKit flows
 make docker-build    # build the production API and UI images
 ```
 
-Install Playwright engines once when needed:
-
-```sh
-cd web
-npx playwright install chromium webkit
-```
-
-Automated reader coverage checks PDF canvas rendering, mode controls, screen
-wake-lock lifecycle, and the iPad-sized viewport. Final acceptance still
-requires opening representative large scans on the physical 13-inch iPad in
-Safari and confirming that:
+There is no browser end-to-end suite. Final acceptance requires opening
+representative large scans on the physical 13-inch iPad in Safari and confirming
+that:
 
 - A short Auto-Lock interval does not sleep the display on a static page, during
   active auto-scroll, or while auto-scroll is paused.

@@ -30,20 +30,26 @@ rather than a second accent family.
 Font stack:
 
 ```css
-Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
+'Inter Variable', Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
 ```
+
+Inter is self-hosted through the `@fontsource-variable/inter` package and
+imported once in `web/src/styles.scss`. No font is fetched from a third-party
+CDN. The variable font is what makes the 550 and 600 weights render exactly.
 
 | Role | Specification |
 | --- | --- |
 | Library title | `clamp(42px, 7vw, 72px)`, weight 550, line-height 1 |
-| Section heading | `26px`, weight 650 |
-| Piece title | `19px`, weight 650, line-height 1.25 |
+| Page heading (Prepare) | `clamp(30px, 4vw, 40px)`, weight 600 |
+| Section heading | `22–26px`, weight 600 |
+| Piece title | `19px`, weight 600, line-height 1.25 |
 | Body | `15px`, weight 400, line-height 1.6 |
-| Metadata | `11–12px`, weight 600 |
-| Overline | `11px`, weight 700, `0.16em` spacing, uppercase |
+| Metadata and field labels | `13px`, weight 500–600, sentence case |
 
-Letter spacing is zero except for uppercase overlines and metadata labels.
-Long titles wrap; compact reader titles truncate with an ellipsis.
+Letter spacing is zero everywhere. No interface text is uppercase, and there are
+no eyebrow or overline labels above headings. Counters (page numbers, zoom, result
+counts) use tabular numerals. Long titles wrap; compact reader titles truncate
+with an ellipsis.
 
 ## Space and shape
 
@@ -78,14 +84,30 @@ below it on phones.
 
 ### Piece row
 
-At least 112px high on large screens, with a small white document mark, title,
-composer, page metadata, and 44px favorite/edit icon buttons. Rows use
-`--line`; hover/focus uses `--green-soft`.
+At least 112px high on large screens, with a small white document mark that
+carries the page count, title, composer, and 44px favorite and edit icon buttons
+in `--ink-muted` that turn `--green` on hover. A labeled Listen link appears
+only when a listening URL exists. Rows use `--line`; hover/focus uses
+`--green-soft`. Unfinished drafts use the same row with a dashed mark and a
+Resume button.
 
-### Primary action
+### Buttons
 
-Green fill, white icon and label, 48px minimum height, pill radius, and
-`--green-dark` hover/pressed state.
+Shared recipes live in `web/src/styles.scss` and are used by every screen:
+
+| Class | Recipe |
+| --- | --- |
+| `.btn-primary` | Green fill, white label, 48px, pill radius, `--green-dark` hover |
+| `.btn-secondary` | Transparent, 1px `--ink` border, square, `--green-soft` hover |
+| `.btn-quiet` | Transparent, no border, `--ink-muted` text; `.accent` for green, `.danger` for red |
+| `.icon-button` | 44px square, icon only, requires `aria-label` |
+
+Only one `.btn-primary` is visible per screen.
+
+### Fields
+
+`.field` wraps a 13px/600 sentence-case label above a square input on
+`--paper-raised` with a `--line-strong` border that turns `--green` on focus.
 
 ### Reader
 

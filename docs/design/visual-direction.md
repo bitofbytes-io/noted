@@ -20,12 +20,17 @@ sets the visual language, not the archived dashboard information architecture.
 - Search by title or composer is prominent and underlined rather than boxed.
 - Favorites are a compact filter next to search.
 - Pieces are hairline-separated rows, not covers or cards.
-- Each row prioritizes title, composer, PDF availability, and page count. When a
-  listening URL exists, a labeled 44px-minimum Listen action opens it in a new tab
-  without activating the row.
-- Add is the single green pill action. Edit, favorite, and delete use familiar
-  line icons with accessible labels.
+- Each row prioritizes title, composer, and page count (shown in the document
+  mark). When a listening URL exists, a labeled 44px-minimum Listen action opens
+  it in a new tab without activating the row.
+- Add is the single green pill action. Favorite and Edit details are quiet line
+  icons with accessible labels; page editing and PDF download are reached from
+  the details dialog. Unfinished drafts appear as rows above the pieces with a
+  Resume button.
 - Metadata and PDF upload use one square-edged modal with a bordered drop zone.
+- The Prepare flow shares the Library's masthead, page width, and button system.
+  Its numbered Source, Pages, Details steps are the only numbered element in the
+  product because they are a real sequence.
 
 ## Reader
 
@@ -64,3 +69,6 @@ sets the visual language, not the archived dashboard information architecture.
 - No decorative sheet music, cover-art grid, gradient illustration, or floating
   page-section cards.
 - No shadows in the library. Modals use a border and raised paper tone.
+- No eyebrow or overline labels above headings, no uppercase interface text, no
+  numbered markers on parallel choices, and no middle-dot-joined metadata
+  strings. Words in the interface are sentences or short labels.
