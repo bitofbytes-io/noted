@@ -1,12 +1,19 @@
-import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  ViewChild,
+  inject,
+  signal,
+  afterNextRender,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   LucideDownload,
   LucideFileText,
   LucideHeadphones,
   LucideHeart,
-  LucideHeartOff,
   LucidePencil,
   LucidePlus,
   LucideSearch,
@@ -30,7 +37,6 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
     LucideFileText,
     LucideHeadphones,
     LucideHeart,
-    LucideHeartOff,
     LucidePencil,
     LucidePlus,
     LucideSearch,
@@ -42,11 +48,11 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
   styleUrl: './library.component.scss',
 })
 export class LibraryComponent implements OnDestroy {
-  @ViewChild('intake') private intake?: ElementRef<HTMLDialogElement>;
   protected readonly drafts = signal<ImportDraft[]>([]);
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly pieces = signal<Piece[]>([]);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -60,10 +66,15 @@ export class LibraryComponent implements OnDestroy {
   protected form: PieceInput = emptyPiece();
   protected selectedFile: File | null = null;
   protected selectedPageCount = 0;
-  protected readonly maxUploadLabel = '50 MB';
   private searchTimer?: number;
 
   constructor() {
+    afterNextRender(() => {
+      if (this.route.snapshot.queryParamMap.get('details') === 'new') {
+        this.openCreate();
+        void this.router.navigate([], { queryParams: {}, replaceUrl: true });
+      }
+    });
     void this.loadSession();
     void this.load();
     void this.loadDrafts();
@@ -117,10 +128,7 @@ export class LibraryComponent implements OnDestroy {
       /* Library remains usable if drafts are temporarily unavailable. */
     }
   }
-  openIntake(): void {
-    this.intake?.nativeElement.showModal();
-  }
-  async beginImport(piece?: Piece, event?: Event, mode = 'pdf'): Promise<void> {
+  async beginImport(piece?: Piece, event?: Event, mode = 'all'): Promise<void> {
     event?.stopPropagation();
     try {
       const d = await firstValueFrom(this.api.createImport(piece?.id));

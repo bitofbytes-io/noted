@@ -3,19 +3,22 @@ package app
 import "time"
 
 type PageEdit struct {
-	PaperCleanup bool        `json:"paperCleanup,omitempty"`
-	ID           string      `json:"id"`
-	SourceID     string      `json:"sourceId"`
-	Page         int         `json:"page"`
-	Angle        float64     `json:"angle,omitempty"`
-	Rotation     int         `json:"rotation,omitempty"`
-	OutputWidth  float64     `json:"outputWidth,omitempty"` // physical canvas in PDF points
-	OutputHeight float64     `json:"outputHeight,omitempty"`
-	Scale        float64     `json:"scale,omitempty"`
-	X            float64     `json:"x,omitempty"`
-	Y            float64     `json:"y,omitempty"`
-	Crop         []float64   `json:"crop,omitempty"`    // normalized left,top,right,bottom in original displayed page
-	Corners      [][]float64 `json:"corners,omitempty"` // normalized clockwise photo corners
+	Margins              []float64   `json:"margins,omitempty"` // top,right,bottom,left in PDF points
+	FitEdges             bool        `json:"fitEdges,omitempty"`
+	PaperCleanupStrength *float64    `json:"paperCleanupStrength,omitempty"`
+	PaperCleanup         bool        `json:"paperCleanup,omitempty"`
+	ID                   string      `json:"id"`
+	SourceID             string      `json:"sourceId"`
+	Page                 int         `json:"page"`
+	Angle                float64     `json:"angle,omitempty"`
+	Rotation             int         `json:"rotation,omitempty"`
+	OutputWidth          float64     `json:"outputWidth,omitempty"` // physical canvas in PDF points
+	OutputHeight         float64     `json:"outputHeight,omitempty"`
+	Scale                float64     `json:"scale,omitempty"`
+	X                    float64     `json:"x,omitempty"`
+	Y                    float64     `json:"y,omitempty"`
+	Crop                 []float64   `json:"crop,omitempty"`    // normalized left,top,right,bottom in original displayed page
+	Corners              [][]float64 `json:"corners,omitempty"` // normalized clockwise photo corners
 }
 type EditManifest struct {
 	Version int        `json:"version"`

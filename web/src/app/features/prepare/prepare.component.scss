@@ -569,3 +569,56 @@ footer > div {
 .preview-scroll {
   scrollbar-gutter: stable;
 }
+
+.edge-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.edge-overlay path {
+  fill: rgba(20, 35, 27, 0.45);
+}
+.edge-overlay polygon {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.edge-actions {
+  text-align: left;
+  padding: 12px 0;
+}
+.edge-actions .actions {
+  margin: 8px 0;
+}
+.corner:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .adjustments {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
+.margin-controls {
+  grid-column: 1/-1;
+}
+.margin-controls summary {
+  min-height: 44px;
+  cursor: pointer;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.margin-controls fieldset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.margin-controls label {
+  margin: 0;
+}

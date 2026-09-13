@@ -116,7 +116,15 @@ func (s *Service) UpdatePiece(
 	userID, id string,
 	patch PiecePatch,
 ) (Piece, error) {
-	current, err := s.GetPiece(ctx, userID, id)
+	tx, err := s.importTx(ctx, userID)
+	if err != nil {
+		return Piece{}, err
+	}
+	defer tx.Rollback(ctx)
+	current, err := scanPiece(tx.QueryRow(ctx, `SELECT `+pieceColumns+` FROM pieces p LEFT JOIN piece_pdfs f ON f.piece_id=p.id WHERE p.id=$1 AND p.user_id=$2`, id, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Piece{}, ErrNotFound
+	}
 	if err != nil {
 		return Piece{}, err
 	}
@@ -146,7 +154,7 @@ func (s *Service) UpdatePiece(
 	if err != nil {
 		return Piece{}, err
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
 			listening_url=$6, notes=$7, content_revision=content_revision+1, updated_at=now() WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
@@ -156,6 +164,9 @@ func (s *Service) UpdatePiece(
 	}
 	if tag.RowsAffected() == 0 {
 		return Piece{}, ErrNotFound
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Piece{}, err
 	}
 	return s.GetPiece(ctx, userID, id)
 }

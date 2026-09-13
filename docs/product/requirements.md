@@ -97,8 +97,8 @@ IMSLP fetching, photo stitching, sharing, and offline mode are not part of v1.
 The user approved the tool-generated corrected PDFs before application work.
 Private draft preparation now precedes publishing one active PDF per piece.
 Inputs are PDFs and JPEG/PNG photos, including phone captures. Drafts support
-page extraction/order/replacement, manual crop and photo corners, straightening,
-scale/position, opt-in staff-line suggestions, original comparison and reset.
+page extraction/order/replacement, one applied edge selection with natural-aspect
+fitting, manual straightening, paper strength, optional margins, original comparison and reset.
 Assisted IMSLP intake retains an HTTPS work link and lets the user choose and
 download the edition on IMSLP before uploading; no automatic edition list or
 backend download proxy is included.
@@ -120,9 +120,9 @@ remain a separate release checkpoint.
 
 Preparation transforms use a fixed output canvas. Scale changes notation size;
 position is a fraction of that canvas. Optional manifest `outputWidth` and
-`outputHeight` are PDF points (72 points per inch), defaulting to source/cropped
-page dimensions. Matching measures the adjusted reference and saves its physical
-canvas dimensions on targets. Preview, matching and export use the same worker
+`outputHeight` in legacy manifests are PDF points (72 points per inch), defaulting to source/cropped
+page dimensions. Legacy matching measures the adjusted reference and saves its physical
+canvas dimensions on targets. Preview and export use the same worker
 PDF transformations. A rendered ink check rejects unintended content clipping;
 explicit manual crop removes only content outside the selected rectangle.
 Upload cancellation waits for the in-flight file to settle and retains it, while
@@ -140,3 +140,32 @@ Preparation saves conservatively conflict when the saved piece changes, includin
 title or favorite edits made while a draft is open. The newer piece metadata and
 the draft are both retained. The error directs the user to start a new preparation
 from the current piece; reloading the stale draft cannot update its base revision.
+
+
+The local preparation controls now use one **Adjust page edges** editor on the
+orientation-correct original: a connected outline and shaded excluded area, with
+44-pixel handles, Apply edges and Cancel. Holding Shift while dragging (or using
+arrow keys) constrains a photo selection to a rectangle anchored at the opposite corner. Edits stay local until Apply and form
+one Undo step. Photos use convex four-corner selections; PDFs use rectangles.
+Applying replaces earlier crop, scale, position and fixed canvas settings. A
+legacy page combining crop and perspective requires an explicit start-from-original
+choice before replacing its edges; opening or cancelling the editor changes nothing.
+`fitEdges` opts into natural selected-region aspect and the complete rotated
+bounding box. Existing manifests without the flag retain their prior output.
+
+The visible controls are page edges, Lighten paper strength, manual straightening,
+quarter-turn rotation, and optional Top/Right/Bottom/Left margins. Position, scale,
+reference matching and automatic straightening suggestions are no longer shown.
+`paperCleanupStrength` (0–1) overrides the legacy boolean (`true` means 1). Zero
+keeps original JPEG bytes when no pixel correction is needed; rectified photos
+are encoded once as high-quality JPEG. Slider gestures make one Undo step and
+preview updates are debounced. `margins` stores four additive PDF-point values,
+in top/right/bottom/left order, shown as 0–50 mm per edge. Zero adds no border:
+the selected area itself defines the finished page. Rotation may expose the
+geometric white wedges around a tilted selection.
+
+Add piece opens Source directly with PDF, phone-photo and assisted IMSLP choices.
+There is no source-choice dialog. The secondary details-without-PDF action removes
+its empty draft before opening the existing metadata form. Library actions have
+visible Edit pages and Edit details labels; Resume draft is separate. PDF pages,
+including IMSLP downloads, retain removal, reordering and extraction controls.

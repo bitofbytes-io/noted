@@ -226,15 +226,18 @@ test.describe('worker PDF geometry regression with real sources', () => {
       await request.delete(`/api/imports/${initial.id}/`);
     }
   });
-  test('photo source choice goes directly to capture controls', async ({ page, request }) => {
+  test('Add piece goes directly to Source with all source choices', async ({ page, request }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Add piece', exact: true }).click();
-    await page.getByRole('button', { name: 'Photos from your books' }).click();
-    await expect(page).toHaveURL(/prepare\/[0-9a-f-]+\?source=photos/);
+    await expect(page).toHaveURL(/prepare\/[0-9a-f-]+\?source=all/);
     const id = new URL(page.url()).pathname.split('/').at(-1)!;
     try {
       await expect(page.getByRole('button', { name: 'Take a photo' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Choose PDF', exact: true })).not.toBeVisible();
+      await expect(page.getByRole('button', { name: 'Choose PDF', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'Bring an edition from IMSLP' }),
+      ).toBeVisible();
+      await expect(page.getByRole('dialog')).not.toBeVisible();
       await expect(page.locator('input[capture="environment"]')).toHaveAttribute('hidden', '');
     } finally {
       await request.delete(`/api/imports/${id}/`);
@@ -735,12 +738,14 @@ test.describe('photo content and source reuse', () => {
       await expect(page.locator('.page-surface img')).toHaveJSProperty('complete', true);
       await page.getByRole('button', { name: 'Adjust page edges', exact: true }).click();
       const corner = page.getByRole('button', { name: 'Adjust corner 1 with arrow keys or drag' });
+      await expect(corner).toBeEnabled();
       await corner.evaluate((element) => {
         for (let n = 0; n < 4; n++) {
           element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
           element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
         }
       });
+      await page.getByRole('button', { name: 'Apply edges', exact: true }).click();
       await page.getByRole('button', { name: 'Save draft & close' }).click();
       await expect(page).toHaveURL(/\/$/);
       const saved = await (await request.get(`/api/imports/${d.id}/`)).json(),
@@ -806,11 +811,12 @@ test('Lighten paper preserves faint strokes and color in a compact four-photo PD
     ).json();
     const checksum = d.sources[0].checksum;
     await page.goto(`/prepare/${d.id}`);
-    await page.getByLabel('Lighten paper').check();
+    await page.getByLabel('Lighten paper strength').fill('100');
+    await page.getByLabel('Lighten paper strength').blur();
     await page.getByRole('button', { name: 'Save draft & close' }).click();
     await expect(page).toHaveURL(/\/$/);
     d = await (await request.get(`/api/imports/${d.id}/`)).json();
-    expect(d.manifest.pages[0].paperCleanup).toBe(true);
+    expect(d.manifest.pages[0].paperCleanupStrength).toBe(1);
     expect(d.sources[0].checksum).toBe(checksum);
     const result = await page.evaluate(async (d) => {
       const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
@@ -973,15 +979,19 @@ test('Lighten paper undo restores the toggle without undoing earlier geometry', 
     await page.goto(`/prepare/${d.id}`);
     await expect(page.locator('.page-surface img')).toBeVisible();
     await page.getByLabel('Angle in degrees').fill('0.5');
-    await page.getByLabel('Lighten paper').check();
-    await expect(page.getByLabel('Lighten paper')).toBeChecked();
+    await page.getByLabel('Lighten paper strength').dispatchEvent('pointerdown');
+    await page.getByLabel('Lighten paper strength').fill('30');
+    await page.getByLabel('Lighten paper strength').fill('100');
+    await page.getByLabel('Lighten paper strength').dispatchEvent('pointerup');
+    await page.getByLabel('Lighten paper strength').blur();
+    await expect(page.getByLabel('Lighten paper strength')).toHaveValue('100');
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
-    await expect(page.getByLabel('Lighten paper')).not.toBeChecked();
+    await expect(page.getByLabel('Lighten paper strength')).toHaveValue('0');
     await expect(page.getByLabel('Angle in degrees')).toHaveValue('0.5');
     await page.getByRole('button', { name: 'Save draft & close' }).click();
     await expect(page).toHaveURL(/\/$/);
     const saved = await (await request.get(`/api/imports/${d.id}/`)).json();
-    expect(saved.manifest.pages[0].paperCleanup ?? false).toBe(false);
+    expect(saved.manifest.pages[0].paperCleanupStrength ?? 0).toBe(0);
     expect(saved.manifest.pages[0].angle).toBe(0.5);
   } finally {
     await request.delete(`/api/imports/${d.id}/`);

@@ -3,9 +3,11 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"testing"
 
@@ -145,4 +147,34 @@ func ccittTestPDF(params string, raw []byte) []byte {
 	}
 	fmt.Fprintf(&pdf, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xref)
 	return pdf.Bytes()
+}
+
+func TestPreparationStrengthAndMarginValidation(t *testing.T) {
+	source := ImportAsset{ID: "25c675db-6d18-4d36-b9e1-2810a859b199", MIME: "image/jpeg", PageCount: 1}
+	base := PageEdit{ID: "d10a2d43-bde2-4249-b645-3f2e746c61ea", SourceID: source.ID, FitEdges: true}
+	for _, strength := range []float64{-.01, 1.01, math.NaN(), math.Inf(1)} {
+		p := base
+		p.PaperCleanupStrength = &strength
+		if validateManifest(EditManifest{Version: 1, Pages: []PageEdit{p}}, []ImportAsset{source}, false) == nil {
+			t.Fatalf("accepted strength %v", strength)
+		}
+	}
+	for _, margins := range [][]float64{{0, 0, 0}, {-1, 0, 0, 0}, {0, 143, 0, 0}, {0, 0, math.NaN(), 0}} {
+		p := base
+		p.Margins = margins
+		if validateManifest(EditManifest{Version: 1, Pages: []PageEdit{p}}, []ImportAsset{source}, false) == nil {
+			t.Fatalf("accepted margins %v", margins)
+		}
+	}
+	zero := 0.
+	base.PaperCleanup = true
+	base.PaperCleanupStrength = &zero
+	base.Margins = []float64{0, 72, 0, 0}
+	if err := validateManifest(EditManifest{Version: 1, Pages: []PageEdit{base}}, []ImportAsset{source}, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(base)
+	if err != nil || !bytes.Contains(data, []byte(`"paperCleanupStrength":0`)) {
+		t.Fatalf("zero override lost: %s %v", data, err)
+	}
 }

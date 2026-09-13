@@ -57,6 +57,9 @@ export interface ReaderState {
 }
 
 export interface PageEdit {
+  fitEdges?: boolean;
+  margins?: number[];
+  paperCleanupStrength?: number;
   paperCleanup?: boolean;
   id: string;
   sourceId: string;

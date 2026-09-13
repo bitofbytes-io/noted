@@ -37,7 +37,8 @@ function analyze(image) {
     return {confident:true,angle,bounds:[left/image.width,top/image.height,right/image.width,bottom/image.height]};
   } finally {[src,gray,edges,lines].forEach(m=>m.delete());}
 }
-function isPlain(p){return !p.angle&&!p.rotation&&(!p.scale||p.scale===1)&&!p.x&&!p.y&&!p.crop?.length&&!p.corners?.length&&!p.outputWidth&&!p.paperCleanup;}
+function cleanupStrength(p){return p.paperCleanupStrength ?? (p.paperCleanup?1:0);}
+function isPlain(p){return !p.angle&&!p.rotation&&(!p.scale||p.scale===1)&&!p.x&&!p.y&&!p.crop?.length&&!p.corners?.length&&!p.outputWidth&&!cleanupStrength(p)&&!p.fitEdges&&!p.margins?.some(Boolean);}
 // EXIF is bounded to its APP1 segment. Malformed metadata falls back to the
 // browser's decoded/oriented pixels; it is never guessed from image dimensions.
 function jpegOrientation(bytes) {
@@ -75,7 +76,7 @@ async function jpegPDF(bytes,orientation) {
   page.drawImage(img,{x:0,y:0,width:w,height:h});page.pushOperators(PDFLib.popGraphicsState());
   await doc.flush();return doc;
 }
-async function lightenPaper(canvas) {
+async function lightenPaper(canvas,strength) {
   await openCV();
   const cv=self.cv,width=canvas.width,height=canvas.height,ratio=Math.min(1,720/width,960/height);
   const smallCanvas=new OffscreenCanvas(Math.max(1,Math.round(width*ratio)),Math.max(1,Math.round(height*ratio)));
@@ -88,24 +89,32 @@ async function lightenPaper(canvas) {
     cv.GaussianBlur(dilated,blurred,new cv.Size(0,0),9,9,cv.BORDER_REPLICATE);
     cv.resize(blurred,background,new cv.Size(width,height),0,0,cv.INTER_CUBIC);
     const context=canvas.getContext('2d'),pixels=context.getImageData(0,0,width,height);
-    for(let n=0;n<pixels.data.length;n+=4)for(let c=0;c<3;c++)pixels.data[n+c]=Math.min(255,Math.round(pixels.data[n+c]*255/Math.max(80,background.data[n+c])));
+    for(let n=0;n<pixels.data.length;n+=4)for(let c=0;c<3;c++){const original=pixels.data[n+c],corrected=Math.min(255,original*255/Math.max(80,background.data[n+c]));pixels.data[n+c]=Math.round(original+(corrected-original)*strength);}
     context.putImageData(pixels,0,0);
   } finally {[src,dilated,blurred,background,kernel].forEach(m=>m.delete());smallCanvas.width=smallCanvas.height=1;}
 }
 async function photoPDF(bytes,edit) {
-  const orientation=jpegOrientation(bytes);
-  if(orientation&&!edit.corners?.length&&!edit.paperCleanup)return jpegPDF(bytes,orientation);
+  const orientation=jpegOrientation(bytes),strength=cleanupStrength(edit);
+  if(orientation&&!edit.corners?.length&&!strength)return jpegPDF(bytes,orientation);
   const bitmap=await createImageBitmap(new Blob([bytes]));
   if(bitmap.width*bitmap.height>20000000){bitmap.close();throw Error('Photo exceeds 20 megapixels.');}
-  const width=bitmap.width,height=bitmap.height,canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d');if(edit.paperCleanup){context.fillStyle='white';context.fillRect(0,0,width,height);}context.drawImage(bitmap,0,0);bitmap.close();
-  if(edit.paperCleanup)await lightenPaper(canvas);
+  let width=bitmap.width,height=bitmap.height;const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d');if(strength||edit.fitEdges){context.fillStyle='white';context.fillRect(0,0,width,height);}context.drawImage(bitmap,0,0);bitmap.close();
+  if(strength)await lightenPaper(canvas,strength);
   if(edit.corners?.length){
     await openCV();const cv=self.cv,src=cv.matFromImageData(context.getImageData(0,0,width,height)),dst=new cv.Mat();
-    const a=cv.matFromArray(4,1,cv.CV_32FC2,edit.corners.flatMap(([x,y])=>[x*(width-1),y*(height-1)])),b=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,width-1,0,width-1,height-1,0,height-1]),matrix=cv.getPerspectiveTransform(a,b);
-    try{cv.warpPerspective(src,dst,matrix,new cv.Size(width,height),cv.INTER_CUBIC,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));context.putImageData(new ImageData(new Uint8ClampedArray(dst.data),width,height),0,0);}finally{[src,dst,a,b,matrix].forEach(m=>m.delete());}
+    let targetWidth=width,targetHeight=height;
+    if(edit.fitEdges){
+      const points=edit.corners.map(([x,y])=>[x*(width-1),y*(height-1)]),distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+      targetWidth=Math.max(2,Math.round((distance(points[0],points[1])+distance(points[3],points[2]))/2));
+      targetHeight=Math.max(2,Math.round((distance(points[0],points[3])+distance(points[1],points[2]))/2));
+      if(targetWidth*targetHeight>20000000){const ratio=Math.sqrt(20000000/(targetWidth*targetHeight));targetWidth=Math.max(2,Math.floor(targetWidth*ratio));targetHeight=Math.max(2,Math.floor(targetHeight*ratio));}
+    }
+    const a=cv.matFromArray(4,1,cv.CV_32FC2,edit.corners.flatMap(([x,y])=>[x*(width-1),y*(height-1)])),b=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,targetWidth-1,0,targetWidth-1,targetHeight-1,0,targetHeight-1]),matrix=cv.getPerspectiveTransform(a,b);
+    try{cv.warpPerspective(src,dst,matrix,new cv.Size(targetWidth,targetHeight),cv.INTER_CUBIC,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));canvas.width=width=targetWidth;canvas.height=height=targetHeight;context.putImageData(new ImageData(new Uint8ClampedArray(dst.data),width,height),0,0);}finally{[src,dst,a,b,matrix].forEach(m=>m.delete());}
   }
-  const blob=await canvas.convertToBlob({type:edit.paperCleanup?'image/jpeg':'image/png',quality:.96});canvas.width=canvas.height=1;
-  const doc=await PDFLib.PDFDocument.create(),img=edit.paperCleanup?await doc.embedJpg(await blob.arrayBuffer()):await doc.embedPng(await blob.arrayBuffer());const w=600,h=600*height/width;doc.addPage([w,h]).drawImage(img,{x:0,y:0,width:w,height:h});await doc.flush();return doc;
+  const encodeJPEG=strength>0 || (edit.fitEdges && edit.corners?.length);
+  const blob=await canvas.convertToBlob({type:encodeJPEG?'image/jpeg':'image/png',quality:.96});canvas.width=canvas.height=1;
+  const doc=await PDFLib.PDFDocument.create(),img=encodeJPEG?await doc.embedJpg(await blob.arrayBuffer()):await doc.embedPng(await blob.arrayBuffer());const w=600,h=600*height/width;doc.addPage([w,h]).drawImage(img,{x:0,y:0,width:w,height:h});await doc.flush();return doc;
 }
 // Render the exact same PDF used by preview/export. Coordinates stay in PDF points.
 async function renderPDF(bytes, pageIndex = 0) {
@@ -152,7 +161,7 @@ async function build(draftId,sources,manifest) {
   for(const p of manifest.pages)remaining.set(p.sourceId,(remaining.get(p.sourceId)||0)+1);
   for(let i=0;i<manifest.pages.length;i++){
     const edit=manifest.pages[i],asset=sourceMap.get(edit.sourceId);if(!asset)throw Error('Unknown source.');
-    if(edit.paperCleanup&&asset.mime==='application/pdf')throw Error('Lighten paper is available for photos only.');
+    if(cleanupStrength(edit)&&asset.mime==='application/pdf')throw Error('Lighten paper is available for photos only.');
     self.postMessage({progress:`Preparing page ${i+1} of ${manifest.pages.length}`});
     let source=pdfSources.get(asset.id);
     if(!source){const bytes=await read(asset.id);source={bytes,doc:asset.mime==='application/pdf'?await PDFLib.PDFDocument.load(bytes,{updateMetadata:false}):await photoPDF(bytes,edit)};if(asset.mime==='application/pdf')pdfSources.set(asset.id,source);}
@@ -160,18 +169,19 @@ async function build(draftId,sources,manifest) {
     remaining.set(asset.id,remaining.get(asset.id)-1);
     if(!remaining.get(asset.id))pdfSources.delete(asset.id); // release after this page
 
-    const geometry=edit.angle||edit.x||edit.y||(edit.scale&&edit.scale!==1)||edit.crop?.length||edit.outputWidth;
+    const geometry=edit.margins?.some(Boolean)||edit.fitEdges||edit.angle||edit.x||edit.y||(edit.scale&&edit.scale!==1)||edit.crop?.length||edit.outputWidth;
     if(!geometry){const [copy]=await out.copyPages(doc,[asset.mime==='application/pdf'?edit.page:0]);copy.setRotation(PDFLib.degrees((copy.getRotation().angle+(edit.rotation||0))%360));out.addPage(copy);continue;}
     const media=original.getMediaBox(),crop=original.getCropBox();
     if(original.getRotation().angle%360||media.x||media.y||['x','y','width','height'].some(k=>crop[k]!==media[k]))throw Error('This PDF already has a page rotation or crop. Reorder, extract and quarter-turn rotation are supported; fine adjustments need a normalized source PDF.');
     const edges=edit.crop||[0,0,1,1],w=media.width,h=media.height;
     const embed=await out.embedPage(original,{left:edges[0]*w,bottom:(1-edges[3])*h,right:edges[2]*w,top:(1-edges[1])*h});
-    const width=embed.width,height=embed.height,scale=edit.scale||1,angle=(edit.angle||0)+(edit.rotation||0),r=angle*Math.PI/180;
+    const width=embed.width,height=embed.height,scale=edit.fitEdges?1:(edit.scale||1),angle=(edit.angle||0)+(edit.rotation||0),r=angle*Math.PI/180;
     const quarter=(edit.rotation||0)%180!==0;
-    const outputWidth=edit.outputWidth||(quarter?height:width),outputHeight=edit.outputHeight||(quarter?width:height);
-    const cx=width/2,cy=height/2,dx=(edit.x||0)*outputWidth,dy=-(edit.y||0)*outputHeight;
-    const transform=(x,y)=>[outputWidth/2+dx+scale*((x-cx)*Math.cos(r)-(y-cy)*Math.sin(r)),outputHeight/2+dy+scale*((x-cx)*Math.sin(r)+(y-cy)*Math.cos(r))];
-    await checkInk(asset.mime==='application/pdf'?source.bytes:await doc.save(),asset.mime==='application/pdf'?edit.page:0,edges,transform,outputWidth,outputHeight);
+    const baseWidth=edit.fitEdges?Math.abs(width*Math.cos(r))+Math.abs(height*Math.sin(r)):(edit.outputWidth||(quarter?height:width)),baseHeight=edit.fitEdges?Math.abs(width*Math.sin(r))+Math.abs(height*Math.cos(r)):(edit.outputHeight||(quarter?width:height));
+    const [mt,mr,mb,ml]=edit.margins||[0,0,0,0],outputWidth=baseWidth+ml+mr,outputHeight=baseHeight+mt+mb;
+    const cx=width/2,cy=height/2,dx=(edit.fitEdges?0:(edit.x||0))*baseWidth,dy=-(edit.fitEdges?0:(edit.y||0))*baseHeight;
+    const transform=(x,y)=>[ml+baseWidth/2+dx+scale*((x-cx)*Math.cos(r)-(y-cy)*Math.sin(r)),mb+baseHeight/2+dy+scale*((x-cx)*Math.sin(r)+(y-cy)*Math.cos(r))];
+    if(!edit.fitEdges)await checkInk(asset.mime==='application/pdf'?source.bytes:await doc.save(),asset.mime==='application/pdf'?edit.page:0,edges,transform,outputWidth,outputHeight);
     const origin=transform(0,0);
     out.addPage([outputWidth,outputHeight]).drawPage(embed,{x:origin[0],y:origin[1],xScale:scale,yScale:scale,rotate:PDFLib.degrees(angle)});
   }

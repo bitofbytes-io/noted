@@ -91,12 +91,10 @@ capture pages separately or crop source pages through a later explicit extension
 
 ## Proposed user flow
 
-Keep the existing Add piece action. It opens three simple choices: Upload PDF,
-From IMSLP, and Add photos. Avoid a dashboard or a new permanent navigation area.
+Keep the existing Add piece action. It opens Source directly, with Upload PDF,
+From IMSLP, and Add photos visible together. No intermediate chooser dialog.
 
-All sources lead through Source, Pages, and Details. On desktop, the source chooser
-can use the existing dialog style. Preparation needs a dedicated screen for page
-inspection. On phones, use the viewport and a persistent, safe-area-aware footer.
+All sources lead through Source, Pages, and Details in a dedicated preparation screen. On phones, use the viewport and a persistent, safe-area-aware footer.
 
 Clean PDFs should have a quick path through Pages: review thumbnails and continue
 without processing. Do not force automatic correction on imported PDFs.
@@ -106,11 +104,10 @@ rail and editing panel. Phones use a thumbnail strip, a selected-page preview, a
 controls beneath it. Provide buttons to move pages as an accessible alternative to
 dragging. Replace or retake affects only the selected page.
 
-Alignment refers to the printed music, not just the paper rectangle. Start with
-manual position and scale plus a match-to-reference action for selected pages.
-Automatic suggestions are optional and must be evaluated on real scores before
-being enabled by default. Alternating book margins may require different offsets.
-Bulk edits must not silently clip music or overwrite deliberate page exceptions.
+The user-approved simplified controls replace manual position/scale and reference
+matching with a single selected-edge outline. Apply fits that selected area to its
+natural aspect without implicit margins. Straightening remains manual. Optional
+margins add blank space only when requested; paper strength can be adjusted on photos.
 
 Details keeps the existing title, composer, source, listening link, notes, and
 favorite fields. Secondary optional fields may collapse. Save and open publishes
@@ -165,8 +162,8 @@ Deleting a piece must remove its owned retained sources and derived assets safel
 ### 2. Shared PDF page preparation
 
 Build thumbnails, page selection and ordering, extraction, rotation, crop, zoom,
-and original/adjusted comparison first. Add manual deskew and music alignment,
-followed by evaluated suggestions. Preserve untouched original PDFs byte-for-byte
+and original/adjusted comparison first. Add manual deskew, natural-aspect edge fitting,
+and explicit optional margins. Preserve untouched original PDFs byte-for-byte
 on the no-edit path; preserve vector content through supported edits where possible.
 Document any transformation that requires rasterization and assess its output.
 
@@ -243,3 +240,19 @@ Existing PDF rotation/crop geometry is preserved by page copying and quarter tur
 fine geometry edits reject unsupported source geometry explicitly. The malformed
 legacy CCITT fixture is rejected; the valid single-strip fixture is used for
 positive rendering checks. HEIC-to-JPEG conversion remains explicit.
+
+
+### Local usability revision — manual retry checkpoint
+
+The user requested a simpler candidate before further PR review or updates.
+Add piece now opens Source directly. Pages offers one pending edge outline with
+Apply/Cancel and automatic natural-aspect fitting, a Lighten paper strength slider,
+manual straightening, quarter turns and optional explicit margins. Scale, position,
+match and automatic suggestions are removed from the visible controls. Zero margins
+adds no border. Existing edit manifests remain compatible until an explicit change;
+combined legacy perspective/crop has a clearly labelled start-over option.
+Library buttons say Edit pages and Edit details, with separate Resume draft actions.
+PDF/IMSLP pages can still be removed, reordered or extracted without changing originals.
+
+Stop after the working local preview and required checks so the user can retry the
+controls. Do not update the PR or begin another review cycle before that checkpoint.

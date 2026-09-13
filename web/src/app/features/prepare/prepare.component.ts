@@ -1,6 +1,6 @@
 import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
@@ -14,7 +14,7 @@ interface Suggestion {
 }
 @Component({
   selector: 'app-prepare',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule],
   templateUrl: './prepare.component.html',
   styleUrl: './prepare.component.scss',
 })
@@ -36,6 +36,14 @@ export class PrepareComponent implements OnDestroy {
   readonly compare = signal(false);
   readonly zoom = signal(1);
   readonly handles = signal<'crop' | 'corners' | null>(null);
+  readonly pendingEdges = signal<number[][]>([]);
+  readonly edgeReady = signal(false);
+  readonly edgeAspect = signal(0.75);
+  readonly edgeResetRequired = signal(false);
+  private edgeCompare = false;
+  private gesture = false;
+  private previewTimer?: ReturnType<typeof setTimeout>;
+  private dragCleanup?: () => void;
   readonly selectedIDs = signal<Set<string>>(new Set());
   readonly suggestion = signal<Suggestion | null>(null);
   imslp = '';
@@ -50,6 +58,7 @@ export class PrepareComponent implements OnDestroy {
   private dirty = false;
   private destroyed = false;
   private previewRevision = 0;
+  private previewTask?: ReturnType<typeof getDocument>;
   private thumbnailRevision = 0;
   private pdfTasks = new Map<string, { task: ReturnType<typeof getDocument>; users: number }>();
   private history: EditManifest[] = [];
@@ -68,23 +77,31 @@ export class PrepareComponent implements OnDestroy {
     return this.source?.mime.startsWith('image/') ?? false;
   }
   get edgePoints(): number[][] {
-    return this.handles() === 'corners'
-      ? (this.page?.corners ?? [
-          [0, 0],
-          [1, 0],
-          [1, 1],
-          [0, 1],
-        ])
-      : this.cropPoints();
+    return this.pendingEdges();
   }
-  cropPoints(): number[][] {
-    const [l, t, r, b] = this.page?.crop ?? [0, 0, 1, 1];
-    return [
-      [l, t],
-      [r, t],
-      [r, b],
-      [l, b],
-    ];
+  get edgePolygon() {
+    return this.edgePoints.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
+  }
+  get edgeShade() {
+    return `M0 0H100V100H0Z M${this.edgePoints.map(([x, y]) => `${x * 100} ${y * 100}`).join('L')}Z`;
+  }
+  readonly marginLabels = ['Top', 'Right', 'Bottom', 'Left'];
+  marginMM(index: number) {
+    return Math.round((((this.page?.margins?.[index] || 0) * 25.4) / 72) * 10) / 10;
+  }
+  changeMargin(index: number, mm: number) {
+    if (!this.page || !Number.isFinite(mm) || this.editingEdges) return;
+    this.startGesture();
+    const margins = [...(this.page.margins || [0, 0, 0, 0])];
+    margins[index] = (Math.max(0, Math.min(50, mm)) * 72) / 25.4;
+    this.page.margins = margins;
+    this.changed();
+  }
+  get paperStrength() {
+    return Math.round((this.page?.paperCleanupStrength ?? (this.page?.paperCleanup ? 1 : 0)) * 100);
+  }
+  get editingEdges() {
+    return this.handles() !== null;
   }
   async load() {
     try {
@@ -109,6 +126,9 @@ export class PrepareComponent implements OnDestroy {
   }
   ngOnDestroy() {
     this.destroyed = true;
+    this.invalidatePreview();
+    this.dragCleanup?.();
+    clearTimeout(this.previewTimer);
     this.thumbnailRevision++;
     for (const entry of this.pdfTasks.values()) void entry.task.destroy();
     this.pdfTasks.clear();
@@ -116,8 +136,29 @@ export class PrepareComponent implements OnDestroy {
     clearTimeout(this.saveTimer);
     if (this.objectURL) URL.revokeObjectURL(this.objectURL);
   }
+  async detailsWithoutPDF() {
+    const d = this.draft();
+    if (!d || d.sources.length || this.busy()) return;
+    this.busy.set(true);
+    try {
+      await this.pendingSave;
+      await firstValueFrom(this.api.deleteImport(d.id));
+      this.dirty = false;
+      await this.router.navigate(['/'], { queryParams: { details: 'new' } });
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+  async backFromPages() {
+    if (this.busy() || this.editingEdges) return;
+    if (this.draft()?.pieceId) await this.close();
+    else this.step.set('source');
+  }
   async close() {
-    if (this.busy()) return;
+    if (this.busy() || this.editingEdges) return;
+    this.invalidatePreview();
     try {
       await this.persist();
       await this.router.navigate(['/']);
@@ -181,27 +222,68 @@ export class PrepareComponent implements OnDestroy {
       if (this.history.length > 30) this.history.shift();
     }
   }
-  change(key: 'angle' | 'rotation' | 'scale' | 'x' | 'y', value: number) {
-    if (!this.page || !Number.isFinite(value)) return;
-    this.remember();
+  startGesture() {
+    if (!this.gesture) {
+      this.remember();
+      this.gesture = true;
+    }
+  }
+  endGesture() {
+    this.gesture = false;
+  }
+  change(key: 'angle' | 'rotation', value: number) {
+    if (!this.page || !Number.isFinite(value) || this.editingEdges) return;
+    this.startGesture();
     this.page[key] = value;
+    if (
+      !this.page.outputWidth &&
+      !this.page.x &&
+      !this.page.y &&
+      (!this.page.scale || this.page.scale === 1)
+    )
+      this.page.fitEdges = true;
     this.changed();
   }
-  changePaperCleanup(value: boolean) {
-    if (!this.page || !this.isPhoto || this.busy()) return;
+  rotate() {
+    if (!this.page || this.editingEdges) return;
     this.remember();
-    this.page.paperCleanup = value;
+    this.page.rotation = ((this.page.rotation || 0) + 90) % 360;
     this.changed();
+    this.endGesture();
+  }
+  changePaperStrength(value: number) {
+    if (!this.page || !this.isPhoto || this.busy() || this.editingEdges) return;
+    this.startGesture();
+    this.page.paperCleanupStrength = Math.max(0, Math.min(100, value)) / 100;
+    this.changed();
+  }
+  private invalidatePreview() {
+    ++this.previewRevision;
+    clearTimeout(this.previewTimer);
+    if (this.previewTask) {
+      void this.previewTask.destroy().catch(() => {});
+      this.previewTask = undefined;
+    }
+    if (!this.busy() || this.uploading) {
+      this.worker?.terminate();
+      this.workerReject?.(new Error('Preview superseded.'));
+      this.worker = undefined;
+      this.workerReject = undefined;
+      this.progress.set('');
+    }
   }
   changed() {
+    this.invalidatePreview();
     this.draft.update((d) =>
       d ? { ...d, manifest: { ...d.manifest, pages: [...d.manifest.pages] } } : null,
     );
     this.mark();
     this.suggestion.set(null);
-    void this.renderPreview();
+    clearTimeout(this.previewTimer);
+    this.previewTimer = setTimeout(() => void this.renderPreview(), 250);
   }
   undo() {
+    this.endGesture();
     const m = this.history.pop();
     if (m) {
       this.draft.update((d) => (d ? { ...d, manifest: m } : null));
@@ -230,7 +312,8 @@ export class PrepareComponent implements OnDestroy {
     this.changed();
   }
   choose(index: number) {
-    if (this.busy()) return;
+    if (this.busy() || this.editingEdges) return;
+    this.endGesture();
     this.selected.set(index);
     this.handles.set(null);
     this.suggestion.set(null);
@@ -398,10 +481,14 @@ export class PrepareComponent implements OnDestroy {
     return new Promise((resolve, reject) => {
       this.workerReject = reject;
       worker.onerror = () => {
+        if (this.worker !== worker) return;
+        this.worker = undefined;
+        this.workerReject = undefined;
         worker.terminate();
         reject(Error('Page processing could not start. Please reload.'));
       };
       worker.onmessage = ({ data }) => {
+        if (this.worker !== worker) return;
         if (!('progress' in data || 'bytes' in data || 'result' in data || 'error' in data)) return;
         if (data.progress) {
           this.progress.set(data.progress);
@@ -420,8 +507,11 @@ export class PrepareComponent implements OnDestroy {
     });
   }
   async renderPreview() {
-    const revision = ++this.previewRevision,
-      page = this.page;
+    clearTimeout(this.previewTimer);
+    if (this.busy() && !this.uploading) return;
+    this.invalidatePreview();
+    const revision = this.previewRevision,
+      page = this.page ? structuredClone(this.page) : undefined;
     if (!page) {
       this.preview.set('');
       return;
@@ -438,7 +528,10 @@ export class PrepareComponent implements OnDestroy {
           !page.crop &&
           !page.corners &&
           !page.outputWidth &&
-          !page.paperCleanup);
+          !page.paperCleanup &&
+          !page.paperCleanupStrength &&
+          !page.fitEdges &&
+          !page.margins?.some(Boolean));
       let canvas: HTMLCanvasElement;
       if (plain) {
         canvas = await this.sourceCanvas(page, 1050);
@@ -450,7 +543,9 @@ export class PrepareComponent implements OnDestroy {
           sources: d.sources,
           manifest: { version: 1, pages: [page] },
         })) as ArrayBuffer;
+        if (revision !== this.previewRevision || this.destroyed) return;
         const task = getDocument({ data: new Uint8Array(bytes), wasmUrl: '/pdfjs/wasm/' });
+        this.previewTask = task;
         try {
           const pdf = await task.promise,
             p = await pdf.getPage(1),
@@ -461,11 +556,14 @@ export class PrepareComponent implements OnDestroy {
           canvas.height = Math.ceil(v.height);
           await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport: v }).promise;
         } finally {
+          if (this.previewTask === task) this.previewTask = undefined;
           await task.destroy();
         }
       }
-      if (revision === this.previewRevision && !this.destroyed)
+      if (revision === this.previewRevision && !this.destroyed) {
+        this.edgeAspect.set(canvas.width / canvas.height);
         this.preview.set(canvas.toDataURL('image/png'));
+      }
       canvas.width = canvas.height = 1;
     } catch (e) {
       if (revision === this.previewRevision) this.error.set(errorMessage(e));
@@ -476,132 +574,146 @@ export class PrepareComponent implements OnDestroy {
     this.compare.set(value);
     void this.renderPreview();
   }
-  setHandles(mode: 'crop' | 'corners' | null) {
-    if (this.busy()) return;
-    this.handles.set(mode);
+  async beginEdges() {
+    if (this.busy() || !this.page) return;
+    this.endGesture();
+    this.edgeCompare = this.compare();
+    this.zoom.set(1);
+    this.edgeReady.set(false);
+    this.edgeResetRequired.set(!!(this.page.corners?.length && this.page.crop?.length));
+    const [l, t, r, b] = this.page.crop ?? [0, 0, 1, 1];
+    this.pendingEdges.set(
+      structuredClone(
+        this.page.corners ?? [
+          [l, t],
+          [r, t],
+          [r, b],
+          [l, b],
+        ],
+      ),
+    );
+    this.handles.set(this.isPhoto ? 'corners' : 'crop');
+    this.compare.set(true);
+    await this.renderPreview();
+    this.edgeReady.set(true);
+    this.surface?.nativeElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+  resetPendingEdges() {
+    this.pendingEdges.set([
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ]);
+    this.edgeResetRequired.set(false);
+  }
+  cancelEdges() {
+    this.dragCleanup?.();
+    this.handles.set(null);
+    this.pendingEdges.set([]);
+    this.compare.set(this.edgeCompare);
     void this.renderPreview();
   }
-  dragCorner(event: PointerEvent, index: number) {
-    if (this.busy() || !this.page || !this.surface) return;
-    event.preventDefault();
+  applyEdges() {
+    if (!this.page || !this.edgeReady() || this.edgeResetRequired()) return;
     this.remember();
-    const target = event.currentTarget as HTMLElement;
-    target.setPointerCapture(event.pointerId);
-    const rect = this.surface.nativeElement.getBoundingClientRect();
-    const move = (e: PointerEvent) => {
-      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-        y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-      if (this.handles() === 'corners') {
-        const c = this.page!.corners?.map((p) => [...p]) ?? [
-          [0, 0],
-          [1, 0],
-          [1, 1],
-          [0, 1],
-        ];
-        c[index] = [x, y];
-        this.page!.corners = c;
-      } else {
-        const c = [...(this.page!.crop ?? [0, 0, 1, 1])];
-        this.constrainCrop(c, index, x, y);
-        this.page!.crop = c;
-      }
-      this.draft.update((d) => (d ? { ...d } : null));
-    };
-    const up = () => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      this.changed();
-    };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up, { once: true });
+    const p = this.page,
+      points = structuredClone(this.edgePoints);
+    delete p.crop;
+    delete p.corners;
+    delete p.x;
+    delete p.y;
+    delete p.scale;
+    delete p.outputWidth;
+    delete p.outputHeight;
+    if (this.isPhoto) p.corners = points;
+    else p.crop = [points[0][0], points[0][1], points[2][0], points[2][1]];
+    p.fitEdges = true;
+    this.dragCleanup?.();
+    this.handles.set(null);
+    this.pendingEdges.set([]);
+    this.compare.set(false);
+    this.changed();
   }
-  private constrainCrop(c: number[], index: number, x: number, y: number) {
-    const gap = 0.050001;
-    if (index === 0 || index === 3) c[0] = Math.max(0, Math.min(x, c[2] - gap));
-    else c[2] = Math.min(1, Math.max(x, c[0] + gap));
-    if (index < 2) c[1] = Math.max(0, Math.min(y, c[3] - gap));
-    else c[3] = Math.min(1, Math.max(y, c[1] + gap));
+  private setEdge(index: number, x: number, y: number, rectangle = false) {
+    if (!this.edgeReady() || this.edgeResetRequired()) return;
+    x = Math.max(0, Math.min(1, x));
+    y = Math.max(0, Math.min(1, y));
+    const points = this.edgePoints.map((p) => [...p]);
+    if (this.handles() === 'crop' || rectangle) {
+      const anchor = points[(index + 2) % 4],
+        gap = 0.050001,
+        left = index === 0 || index === 3,
+        top = index < 2;
+      x = left ? Math.min(x, anchor[0] - gap) : Math.max(x, anchor[0] + gap);
+      y = top ? Math.min(y, anchor[1] - gap) : Math.max(y, anchor[1] + gap);
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+      const l = left ? x : anchor[0],
+        r = left ? anchor[0] : x,
+        t = top ? y : anchor[1],
+        b = top ? anchor[1] : y;
+      this.pendingEdges.set([
+        [l, t],
+        [r, t],
+        [r, b],
+        [l, b],
+      ]);
+      return;
+    }
+    points[index] = [x, y];
+    // Reject crossed, collapsed, or nearly collinear quads, for pointer and keyboard alike.
+    for (let i = 0; i < 4; i++) {
+      const a = points[i],
+        b = points[(i + 1) % 4],
+        c = points[(i + 2) % 4];
+      if (
+        Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.05 ||
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) <= 0.0025
+      )
+        return;
+    }
+    this.pendingEdges.set(points);
+  }
+  dragCorner(event: PointerEvent, index: number) {
+    if (this.busy() || !this.edgeReady() || !this.surface) return;
+    event.preventDefault();
+    this.dragCleanup?.();
+    const target = event.currentTarget as HTMLElement;
+    const rect = this.surface.nativeElement.querySelector('img')!.getBoundingClientRect();
+    target.setPointerCapture(event.pointerId);
+    const move = (e: PointerEvent) =>
+      this.setEdge(
+        index,
+        (e.clientX - rect.left) / rect.width,
+        (e.clientY - rect.top) / rect.height,
+        e.shiftKey,
+      );
+    const cleanup = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', cleanup);
+      target.removeEventListener('pointercancel', cleanup);
+      target.removeEventListener('lostpointercapture', cleanup);
+      if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+      this.dragCleanup = undefined;
+    };
+    this.dragCleanup = cleanup;
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', cleanup);
+    target.addEventListener('pointercancel', cleanup);
+    target.addEventListener('lostpointercapture', cleanup);
   }
   nudgeCorner(index: number, event: KeyboardEvent) {
-    const offset: { [key: string]: number[] } = {
+    const delta: Record<string, number[]> = {
       ArrowLeft: [-0.01, 0],
       ArrowRight: [0.01, 0],
       ArrowUp: [0, -0.01],
       ArrowDown: [0, 0.01],
     };
-    const delta = offset[event.key];
-    if (this.busy() || !delta || !this.page) return;
+    if (!delta[event.key] || !this.edgeReady()) return;
     event.preventDefault();
-    this.remember();
-    if (this.handles() === 'corners') {
-      const corners = this.edgePoints.map((p) => [...p]);
-      corners[index] = corners[index].map((v, i) => Math.max(0, Math.min(1, v + delta[i])));
-      this.page.corners = corners;
-    } else {
-      const c = [...(this.page.crop ?? [0, 0, 1, 1])];
-      const xi = index === 0 || index === 3 ? 0 : 2,
-        yi = index < 2 ? 1 : 3;
-      this.constrainCrop(c, index, c[xi] + delta[0], c[yi] + delta[1]);
-      this.page.crop = c;
-    }
-    this.changed();
-  }
-  async suggest() {
-    if (!this.page) return;
-    this.busy.set(true);
-    this.progress.set('Looking for staff lines');
-    try {
-      const c = await this.sourceCanvas(this.page, 1400);
-      const result = (await this.runWorker({
-        kind: 'analyze',
-        image: c.getContext('2d')!.getImageData(0, 0, c.width, c.height),
-      })) as Suggestion;
-      this.suggestion.set(result);
-      c.width = c.height = 1;
-    } catch (e) {
-      this.error.set(errorMessage(e));
-    } finally {
-      this.busy.set(false);
-      this.progress.set('');
-    }
-  }
-  applySuggestion() {
-    const s = this.suggestion();
-    if (s?.confident) this.change('angle', Math.round((s.angle ?? 0) * 100) / 100);
-  }
-  async match() {
-    const d = this.draft(),
-      reference = this.page;
-    if (!d || !reference) return;
-    const targets = d.manifest.pages.filter(
-      (p) => this.selectedIDs().has(p.id) && p.id !== reference.id,
-    );
-    if (!targets.length) {
-      this.error.set('Select other page checkboxes to match to this reference page.');
-      return;
-    }
-    this.busy.set(true);
-    try {
-      const matched = (await this.runWorker({
-        kind: 'match',
-        draftId: d.id,
-        sources: d.sources,
-        reference,
-        targets,
-      })) as PageEdit[];
-      this.remember();
-      for (const edit of matched) {
-        const index = d.manifest.pages.findIndex((p) => p.id === edit.id);
-        d.manifest.pages[index] = edit;
-      }
-      this.changed();
-      this.saved.set('Alignment suggested. Review each selected page before saving.');
-    } catch (e) {
-      this.error.set(errorMessage(e));
-    } finally {
-      this.busy.set(false);
-      this.progress.set('');
-    }
+    const p = this.edgePoints[index],
+      d = delta[event.key];
+    this.setEdge(index, p[0] + d[0], p[1] + d[1], event.shiftKey);
   }
   useRange() {
     const d = this.draft();
@@ -671,6 +783,7 @@ export class PrepareComponent implements OnDestroy {
     }
   }
   async save() {
+    this.invalidatePreview();
     const d = this.draft();
     if (!d) return;
     this.busy.set(true);

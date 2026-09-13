@@ -123,7 +123,20 @@ func validateManifest(manifest EditManifest, sources []ImportAsset, allowEmpty b
 		if len(p.Crop) > 0 && (len(p.Crop) != 4 || !unitValues(p.Crop) || p.Crop[2]-p.Crop[0] < .05 || p.Crop[3]-p.Crop[1] < .05) {
 			return fmt.Errorf("crop must have four normalized edges enclosing an area")
 		}
-		if p.PaperCleanup && a.MIME == "application/pdf" {
+		if len(p.Margins) > 0 {
+			if len(p.Margins) != 4 {
+				return fmt.Errorf("margins must contain top, right, bottom and left")
+			}
+			for _, margin := range p.Margins {
+				if math.IsNaN(margin) || math.IsInf(margin, 0) || margin < 0 || margin > 142 {
+					return fmt.Errorf("margins must be between zero and 50 millimetres")
+				}
+			}
+		}
+		if p.PaperCleanupStrength != nil && (math.IsNaN(*p.PaperCleanupStrength) || math.IsInf(*p.PaperCleanupStrength, 0) || *p.PaperCleanupStrength < 0 || *p.PaperCleanupStrength > 1) {
+			return fmt.Errorf("paper cleanup strength must be between zero and one")
+		}
+		if (p.PaperCleanup || p.PaperCleanupStrength != nil) && a.MIME == "application/pdf" {
 			return fmt.Errorf("paper cleanup is available for photos only")
 		}
 		if len(p.Corners) > 0 {

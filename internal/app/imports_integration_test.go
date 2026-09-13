@@ -293,3 +293,118 @@ func (s *cancelAfterSaveStore) Save(ctx context.Context, r io.Reader) (assets.Ob
 	}
 	return o, e
 }
+
+// Freeze finalize while it owns the per-user lock, then start a metadata patch.
+// The patch must read the newly finalized values only after that lock is released.
+func TestIntegrationPiecePatchWaitsForFinalize(t *testing.T) {
+	url := os.Getenv("NOTED_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("NOTED_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store, err := assets.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewService(pool, store)
+	owner := uuid.NewString()
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Patch tester','development')`, owner, owner+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner)
+	piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: "Before finalize"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.CreateImport(ctx, owner, CreateImport{PieceID: piece.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf, err := os.ReadFile("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err = s.UploadImportSource(ctx, owner, d.ID, "score.pdf", d.Revision, bytes.NewReader(pdf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Metadata.Title = "Finalized title"
+	d.Metadata.Composer = "Finalized composer"
+	d, err = s.UpdateImport(ctx, owner, d.ID, UpdateImport{Revision: d.Revision, Metadata: d.Metadata, Manifest: d.Manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := &blockedImportSave{Store: store, entered: make(chan struct{}), release: make(chan struct{})}
+	defer func() {
+		select {
+		case <-block.release:
+		default:
+			close(block.release)
+		}
+	}()
+	finalDone := make(chan error, 1)
+	go func() {
+		_, err := NewService(pool, block).FinalizeImport(ctx, owner, d.ID, d.Revision, bytes.NewReader(pdf))
+		finalDone <- err
+	}()
+	select {
+	case <-block.entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	patchDone := make(chan error, 1)
+	go func() {
+		favorite := true
+		_, err := s.UpdatePiece(ctx, owner, piece.ID, PiecePatch{Favorite: &favorite})
+		patchDone <- err
+	}()
+	// Observe the blocked SQL operation, rather than relying on a sleep race.
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var waiting bool
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE '%pg_advisory_xact_lock%' OR query LIKE '%UPDATE pieces SET title%'))`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	close(block.release)
+	if err = <-finalDone; err != nil {
+		t.Fatal(err)
+	}
+	if err = <-patchDone; err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.GetPiece(ctx, owner, piece.ID)
+	if err != nil || current.Title != "Finalized title" || current.Composer != "Finalized composer" || !current.Favorite {
+		t.Fatalf("overlapping patch lost metadata: %+v %v", current, err)
+	}
+}
+
+type blockedImportSave struct {
+	assets.Store
+	entered, release chan struct{}
+}
+
+func (s *blockedImportSave) Save(ctx context.Context, r io.Reader) (assets.Object, error) {
+	close(s.entered)
+	select {
+	case <-s.release:
+		return s.Store.Save(ctx, r)
+	case <-ctx.Done():
+		return assets.Object{}, ctx.Err()
+	}
+}
