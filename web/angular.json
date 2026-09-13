@@ -24,7 +24,7 @@
                 "input": "public"
               },
               {
-                "glob": "pdf.worker.min.mjs",
+                "glob": "*.min.mjs",
                 "input": "node_modules/pdfjs-dist/build",
                 "output": "/pdfjs"
               },
@@ -32,9 +32,31 @@
                 "glob": "**/*",
                 "input": "node_modules/pdfjs-dist/wasm",
                 "output": "/pdfjs/wasm"
+              },
+              {
+                "glob": "pdf-lib.min.js",
+                "input": "node_modules/pdf-lib/dist",
+                "output": "/intake"
+              },
+              {
+                "glob": "opencv.js",
+                "input": "node_modules/@techstark/opencv-js/dist",
+                "output": "/intake"
+              },
+              {
+                "glob": "LICENSE.md",
+                "input": "node_modules/pdf-lib",
+                "output": "/intake/licenses/pdf-lib"
+              },
+              {
+                "glob": "LICENSE",
+                "input": "node_modules/@techstark/opencv-js",
+                "output": "/intake/licenses/opencv-js"
               }
             ],
-            "styles": ["src/styles.scss"]
+            "styles": [
+              "src/styles.scss"
+            ]
           },
           "configurations": {
             "production": {

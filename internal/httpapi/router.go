@@ -61,6 +61,19 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 	router.Delete("/api/session", handler.logout)
 	router.Group(func(router chi.Router) {
 		router.Use(handler.authenticatedUser)
+		router.Route("/api/imports", func(router chi.Router) {
+			router.Get("/", handler.listImports)
+			router.Post("/", handler.createImport)
+			router.Route("/{draftID}", func(router chi.Router) {
+				router.Get("/", handler.getImport)
+				router.Patch("/", handler.updateImport)
+				router.Delete("/", handler.deleteImport)
+				router.Post("/sources", handler.uploadImportSource)
+				router.Get("/sources/{assetID}", handler.serveImportSource)
+				router.Head("/sources/{assetID}", handler.serveImportSource)
+				router.Post("/finalize", handler.finalizeImport)
+			})
+		})
 		router.Route("/api/pieces", func(router chi.Router) {
 			router.Get("/", handler.listPieces)
 			router.Post("/", handler.createPiece)
@@ -175,6 +188,9 @@ func (h *Handler) uploadPDF(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	defer file.Close()
+	if request.MultipartForm != nil {
+		defer request.MultipartForm.RemoveAll()
+	}
 	pageCount, err := strconv.Atoi(request.FormValue("pageCount"))
 	if err != nil || pageCount < 1 || pageCount > 10000 {
 		writeError(writer, http.StatusBadRequest, "pageCount must be between 1 and 10000")
@@ -354,6 +370,10 @@ func decodeJSON(request *http.Request, destination any) error {
 
 func handleError(writer http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged):
+		writeError(writer, http.StatusConflict, err.Error())
+	case errors.Is(err, app.ErrImportLimit):
+		writeError(writer, http.StatusRequestEntityTooLarge, "Import limit reached: max 20 drafts, 200 MiB per draft, and configured per-file limit")
 	case errors.Is(err, app.ErrNotFound):
 		writeError(writer, http.StatusNotFound, "piece not found")
 	case strings.Contains(err.Error(), "must"), strings.Contains(err.Error(), "cannot"):

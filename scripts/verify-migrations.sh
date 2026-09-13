@@ -21,6 +21,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
@@ -38,8 +39,13 @@ actual=$(
      WHERE table_schema = 'public'
      ORDER BY table_name"
 )
-expected='oauth_login_states
+expected='asset_deletion_queue
+draft_sources
+import_assets
+import_drafts
+oauth_login_states
 piece_pdfs
+piece_sources
 pieces
 reader_states
 schema_migrations
@@ -58,7 +64,8 @@ version=$(
 )
 if [ "$version" != "000001_binder
 000002_users_and_ownership
-000003_piece_listening_url" ]; then
+000003_piece_listening_url
+000004_score_intake" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -75,7 +82,8 @@ VALUES (
 );
 SQL
 
-# Roll back the additive listening URL migration before exercising the ownership guard.
+# Roll back score intake and listening URL before exercising the ownership guard.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 if DATABASE_URL="$database_url" go run ./cmd/migrate down >/dev/null 2>&1; then

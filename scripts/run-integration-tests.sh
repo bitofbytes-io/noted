@@ -19,4 +19,4 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
 
 DATABASE_URL="$database_url" go run ./cmd/migrate
 NOTED_TEST_DATABASE_URL="$database_url" \
-  go test ./internal/app -run TestIntegrationUserOwnership -count=1
+  go test ./internal/app -run TestIntegration -count=1

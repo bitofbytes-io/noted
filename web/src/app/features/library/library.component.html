@@ -14,7 +14,7 @@
           }
         </div>
       }
-      <button class="add-button" type="button" (click)="openCreate()">
+      <button class="add-button" type="button" (click)="beginImport()">
         <svg lucidePlus aria-hidden="true"></svg>
         <span>Add piece</span>
       </button>
@@ -55,6 +55,17 @@
       }
     </div>
 
+    @if (drafts().length) {
+      <div class="draft-list">
+        <h2>Drafts</h2>
+        @for (d of drafts(); track d.id) {
+          <button class="secondary-button" (click)="resumeImport(d.id)">
+            Resume draft · {{ d.metadata.title || 'Untitled score' }} ·
+            {{ d.manifest.pages.length }} {{ d.manifest.pages.length === 1 ? 'page' : 'pages' }}
+          </button>
+        }
+      </div>
+    }
     @if (loading()) {
       <div class="empty-state">
         <p>Opening the binder…</p>
@@ -71,7 +82,7 @@
           }}
         </p>
         @if (!query && !favoritesOnly) {
-          <button class="text-action" type="button" (click)="openCreate()">
+          <button class="text-action" type="button" (click)="beginImport()">
             Add the first piece
           </button>
         }
@@ -93,7 +104,11 @@
             <div class="piece-copy">
               <h2>{{ piece.title }}</h2>
               <p>{{ piece.composer || 'Composer unknown' }}</p>
-              <span>{{ piece.pdf ? piece.pdf.pageCount + ' pages' : 'PDF needed' }}</span>
+              <span>{{
+                piece.pdf
+                  ? piece.pdf.pageCount + (piece.pdf.pageCount === 1 ? ' page' : ' pages')
+                  : 'PDF needed'
+              }}</span>
             </div>
             <div class="row-actions">
               @if (piece.listeningUrl) {
@@ -118,20 +133,25 @@
                 [title]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
                 (click)="toggleFavorite(piece, $event)"
               >
-                @if (piece.favorite) {
-                  <svg lucideHeart aria-hidden="true"></svg>
-                } @else {
-                  <svg lucideHeartOff aria-hidden="true"></svg>
-                }
+                <svg lucideHeart [class.filled-heart]="piece.favorite" aria-hidden="true"></svg>
               </button>
               <button
-                class="icon-button"
+                class="page-action"
                 type="button"
-                aria-label="Edit piece"
-                title="Edit piece"
+                aria-label="Edit pages"
+                title="Edit pages"
+                (click)="beginImport(piece, $event)"
+              >
+                <svg lucideFileText aria-hidden="true"></svg><span>Edit pages</span>
+              </button>
+              <button
+                class="page-action"
+                type="button"
+                aria-label="Edit details"
+                title="Edit details"
                 (click)="openEdit(piece, $event)"
               >
-                <svg lucidePencil aria-hidden="true"></svg>
+                <svg lucidePencil aria-hidden="true"></svg><span>Edit details</span>
               </button>
             </div>
           </article>
@@ -223,7 +243,7 @@
           Choose PDF
         }
       </span>
-      <small>PDF up to {{ maxUploadLabel }}</small>
+      <small>PDF file · Your account’s upload limit applies</small>
     </label>
 
     @if (editing?.pdf; as pdf) {

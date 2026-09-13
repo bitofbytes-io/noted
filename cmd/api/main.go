@@ -39,10 +39,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	service := app.NewService(pool, store, cfg.MaxUploadBytes)
+	go service.RunImportCleanup(ctx)
 	server := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.NewRouter(
-			app.NewService(pool, store),
+			service,
 			auth.NewService(pool, cfg.AllowedEmails, cfg.SessionTTL),
 			cfg,
 		),

@@ -22,6 +22,8 @@ jobs:
         run: make test-api
       - name: Run migration round trip
         run: make test-migrations
+      - name: Run ownership and intake integration tests
+        run: make test-integration
       - name: Run API lint
         run: |
           test -z "$(gofmt -l cmd internal migrations)"

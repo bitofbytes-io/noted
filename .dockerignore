@@ -13,3 +13,4 @@ web/playwright-report
 web/test-results
 **/.DS_Store
 **/*.log
+**/node_modules

@@ -26,6 +26,33 @@ const piece = {
 
 test.beforeEach(async ({ page }) => {
   const pdf = await readFile(fixturePdfPath);
+  const draft = {
+    id: '55555555-5555-4555-8555-555555555555',
+    revision: 0,
+    metadata: {
+      title: '',
+      composer: '',
+      sourceUrl: '',
+      listeningUrl: '',
+      notes: '',
+      favorite: false,
+    },
+    manifest: { version: 1, pages: [] },
+    sources: [],
+    maxFileBytes: 52428800,
+  };
+  await page.route('**/api/imports/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        route.request().method() === 'GET' &&
+          new URL(route.request().url()).pathname === '/api/imports/'
+          ? []
+          : draft,
+      ),
+    }),
+  );
   await page.route('**/api/session', async (route) => {
     await route.fulfill({
       status: 200,
@@ -134,24 +161,21 @@ test('unauthenticated visitors see the Google sign-in gate', async ({ page }) =>
   ).toBeVisible();
 });
 
-test('adds a PDF with a filename-prefilled title and opens it', async ({ page }) => {
+test('offers PDF, IMSLP and phone source choices', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Add piece' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('link', { name: 'Download current PDF' })).toHaveCount(0);
-  await dialog.locator('input[type="file"]').setInputFiles(fixturePdfPath);
-  await expect(dialog.getByLabel('Title')).toHaveValue('noted exercise');
-  await dialog.getByLabel('Composer').fill('Fixture composer');
-  await dialog.getByRole('button', { name: 'Add piece' }).click();
-  await expect(page).toHaveURL(new RegExp(`/reader/${piece.id}$`));
-  await expect(page.locator('canvas')).toBeVisible();
+  await expect(page).toHaveURL(/prepare\//);
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose PDF', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bring an edition from IMSLP' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Take a photo' })).toBeVisible();
 });
 
 test('edit makes the current PDF downloadable while keeping replacement available', async ({
   page,
 }, testInfo) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Edit piece' }).click();
+  await page.getByRole('button', { name: 'Edit details' }).click();
 
   const dialog = page.getByRole('dialog');
   const replacementPicker = dialog.locator('input[type="file"]');
@@ -177,7 +201,7 @@ test('download uses the current PDF filename and exact bytes', async ({ page, br
   );
   const fixturePdf = await readFile(fixturePdfPath);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Edit piece' }).click();
+  await page.getByRole('button', { name: 'Edit details' }).click();
 
   const dialog = page.getByRole('dialog');
   const replacementPicker = dialog.locator('input[type="file"]');
@@ -195,22 +219,21 @@ test('download uses the current PDF filename and exact bytes', async ({ page, br
   await expect(replacementPicker).toBeAttached();
 });
 
-test('creates and edits a listening URL using the single URL field', async ({ page }) => {
+test('creates metadata without a PDF and edits a listening URL', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Add piece' }).click();
+  await page.getByRole('button', { name: 'Add piece', exact: true }).click();
+  await page.getByRole('button', { name: 'Add details without a PDF' }).click();
   const createDialog = page.getByRole('dialog');
   await createDialog.getByLabel('Title').fill('Listening test');
   await createDialog.getByLabel('Listening URL').fill('https://listen.example.test/new-piece');
-  const createRequestPromise = page.waitForRequest(
-    (request) => request.url().endsWith('/api/pieces/') && request.method() === 'POST',
+  const creation = page.waitForRequest(
+    (r) => r.url().endsWith('/api/pieces/') && r.method() === 'POST',
   );
-  await createDialog.getByRole('button', { name: 'Add piece' }).click();
-  const createBody = (await createRequestPromise).postDataJSON() as {
-    listeningUrl: string;
-  };
-  expect(createBody.listeningUrl).toBe('https://listen.example.test/new-piece');
-
-  await page.getByRole('button', { name: 'Edit piece' }).click();
+  await createDialog.getByRole('button', { name: 'Add piece', exact: true }).click();
+  expect((await creation).postDataJSON().listeningUrl).toBe(
+    'https://listen.example.test/new-piece',
+  );
+  await page.getByRole('button', { name: 'Edit details' }).click();
   const editDialog = page.getByRole('dialog');
   await expect(editDialog.getByLabel('Listening URL')).toHaveValue(piece.listeningUrl);
   await editDialog.getByLabel('Listening URL').fill('https://listen.example.test/revised-piece');
@@ -285,7 +308,7 @@ test('search-first library opens directly into the score reader', async ({ page 
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(page.getByPlaceholder('Search title or composer')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('library.png'), fullPage: true });
-  await page.getByRole('article').click();
+  await page.getByRole('article').getByRole('heading', { name: piece.title, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/reader/${piece.id}$`));
   await expect(page.getByText('Prelude in C')).toBeVisible();
   const canvas = page.locator('canvas');
@@ -515,7 +538,9 @@ test('reader uses a two-stage reveal while auto-scroll keeps moving', async ({
       }),
     );
   });
-  await page.mouse.wheel(0, 80);
+  if (testInfo.project.name === 'iphone-webkit')
+    await reader.dispatchEvent('wheel', { deltaY: 80, bubbles: true });
+  else await page.mouse.wheel(0, 80);
   await expect(controls).toBeHidden();
   await expect(bubble).toBeHidden();
 

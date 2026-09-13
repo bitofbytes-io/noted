@@ -142,8 +142,12 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err := service.DeletePiece(ctx, userB.ID, pieceA.ID); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("cross-user DeletePiece error = %v", err)
 	}
+	fixture, err := os.ReadFile("../../testdata/fixtures/noted-exercise.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := service.UploadPDF(
-		ctx, userA.ID, pieceA.ID, "score.pdf", 1, bytes.NewBufferString("%PDF-owner-a"),
+		ctx, userA.ID, pieceA.ID, "score.pdf", 2, bytes.NewReader(fixture),
 	); err != nil {
 		t.Fatal(err)
 	}

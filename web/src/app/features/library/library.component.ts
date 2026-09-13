@@ -1,12 +1,19 @@
-import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  ViewChild,
+  inject,
+  signal,
+  afterNextRender,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   LucideDownload,
   LucideFileText,
   LucideHeadphones,
   LucideHeart,
-  LucideHeartOff,
   LucidePencil,
   LucidePlus,
   LucideSearch,
@@ -17,7 +24,7 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { Piece, PieceInput, Session } from '../../core/models';
+import { Piece, PieceInput, Session, ImportDraft } from '../../core/models';
 import { listeningUrlError, titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
@@ -30,7 +37,6 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
     LucideFileText,
     LucideHeadphones,
     LucideHeart,
-    LucideHeartOff,
     LucidePencil,
     LucidePlus,
     LucideSearch,
@@ -42,9 +48,11 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
   styleUrl: './library.component.scss',
 })
 export class LibraryComponent implements OnDestroy {
+  protected readonly drafts = signal<ImportDraft[]>([]);
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly pieces = signal<Piece[]>([]);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -58,12 +66,18 @@ export class LibraryComponent implements OnDestroy {
   protected form: PieceInput = emptyPiece();
   protected selectedFile: File | null = null;
   protected selectedPageCount = 0;
-  protected readonly maxUploadLabel = '50 MB';
   private searchTimer?: number;
 
   constructor() {
+    afterNextRender(() => {
+      if (this.route.snapshot.queryParamMap.get('details') === 'new') {
+        this.openCreate();
+        void this.router.navigate([], { queryParams: {}, replaceUrl: true });
+      }
+    });
     void this.loadSession();
     void this.load();
+    void this.loadDrafts();
   }
 
   async loadSession(): Promise<void> {
@@ -107,6 +121,25 @@ export class LibraryComponent implements OnDestroy {
     }
   }
 
+  async loadDrafts(): Promise<void> {
+    try {
+      this.drafts.set(await firstValueFrom(this.api.imports()));
+    } catch {
+      /* Library remains usable if drafts are temporarily unavailable. */
+    }
+  }
+  async beginImport(piece?: Piece, event?: Event, mode = 'all'): Promise<void> {
+    event?.stopPropagation();
+    try {
+      const d = await firstValueFrom(this.api.createImport(piece?.id));
+      await this.router.navigate(['/prepare', d.id], { queryParams: { source: mode } });
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+  resumeImport(id: string): void {
+    void this.router.navigate(['/prepare', id]);
+  }
   openCreate(): void {
     this.editing = null;
     this.form = emptyPiece();

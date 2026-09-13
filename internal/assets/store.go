@@ -35,7 +35,7 @@ type LocalStore struct {
 	root string
 }
 
-var keyPattern = regexp.MustCompile(`^[0-9a-f]{2}/[0-9a-f-]{36}\.pdf$`)
+var keyPattern = regexp.MustCompile(`^[0-9a-f]{2}/[0-9a-f-]{36}\.(pdf|bin)$`)
 
 func NewLocalStore(root string) (*LocalStore, error) {
 	if root == "" {
@@ -72,7 +72,7 @@ func (s *LocalStore) Save(_ context.Context, source io.Reader) (Object, error) {
 		return Object{}, fmt.Errorf("close asset: %w", closeErr)
 	}
 	id := uuid.NewString()
-	key := id[:2] + "/" + id + ".pdf"
+	key := id[:2] + "/" + id + ".bin"
 	destination := filepath.Join(s.root, "objects", filepath.FromSlash(key))
 	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
 		return Object{}, fmt.Errorf("create asset directory: %w", err)

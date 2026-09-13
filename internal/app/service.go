@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,12 +26,17 @@ type PDFSource struct {
 }
 
 type Service struct {
-	pool  *pgxpool.Pool
-	store assets.Store
+	pool           *pgxpool.Pool
+	store          assets.Store
+	maxUploadBytes int64
 }
 
-func NewService(pool *pgxpool.Pool, store assets.Store) *Service {
-	return &Service{pool: pool, store: store}
+func NewService(pool *pgxpool.Pool, store assets.Store, limits ...int64) *Service {
+	s := &Service{pool: pool, store: store}
+	if len(limits) > 0 {
+		s.maxUploadBytes = limits[0]
+	}
+	return s
 }
 
 const pieceColumns = `
@@ -110,7 +116,15 @@ func (s *Service) UpdatePiece(
 	userID, id string,
 	patch PiecePatch,
 ) (Piece, error) {
-	current, err := s.GetPiece(ctx, userID, id)
+	tx, err := s.importTx(ctx, userID)
+	if err != nil {
+		return Piece{}, err
+	}
+	defer tx.Rollback(ctx)
+	current, err := scanPiece(tx.QueryRow(ctx, `SELECT `+pieceColumns+` FROM pieces p LEFT JOIN piece_pdfs f ON f.piece_id=p.id WHERE p.id=$1 AND p.user_id=$2`, id, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Piece{}, ErrNotFound
+	}
 	if err != nil {
 		return Piece{}, err
 	}
@@ -140,9 +154,9 @@ func (s *Service) UpdatePiece(
 	if err != nil {
 		return Piece{}, err
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			listening_url=$6, notes=$7, updated_at=now() WHERE id=$1 AND user_id=$8`,
+			listening_url=$6, notes=$7, content_revision=content_revision+1, updated_at=now() WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
 		input.ListeningURL, input.Notes, userID)
 	if err != nil {
@@ -151,11 +165,14 @@ func (s *Service) UpdatePiece(
 	if tag.RowsAffected() == 0 {
 		return Piece{}, ErrNotFound
 	}
+	if err = tx.Commit(ctx); err != nil {
+		return Piece{}, err
+	}
 	return s.GetPiece(ctx, userID, id)
 }
 
 func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.importTx(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -174,13 +191,15 @@ func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM pieces WHERE id=$1 AND user_id=$2`, id, userID); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := collectOrphans(ctx, tx); err != nil {
 		return err
 	}
 	if key != nil {
-		return s.store.Delete(ctx, *key)
+		if err := queueKey(ctx, tx, *key); err != nil {
+			return err
+		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (s *Service) UploadPDF(
@@ -192,7 +211,21 @@ func (s *Service) UploadPDF(
 	if pageCount < 1 || pageCount > 10000 {
 		return Piece{}, fmt.Errorf("page count must be between 1 and 10000")
 	}
-	object, err := s.store.Save(ctx, source)
+	data, err := io.ReadAll(io.LimitReader(source, s.importLimit()+1))
+	if err != nil {
+		return Piece{}, err
+	}
+	if int64(len(data)) > s.importLimit() {
+		return Piece{}, ErrImportLimit
+	}
+	mime, actualCount, _, _, err := ValidateImportBytes(data)
+	if err != nil {
+		return Piece{}, err
+	}
+	if mime != "application/pdf" || actualCount != pageCount {
+		return Piece{}, fmt.Errorf("PDF page count must match the actual file")
+	}
+	object, err := s.store.Save(ctx, bytes.NewReader(data))
 	if err != nil {
 		return Piece{}, err
 	}
@@ -202,7 +235,7 @@ func (s *Service) UploadPDF(
 			_ = s.store.Delete(ctx, object.Key)
 		}
 	}()
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.importTx(ctx, userID)
 	if err != nil {
 		return Piece{}, err
 	}
@@ -239,13 +272,24 @@ func (s *Service) UploadPDF(
 	if err != nil {
 		return Piece{}, err
 	}
+	if _, err = tx.Exec(ctx, `UPDATE pieces SET content_revision=content_revision+1,preparation_manifest=NULL WHERE id=$1`, id); err != nil {
+		return Piece{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM piece_sources WHERE piece_id=$1`, id); err != nil {
+		return Piece{}, err
+	}
+	if err = collectOrphans(ctx, tx); err != nil {
+		return Piece{}, err
+	}
+	if oldKey != "" {
+		if err = queueKey(ctx, tx, oldKey); err != nil {
+			return Piece{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Piece{}, err
 	}
 	cleanup = false
-	if oldKey != "" {
-		_ = s.store.Delete(ctx, oldKey)
-	}
 	return s.GetPiece(ctx, userID, id)
 }
 

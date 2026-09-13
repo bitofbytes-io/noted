@@ -1,0 +1,16 @@
+{
+  "name": "noted-score-intake-proof",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "proof": "node run.mjs",
+    "test": "node --test processor.test.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1",
+    "@techstark/opencv-js": "4.12.0-release.1",
+    "pdfjs-dist": "6.3.289",
+    "@napi-rs/canvas": "1.0.9",
+    "playwright": "1.61.1"
+  }
+}

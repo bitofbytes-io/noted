@@ -13,5 +13,11 @@ export const routes: Routes = [
       import('./features/reader/reader.component').then((module) => module.ReaderComponent),
     title: 'Score · Noted',
   },
+  {
+    path: 'prepare/:draftId',
+    loadComponent: () =>
+      import('./features/prepare/prepare.component').then((m) => m.PrepareComponent),
+    title: 'Prepare score · Noted',
+  },
   { path: '**', redirectTo: '' },
 ];
