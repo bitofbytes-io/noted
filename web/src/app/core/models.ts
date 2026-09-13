@@ -57,6 +57,7 @@ export interface ReaderState {
 }
 
 export interface PageEdit {
+  paperCleanup?: boolean;
   id: string;
   sourceId: string;
   page: number;

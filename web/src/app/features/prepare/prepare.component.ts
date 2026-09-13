@@ -50,6 +50,8 @@ export class PrepareComponent implements OnDestroy {
   private dirty = false;
   private destroyed = false;
   private previewRevision = 0;
+  private thumbnailRevision = 0;
+  private pdfTasks = new Map<string, { task: ReturnType<typeof getDocument>; users: number }>();
   private history: EditManifest[] = [];
   private replaceID?: string;
   private objectURL = '';
@@ -107,6 +109,9 @@ export class PrepareComponent implements OnDestroy {
   }
   ngOnDestroy() {
     this.destroyed = true;
+    this.thumbnailRevision++;
+    for (const entry of this.pdfTasks.values()) void entry.task.destroy();
+    this.pdfTasks.clear();
     this.worker?.terminate();
     clearTimeout(this.saveTimer);
     if (this.objectURL) URL.revokeObjectURL(this.objectURL);
@@ -180,6 +185,12 @@ export class PrepareComponent implements OnDestroy {
     if (!this.page || !Number.isFinite(value)) return;
     this.remember();
     this.page[key] = value;
+    this.changed();
+  }
+  changePaperCleanup(value: boolean) {
+    if (!this.page || !this.isPhoto || this.busy()) return;
+    this.remember();
+    this.page.paperCleanup = value;
     this.changed();
   }
   changed() {
@@ -305,7 +316,7 @@ export class PrepareComponent implements OnDestroy {
         this.selected.set(Math.min(oldCount, this.draft()!.manifest.pages.length - 1));
       }
       this.step.set('pages');
-      await this.renderThumbnails();
+      void this.renderThumbnails();
       await this.renderPreview();
     } catch (e) {
       this.error.set(errorMessage(e) + ' Pages already added remain in this draft.');
@@ -321,7 +332,12 @@ export class PrepareComponent implements OnDestroy {
     const url = `/api/imports/${d.id}/sources/${asset.id}`,
       canvas = document.createElement('canvas');
     if (asset.mime === 'application/pdf') {
-      const task = getDocument({ url, wasmUrl: '/pdfjs/wasm/' });
+      let entry = this.pdfTasks.get(asset.id);
+      if (!entry) entry = { task: getDocument({ url, wasmUrl: '/pdfjs/wasm/' }), users: 0 };
+      this.pdfTasks.delete(asset.id);
+      this.pdfTasks.set(asset.id, entry);
+      entry.users++;
+      const task = entry.task;
       try {
         const pdf = await task.promise,
           p = await pdf.getPage(page.page + 1),
@@ -330,8 +346,18 @@ export class PrepareComponent implements OnDestroy {
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
         await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
-      } finally {
+      } catch (error) {
+        this.pdfTasks.delete(asset.id);
         await task.destroy();
+        throw error;
+      } finally {
+        entry.users--;
+        for (const [id, cached] of this.pdfTasks) {
+          if (this.pdfTasks.size <= 3) break;
+          if (cached.users) continue;
+          this.pdfTasks.delete(id);
+          void cached.task.destroy();
+        }
       }
     } else {
       const response = await fetch(url);
@@ -346,17 +372,19 @@ export class PrepareComponent implements OnDestroy {
     return canvas;
   }
   async renderThumbnails() {
+    const revision = ++this.thumbnailRevision;
     const d = this.draft();
     if (!d) return;
     for (const p of d.manifest.pages) {
-      if (this.destroyed) return;
+      if (this.destroyed || revision !== this.thumbnailRevision) return;
       if (this.thumbs()[p.id]) continue;
       try {
         const canvas = await this.sourceCanvas(p, 140);
-        this.thumbs.update((t) => ({ ...t, [p.id]: canvas.toDataURL('image/jpeg', 0.8) }));
+        if (!this.destroyed && revision === this.thumbnailRevision)
+          this.thumbs.update((t) => ({ ...t, [p.id]: canvas.toDataURL('image/jpeg', 0.8) }));
         canvas.width = canvas.height = 1;
       } catch (e) {
-        this.error.set(errorMessage(e));
+        if (!this.destroyed && revision === this.thumbnailRevision) this.error.set(errorMessage(e));
         return;
       }
     }
@@ -409,7 +437,8 @@ export class PrepareComponent implements OnDestroy {
           !page.y &&
           !page.crop &&
           !page.corners &&
-          !page.outputWidth);
+          !page.outputWidth &&
+          !page.paperCleanup);
       let canvas: HTMLCanvasElement;
       if (plain) {
         canvas = await this.sourceCanvas(page, 1050);
@@ -473,10 +502,7 @@ export class PrepareComponent implements OnDestroy {
         this.page!.corners = c;
       } else {
         const c = [...(this.page!.crop ?? [0, 0, 1, 1])];
-        if (index === 0 || index === 3) c[0] = Math.min(x, c[2] - 0.05);
-        else c[2] = Math.max(x, c[0] + 0.05);
-        if (index < 2) c[1] = Math.min(y, c[3] - 0.05);
-        else c[3] = Math.max(y, c[1] + 0.05);
+        this.constrainCrop(c, index, x, y);
         this.page!.crop = c;
       }
       this.draft.update((d) => (d ? { ...d } : null));
@@ -488,6 +514,13 @@ export class PrepareComponent implements OnDestroy {
     };
     target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', up, { once: true });
+  }
+  private constrainCrop(c: number[], index: number, x: number, y: number) {
+    const gap = 0.050001;
+    if (index === 0 || index === 3) c[0] = Math.max(0, Math.min(x, c[2] - gap));
+    else c[2] = Math.min(1, Math.max(x, c[0] + gap));
+    if (index < 2) c[1] = Math.max(0, Math.min(y, c[3] - gap));
+    else c[3] = Math.min(1, Math.max(y, c[1] + gap));
   }
   nudgeCorner(index: number, event: KeyboardEvent) {
     const offset: { [key: string]: number[] } = {
@@ -508,8 +541,7 @@ export class PrepareComponent implements OnDestroy {
       const c = [...(this.page.crop ?? [0, 0, 1, 1])];
       const xi = index === 0 || index === 3 ? 0 : 2,
         yi = index < 2 ? 1 : 3;
-      c[xi] = Math.max(0, Math.min(1, c[xi] + delta[0]));
-      c[yi] = Math.max(0, Math.min(1, c[yi] + delta[1]));
+      this.constrainCrop(c, index, c[xi] + delta[0], c[yi] + delta[1]);
       this.page.crop = c;
     }
     this.changed();

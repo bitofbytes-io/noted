@@ -279,6 +279,23 @@
                 }
               }
             </fieldset>
+            @if (isPhoto) {
+              <fieldset [disabled]="busy()">
+                <legend>Paper</legend>
+                <label
+                  ><input
+                    type="checkbox"
+                    [ngModel]="p.paperCleanup"
+                    (ngModelChange)="changePaperCleanup($event)"
+                  />
+                  Lighten paper</label
+                >
+                <small
+                  >Reduce broad shadows while keeping color and pencil marks. Compare with the
+                  original before saving.</small
+                >
+              </fieldset>
+            }
             <fieldset [disabled]="busy()">
               <legend>Crop & perspective</legend>
               <button (click)="setHandles(handles() === 'crop' ? null : 'crop')">

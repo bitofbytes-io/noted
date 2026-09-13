@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -41,6 +42,17 @@ func TestImportManifestValidation(t *testing.T) {
 			t.Fatalf("accepted %+v", p)
 		}
 	}
+	cleaned := base
+	cleaned.PaperCleanup = true
+	if err := validateManifest(EditManifest{Version: 1, Pages: []PageEdit{cleaned}}, []ImportAsset{source}, false); err != nil {
+		t.Fatal(err)
+	}
+	pdfSource := source
+	pdfSource.MIME = "application/pdf"
+	if err := validateManifest(EditManifest{Version: 1, Pages: []PageEdit{cleaned}}, []ImportAsset{pdfSource}, false); err == nil {
+		t.Fatal("PDF paper cleanup accepted")
+	}
+
 	if err := validateManifest(EditManifest{Version: 1, Pages: []PageEdit{base, base}}, []ImportAsset{source}, false); err == nil {
 		t.Fatal("duplicate IDs accepted")
 	}
@@ -78,4 +90,59 @@ func TestBinaryAssetsRetainLegacyPDFKeys(t *testing.T) {
 	if err != nil || !bytes.Equal(actual, input) {
 		t.Fatal("binary asset not preserved")
 	}
+}
+
+// Each all-white Group 4 row is V(0), padded to the next byte. This original
+// minimal fixture deliberately has decoding dimensions distinct from image size.
+func TestCCITTDecodeParameters(t *testing.T) {
+	for _, params := range []string{
+		"/Columns 16 /Rows 2 /EncodedByteAlign true",
+		"/Rows 2 /EncodedByteAlign true",             // PDF default Columns is 1728.
+		"/Columns 16 /Rows 0 /EncodedByteAlign true", // unknown Rows uses image height.
+	} {
+		data := ccittTestPDF(params, []byte{0x80, 0x80, 0x00, 0x10, 0x01})
+		if _, _, _, _, err := ValidateImportBytes(data); err != nil {
+			t.Fatalf("%s: %v", params, err)
+		}
+	}
+	// Horizontal mode: white run 0, black run 16; then two V(0) codes
+	// repeat that black row. A decoder incorrectly using image Width 8 fails.
+	blackRows := []byte{0x26, 0xa0, 0xb8, 0xc0, 0x00, 0x10, 0x01}
+	if _, _, _, _, err := ValidateImportBytes(ccittTestPDF("/Columns 16 /Rows 2 /EncodedByteAlign true", blackRows)); err != nil {
+		t.Fatalf("explicit decoding width: %v", err)
+	}
+	if _, _, _, _, err := ValidateImportBytes(ccittTestPDF("/Columns 8 /Rows 2 /EncodedByteAlign true", blackRows)); err == nil {
+		t.Fatal("width regression fixture is not sensitive to Columns")
+	}
+	if _, _, _, _, err := ValidateImportBytes(ccittTestPDF("/Columns 16 /Rows 2 /EncodedByteAlign true", []byte{0x80})); err == nil {
+		t.Fatal("truncated aligned stream accepted")
+	}
+	if _, _, _, _, err := ValidateImportBytes(ccittTestPDF("/Columns 16 /Rows 2 /EncodedByteAlign false", []byte{0x80, 0x80, 0x00, 0x10, 0x01})); err == nil {
+		t.Fatal("alignment test would pass without honoring EncodedByteAlign")
+	}
+}
+
+func ccittTestPDF(params string, raw []byte) []byte {
+	content := "q 16 0 0 2 0 0 cm /Im0 Do Q"
+	objects := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>",
+		fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width 8 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /CCITTFaxDecode /DecodeParms << /K -1 %s >> /Length %d >>\nstream\n%s\nendstream", params, len(raw), raw),
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+	}
+	var pdf bytes.Buffer
+	pdf.WriteString("%PDF-1.4\n")
+	offsets := []int{0}
+	for i, object := range objects {
+		offsets = append(offsets, pdf.Len())
+		fmt.Fprintf(&pdf, "%d 0 obj\n%s\nendobj\n", i+1, object)
+	}
+	xref := pdf.Len()
+	fmt.Fprintf(&pdf, "xref\n0 6\n0000000000 65535 f \n")
+	for _, offset := range offsets[1:] {
+		fmt.Fprintf(&pdf, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&pdf, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xref)
+	return pdf.Bytes()
 }

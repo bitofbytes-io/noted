@@ -116,8 +116,30 @@ func TestIntegrationImports(t *testing.T) {
 	if _, err = s.FinalizeImport(ctx, owner.ID, first.ID, first.Revision, bytes.NewReader(pdf)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.FinalizeImport(ctx, owner.ID, second.ID, second.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrConflict) {
+	if _, err = s.FinalizeImport(ctx, owner.ID, second.ID, second.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrPieceChanged) {
 		t.Fatalf("stale piece publish: %v", err)
+	}
+	metadataDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{PieceID: piece.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, favorite := "Concurrent title", true
+	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrPieceChanged) {
+		t.Fatalf("metadata conflict: %v", err)
+	}
+	current, err := s.GetPiece(ctx, owner.ID, piece.ID)
+	if err != nil || current.Title != title || !current.Favorite {
+		t.Fatalf("concurrent metadata lost: %+v %v", current, err)
+	}
+	preserved, err := s.GetImport(ctx, owner.ID, metadataDraft.ID)
+	if err != nil || preserved.Finalized || preserved.Revision != metadataDraft.Revision || len(preserved.Manifest.Pages) != len(metadataDraft.Manifest.Pages) {
+		t.Fatalf("draft lost: %+v %v", preserved, err)
+	}
+	if err = s.DeleteImport(ctx, owner.ID, metadataDraft.ID); err != nil {
+		t.Fatal(err)
 	}
 	retained, err := s.GetReaderState(ctx, owner.ID, piece.ID)
 	if err != nil || retained.LastPage != 2 || retained.Zoom != 1.5 {

@@ -3,6 +3,7 @@ package app
 import "time"
 
 type PageEdit struct {
+	PaperCleanup bool        `json:"paperCleanup,omitempty"`
 	ID           string      `json:"id"`
 	SourceID     string      `json:"sourceId"`
 	Page         int         `json:"page"`

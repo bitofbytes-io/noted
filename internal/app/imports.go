@@ -17,6 +17,7 @@ import (
 )
 
 var ErrConflict = errors.New("draft changed; reload before saving")
+var ErrPieceChanged = errors.New("saved piece changed; your draft is retained. Start a new preparation from the current piece before saving")
 var ErrImportLimit = errors.New("import limit reached")
 
 func (s *Service) importLimit() int64 {
@@ -355,7 +356,7 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 			return Piece{}, err
 		}
 		if rev != d.BaseRevision {
-			return Piece{}, ErrConflict
+			return Piece{}, ErrPieceChanged
 		}
 		err = tx.QueryRow(ctx, `SELECT storage_key,checksum_sha256,page_count FROM piece_pdfs WHERE piece_id=$1`, *d.PieceID).Scan(&oldKey, &oldChecksum, &oldPageCount)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {

@@ -127,3 +127,16 @@ PDF transformations. A rendered ink check rejects unintended content clipping;
 explicit manual crop removes only content outside the selected rectangle.
 Upload cancellation waits for the in-flight file to settle and retains it, while
 cancelling later files. Controls remain busy until the draft is reconciled.
+
+Photo preparation also offers an optional Lighten paper setting. Its boolean
+`paperCleanup` manifest flag applies only to photos. Low-frequency illumination
+normalization preserves continuous color and faint strokes; it does not threshold,
+erase, reconstruct, or identify notation. Corrected pixels are encoded once as
+high-quality JPEG. Unchanged JPEG photos keep their original compressed image
+bytes, with all eight EXIF orientations applied as PDF placement transforms.
+Original files remain immutable and the setting can be reset or compared.
+
+Preparation saves conservatively conflict when the saved piece changes, including
+title or favorite edits made while a draft is open. The newer piece metadata and
+the draft are both retained. The error directs the user to start a new preparation
+from the current piece; reloading the stale draft cannot update its base revision.

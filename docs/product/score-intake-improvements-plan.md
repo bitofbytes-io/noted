@@ -74,7 +74,7 @@ repeated processing always starts from sources, never from a previous export.
 
 | Feature | Round-one behavior |
 | --- | --- |
-| IMSLP intake | Paste a work link, select an edition or movement, preview, and import its PDF when access supports it. Offer normal download and upload as a fallback. |
+| IMSLP intake | Paste an HTTPS work link, open IMSLP to choose and download an edition, then upload its PDF into the same draft. Retain editable source metadata; no automated download or edition resolver. |
 | Suggested metadata | Prefill editable title and composer when available; retain the source link and selected edition identity. Filename-derived titles remain available for ordinary uploads. |
 | Phone photos | Capture successive pages or select existing photos, then assemble one score. Keep scanner-PDF upload equally accessible. |
 | Straightening | Suggest a small rotation, allow manual correction, and support four-corner perspective correction for photos. |

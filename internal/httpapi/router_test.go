@@ -314,3 +314,11 @@ func TestPDFDownloadReturnsUniformNotFoundForUnavailablePiece(t *testing.T) {
 		t.Fatalf("PDFSource called with user=%q piece=%q", fake.pdfUserID, fake.pdfPieceID)
 	}
 }
+
+func TestChangedPieceConflictGuidance(t *testing.T) {
+	response := httptest.NewRecorder()
+	handleError(response, app.ErrPieceChanged)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "draft is retained") || !strings.Contains(response.Body.String(), "Start a new preparation") || strings.Contains(response.Body.String(), "reload") {
+		t.Fatalf("stale piece guidance: %d %s", response.Code, response.Body.String())
+	}
+}

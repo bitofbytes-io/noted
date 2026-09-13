@@ -426,6 +426,7 @@ test.describe('review regressions', () => {
       await expect(page.getByRole('heading', { name: 'Prepare pages' })).toBeVisible();
       await page.getByLabel('Angle in degrees').fill('2');
       await page.getByRole('button', { name: 'Save draft & close' }).click();
+      await expect(page).toHaveURL(/\/$/);
       const saved = await (await request.get(`/api/imports/${d.id}/`)).json();
       expect(saved.sources).toHaveLength(1);
       expect(saved.manifest.pages[0].angle).toBe(2);
@@ -461,6 +462,7 @@ test.describe('review regressions', () => {
         .setInputFiles(fixture);
       await expect(page.getByRole('button', { name: 'Save draft & close' })).toBeEnabled();
       await page.getByRole('button', { name: 'Save draft & close' }).click();
+      await expect(page).toHaveURL(/\/$/);
       const saved = await (await request.get(`/api/imports/${d.id}/`)).json();
       expect(saved.manifest.pages).toHaveLength(100);
       expect(saved.manifest.pages[0].id).toBe(d.manifest.pages[0].id);
@@ -494,8 +496,493 @@ test('IMSLP metadata is retained when uploading an already downloaded PDF', asyn
     );
     await page.getByLabel('Source link').fill('https://example.test/my-edition');
     await page.getByRole('button', { name: 'Save draft & close' }).click();
+    await expect(page).toHaveURL(/\/$/);
     const saved = await (await request.get(`/api/imports/${d.id}/`)).json();
     expect(saved.metadata.sourceUrl).toBe('https://example.test/my-edition');
+  } finally {
+    await request.delete(`/api/imports/${d.id}/`);
+  }
+});
+
+function withExifOrientation(input: Buffer, orientation: number): Buffer {
+  const data = Buffer.from(input),
+    t = data.indexOf(Buffer.from('Exif\0\0')) + 6;
+  if (t < 6) throw Error('EXIF missing');
+  const little = data.toString('ascii', t, t + 2) === 'II';
+  const u16 = (p: number) => (little ? data.readUInt16LE(p) : data.readUInt16BE(p)),
+    u32 = (p: number) => (little ? data.readUInt32LE(p) : data.readUInt32BE(p)),
+    ifd = t + u32(t + 4);
+  for (let i = 0; i < u16(ifd); i++) {
+    const q = ifd + 2 + i * 12;
+    if (u16(q) === 274) {
+      if (little) data.writeUInt16LE(orientation, q + 8);
+      else data.writeUInt16BE(orientation, q + 8);
+      return data;
+    }
+  }
+  throw Error('Orientation missing');
+}
+test.describe('photo content and source reuse', () => {
+  test.skip(!process.env['NOTED_E2E_REAL_API'], 'Requires real API');
+  test('all JPEG orientations retain bytes and real pixels through copy, crop and perspective', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120000);
+    let d = await (await request.post('/api/imports/', { data: {} })).json();
+    const original = await readFile(resolve('../testdata/fixtures/noted-photo-exif-6.jpg')),
+      files: Buffer[] = [];
+    try {
+      for (let n = 1; n <= 8; n++) {
+        const buffer = withExifOrientation(original, n);
+        files.push(buffer);
+        const r = await request.post(`/api/imports/${d.id}/sources`, {
+          multipart: {
+            revision: String(d.revision),
+            file: { name: `exif-${n}.jpg`, mimeType: 'image/jpeg', buffer },
+          },
+        });
+        expect(r.ok()).toBeTruthy();
+        d = await r.json();
+      }
+      await page.goto('/');
+      const results = await page.evaluate(async (d) => {
+        const run = (edit: object) =>
+          new Promise<ArrayBuffer>((resolve, reject) => {
+            const w = new Worker('/intake/processing-worker.js');
+            w.onerror = () => reject(Error('worker failed'));
+            w.onmessage = ({ data }) => {
+              if (!('bytes' in data || 'error' in data)) return;
+              w.terminate();
+              if (data.error) reject(Error(data.error));
+              else resolve(data.bytes);
+            };
+            w.postMessage({
+              kind: 'build',
+              draftId: d.id,
+              sources: d.sources,
+              manifest: { version: 1, pages: [edit] },
+            });
+          });
+        const pdfjs = await new Function('return import("/pdfjs/pdf.min.mjs")')();
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
+        const render = async (bytes: ArrayBuffer) => {
+          const task = pdfjs.getDocument({ data: new Uint8Array(bytes), wasmUrl: '/pdfjs/wasm/' });
+          try {
+            const pdf = await task.promise,
+              p = await pdf.getPage(1),
+              v = p.getViewport({ scale: 0.8 }),
+              c = document.createElement('canvas');
+            c.width = Math.ceil(v.width);
+            c.height = Math.ceil(v.height);
+            await p.render({ canvas: c, canvasContext: c.getContext('2d'), viewport: v }).promise;
+            return c;
+          } finally {
+            await task.destroy();
+          }
+        };
+        const coverage = (c: HTMLCanvasElement) => {
+          const a = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+          let n = 0;
+          for (let i = 0; i < a.length; i += 4) if (a[i] < 180 && a[i + 3] > 128) n++;
+          return n / (c.width * c.height);
+        };
+        const results = [];
+        for (const edit of d.manifest.pages) {
+          const bytes = await run(edit),
+            copy = Array.from(new Uint8Array(bytes)),
+            c = await render(bytes),
+            source = await createImageBitmap(
+              await (await fetch(`/api/imports/${d.id}/sources/${edit.sourceId}`)).blob(),
+            ),
+            expected = document.createElement('canvas');
+          expected.width = c.width;
+          expected.height = c.height;
+          expected.getContext('2d')!.drawImage(source, 0, 0, c.width, c.height);
+          source.close();
+          const a = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data,
+            b = expected.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+          let difference = 0;
+          for (let n = 0; n < a.length; n += 4)
+            difference +=
+              Math.abs(a[n] - b[n]) + Math.abs(a[n + 1] - b[n + 1]) + Math.abs(a[n + 2] - b[n + 2]);
+          const crop = await render(
+              await run({ ...edit, crop: [0.02, 0.02, 0.98, 0.98], scale: 0.9 }),
+            ),
+            perspective = await render(
+              await run({
+                ...edit,
+                corners: [
+                  [0.005, 0.005],
+                  [0.995, 0.005],
+                  [0.995, 0.995],
+                  [0.005, 0.995],
+                ],
+                crop: [0.01, 0.01, 0.99, 0.99],
+                scale: 0.95,
+              }),
+            );
+          results.push({
+            copy,
+            mae: difference / ((a.length / 4) * 3),
+            coverage: coverage(c),
+            cropCoverage: coverage(crop),
+            perspectiveCoverage: coverage(perspective),
+            w: c.width,
+            h: c.height,
+          });
+          for (const canvas of [c, expected, crop, perspective]) canvas.width = canvas.height = 1;
+        }
+        return results;
+      }, d);
+      for (const [i, r] of results.entries()) {
+        expect(Buffer.from(r.copy).includes(files[i])).toBeTruthy();
+        expect(r.copy.length).toBeLessThan(files[i].length + 10000);
+        expect(r.mae).toBeLessThan(12);
+        expect(r.coverage).toBeGreaterThan(0.005);
+        expect(r.cropCoverage).toBeGreaterThan(0.005);
+        expect(r.perspectiveCoverage).toBeGreaterThan(0.005);
+        if (i >= 4) expect(r.h).toBeGreaterThan(r.w);
+        else expect(r.w).toBeGreaterThan(r.h);
+      }
+    } finally {
+      await request.delete(`/api/imports/${d.id}/`);
+    }
+  });
+  test('worker and thumbnails reuse a repeated PDF source', async ({ page, request }) => {
+    let d = await (await request.post('/api/imports/', { data: {} })).json();
+    try {
+      d = await (
+        await request.post(`/api/imports/${d.id}/sources`, {
+          multipart: {
+            revision: String(d.revision),
+            file: {
+              name: 'score.pdf',
+              mimeType: 'application/pdf',
+              buffer: await readFile(fixture),
+            },
+          },
+        })
+      ).json();
+      await page.goto('/');
+      let reads = 0;
+      const source = `/api/imports/${d.id}/sources/${d.sources[0].id}`;
+      page.on('request', (r) => {
+        if (r.url().endsWith(source) && r.method() === 'GET') reads++;
+      });
+      const count = await page.evaluate(async (d) => {
+        const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+          const w = new Worker('/intake/processing-worker.js');
+          w.onmessage = ({ data }) => {
+            if (!('bytes' in data || 'error' in data)) return;
+            w.terminate();
+            if (data.error) reject(Error(data.error));
+            else resolve(data.bytes);
+          };
+          w.postMessage({
+            kind: 'build',
+            draftId: d.id,
+            sources: d.sources,
+            manifest: {
+              version: 1,
+              pages: [
+                { ...d.manifest.pages[1], angle: 0.5 },
+                { ...d.manifest.pages[0], angle: -0.5 },
+                { ...d.manifest.pages[1], angle: 0.5 },
+              ],
+            },
+          });
+        });
+        return bytes.byteLength;
+      }, d);
+      expect(count).toBeGreaterThan(1000);
+      expect(reads).toBe(1);
+      reads = 0;
+      await page.goto(`/prepare/${d.id}`);
+      await expect(
+        page.getByRole('button', { name: 'Preview page 2' }).locator('img'),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'Preview page 2' }).click();
+      await expect(page.locator('.page-surface img')).toBeVisible();
+      expect(reads).toBe(1);
+    } finally {
+      await request.delete(`/api/imports/${d.id}/`);
+    }
+  });
+  test('keyboard crop stops before edges cross and saves', async ({ page, request }) => {
+    let d = await (await request.post('/api/imports/', { data: {} })).json();
+    try {
+      d = await (
+        await request.post(`/api/imports/${d.id}/sources`, {
+          multipart: {
+            revision: String(d.revision),
+            file: {
+              name: 'score.pdf',
+              mimeType: 'application/pdf',
+              buffer: await readFile(fixture),
+            },
+          },
+        })
+      ).json();
+      d.manifest.pages[0].crop = [0.45, 0.45, 0.51, 0.51];
+      d = await (
+        await request.patch(`/api/imports/${d.id}/`, {
+          data: { revision: d.revision, metadata: d.metadata, manifest: d.manifest },
+        })
+      ).json();
+      await page.goto(`/prepare/${d.id}`);
+      await expect(page.locator('.page-surface img')).toBeVisible();
+      await expect(page.locator('.page-surface img')).toHaveJSProperty('complete', true);
+      await page.getByRole('button', { name: 'Adjust page edges', exact: true }).click();
+      const corner = page.getByRole('button', { name: 'Adjust corner 1 with arrow keys or drag' });
+      await corner.evaluate((element) => {
+        for (let n = 0; n < 4; n++) {
+          element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+          element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        }
+      });
+      await page.getByRole('button', { name: 'Save draft & close' }).click();
+      await expect(page).toHaveURL(/\/$/);
+      const saved = await (await request.get(`/api/imports/${d.id}/`)).json(),
+        c = saved.manifest.pages[0].crop;
+      expect(c[2] - c[0]).toBeGreaterThanOrEqual(0.05);
+      expect(c[3] - c[1]).toBeGreaterThanOrEqual(0.05);
+      expect(c[0]).toBeGreaterThan(0.455);
+    } finally {
+      await request.delete(`/api/imports/${d.id}/`);
+    }
+  });
+});
+
+test('Lighten paper preserves faint strokes and color in a compact four-photo PDF', async ({
+  page,
+  request,
+}) => {
+  test.skip(!process.env['NOTED_E2E_REAL_API'], 'Requires real API');
+  test.setTimeout(60000);
+  let d = await (await request.post('/api/imports/', { data: {} })).json();
+  try {
+    await page.goto('/');
+    const data = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 720;
+      c.height = 960;
+      const x = c.getContext('2d')!,
+        g = x.createLinearGradient(0, 0, 720, 0);
+      g.addColorStop(0, 'rgb(180,185,190)');
+      g.addColorStop(1, 'rgb(235,235,235)');
+      x.fillStyle = g;
+      x.fillRect(0, 0, 720, 960);
+      x.fillStyle = 'rgb(155,65,80)';
+      x.fillRect(60, 60, 60, 25);
+      x.strokeStyle = 'rgb(150,150,150)';
+      x.lineWidth = 2;
+      x.beginPath();
+      x.moveTo(260, 100);
+      x.lineTo(360, 100);
+      x.stroke();
+      x.strokeStyle = 'rgb(25,25,25)';
+      x.lineWidth = 1;
+      for (let s = 0; s < 6; s++)
+        for (let l = 0; l < 5; l++) {
+          x.beginPath();
+          x.moveTo(100, 200.5 + s * 110 + l * 6);
+          x.lineTo(620, 200.5 + s * 110 + l * 6);
+          x.stroke();
+        }
+      return c.toDataURL('image/png').split(',')[1];
+    });
+    d = await (
+      await request.post(`/api/imports/${d.id}/sources`, {
+        multipart: {
+          revision: String(d.revision),
+          file: {
+            name: 'original-cc0-shadow-study.png',
+            mimeType: 'image/png',
+            buffer: Buffer.from(data, 'base64'),
+          },
+        },
+      })
+    ).json();
+    const checksum = d.sources[0].checksum;
+    await page.goto(`/prepare/${d.id}`);
+    await page.getByLabel('Lighten paper').check();
+    await page.getByRole('button', { name: 'Save draft & close' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    d = await (await request.get(`/api/imports/${d.id}/`)).json();
+    expect(d.manifest.pages[0].paperCleanup).toBe(true);
+    expect(d.sources[0].checksum).toBe(checksum);
+    const result = await page.evaluate(async (d) => {
+      const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const w = new Worker('/intake/processing-worker.js');
+        w.onmessage = ({ data }) => {
+          if (!('bytes' in data || 'error' in data)) return;
+          w.terminate();
+          if (data.error) reject(Error(data.error));
+          else resolve(data.bytes);
+        };
+        w.postMessage({
+          kind: 'build',
+          draftId: d.id,
+          sources: d.sources,
+          manifest: {
+            version: 1,
+            pages: Array.from({ length: 4 }, () => ({
+              ...d.manifest.pages[0],
+              id: crypto.randomUUID(),
+            })),
+          },
+        });
+      });
+      const size = bytes.byteLength,
+        pdfjs = await new Function('return import("/pdfjs/pdf.min.mjs")')();
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
+      const task = pdfjs.getDocument({ data: new Uint8Array(bytes), wasmUrl: '/pdfjs/wasm/' });
+      try {
+        const pdf = await task.promise,
+          p = await pdf.getPage(1),
+          v = p.getViewport({ scale: 1.2 }),
+          c = document.createElement('canvas');
+        c.width = Math.ceil(v.width);
+        c.height = Math.ceil(v.height);
+        await p.render({ canvas: c, canvasContext: c.getContext('2d'), viewport: v }).promise;
+        const ctx = c.getContext('2d')!,
+          sample = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data);
+        return {
+          size,
+          pages: pdf.numPages,
+          paper: sample(300, 90),
+          pencil: sample(300, 100),
+          color: sample(80, 70),
+          staff: sample(300, 200),
+        };
+      } finally {
+        await task.destroy();
+      }
+    }, d);
+    expect(result.pages).toBe(4);
+    expect(result.size).toBeLessThan(4 * 1024 * 1024);
+    expect(result.paper[0]).toBeGreaterThan(245);
+    expect(result.pencil[0]).toBeGreaterThan(130);
+    expect(result.pencil[0]).toBeLessThan(230);
+    expect(result.staff[0]).toBeLessThan(100);
+    expect(result.color[0] - result.color[1]).toBeGreaterThan(50);
+    expect(result.color[2]).toBeGreaterThan(40);
+  } finally {
+    await request.delete(`/api/imports/${d.id}/`);
+  }
+});
+
+test('short EXIF APP1 headers abstain safely and valid JPEGs render via fallback', async ({
+  page,
+  request,
+}) => {
+  test.skip(!process.env['NOTED_E2E_REAL_API'], 'Requires real API');
+  const { runInNewContext } = await import('node:vm');
+  const workerCode = await readFile(resolve('public/intake/processing-worker.js'), 'utf8');
+  const parse = runInNewContext(`${workerCode}\njpegOrientation`, {
+    self: {},
+    importScripts: () => {},
+  });
+  const original = await readFile(resolve('../testdata/fixtures/noted-photo-exif-6.jpg'));
+  let d = await (await request.post('/api/imports/', { data: {} })).json();
+  try {
+    for (const length of [14, 15]) {
+      const short = Buffer.alloc(length + 4);
+      short.writeUInt16BE(0xffd8, 0);
+      short.writeUInt16BE(0xffe1, 2);
+      short.writeUInt16BE(length, 4);
+      short.write('Exif\0\0II', 6, 'binary');
+      short.writeUInt16LE(42, 14);
+      const buffer = short.buffer.slice(short.byteOffset, short.byteOffset + short.byteLength);
+      expect(parse(buffer)).toBeUndefined();
+      const jpeg = Buffer.concat([short, original.subarray(2)]);
+      expect(
+        parse(jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength)),
+      ).toBeUndefined();
+      const response = await request.post(`/api/imports/${d.id}/sources`, {
+        multipart: {
+          revision: String(d.revision),
+          file: { name: `short-exif-${length}.jpg`, mimeType: 'image/jpeg', buffer: jpeg },
+        },
+      });
+      expect(response.ok()).toBeTruthy();
+      d = await response.json();
+    }
+    await page.goto('/');
+    const result = await page.evaluate(async (d) => {
+      const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const w = new Worker('/intake/processing-worker.js');
+        w.onmessage = ({ data }) => {
+          if (!('bytes' in data || 'error' in data)) return;
+          w.terminate();
+          if (data.error) reject(Error(data.error));
+          else resolve(data.bytes);
+        };
+        w.postMessage({ kind: 'build', draftId: d.id, sources: d.sources, manifest: d.manifest });
+      });
+      const pdfjs = await new Function('return import("/pdfjs/pdf.min.mjs")')();
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
+      const task = pdfjs.getDocument({ data: new Uint8Array(bytes), wasmUrl: '/pdfjs/wasm/' });
+      try {
+        const doc = await task.promise,
+          coverage = [];
+        for (let i = 1; i <= doc.numPages; i++) {
+          const p = await doc.getPage(i),
+            v = p.getViewport({ scale: 0.5 }),
+            c = document.createElement('canvas');
+          c.width = Math.ceil(v.width);
+          c.height = Math.ceil(v.height);
+          await p.render({ canvas: c, canvasContext: c.getContext('2d'), viewport: v }).promise;
+          const a = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+          let dark = 0;
+          for (let n = 0; n < a.length; n += 4) if (a[n] < 180 && a[n + 3] > 128) dark++;
+          coverage.push(dark / (c.width * c.height));
+        }
+        return coverage;
+      } finally {
+        await task.destroy();
+      }
+    }, d);
+    expect(result).toHaveLength(2);
+    for (const coverage of result) expect(coverage).toBeGreaterThan(0.005);
+  } finally {
+    await request.delete(`/api/imports/${d.id}/`);
+  }
+});
+
+test('Lighten paper undo restores the toggle without undoing earlier geometry', async ({
+  page,
+  request,
+}) => {
+  test.skip(!process.env['NOTED_E2E_REAL_API'], 'Requires real API');
+  let d = await (await request.post('/api/imports/', { data: {} })).json();
+  try {
+    d = await (
+      await request.post(`/api/imports/${d.id}/sources`, {
+        multipart: {
+          revision: String(d.revision),
+          file: {
+            name: 'photo.jpg',
+            mimeType: 'image/jpeg',
+            buffer: await readFile(resolve('../testdata/fixtures/noted-photo-exif-6.jpg')),
+          },
+        },
+      })
+    ).json();
+    await page.goto(`/prepare/${d.id}`);
+    await expect(page.locator('.page-surface img')).toBeVisible();
+    await page.getByLabel('Angle in degrees').fill('0.5');
+    await page.getByLabel('Lighten paper').check();
+    await expect(page.getByLabel('Lighten paper')).toBeChecked();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.getByLabel('Lighten paper')).not.toBeChecked();
+    await expect(page.getByLabel('Angle in degrees')).toHaveValue('0.5');
+    await page.getByRole('button', { name: 'Save draft & close' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    const saved = await (await request.get(`/api/imports/${d.id}/`)).json();
+    expect(saved.manifest.pages[0].paperCleanup ?? false).toBe(false);
+    expect(saved.manifest.pages[0].angle).toBe(0.5);
   } finally {
     await request.delete(`/api/imports/${d.id}/`);
   }

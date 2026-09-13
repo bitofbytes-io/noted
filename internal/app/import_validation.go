@@ -45,8 +45,22 @@ func ValidateImportBytes(data []byte) (string, int, int, int, error) {
 			params := sd.FilterPipeline[0].DecodeParms
 			k := params.IntEntry("K")
 			if k != nil && *k < 0 {
-				want := int64((*w+7)/8) * int64(*h)
-				n, decodeErr := io.Copy(io.Discard, io.LimitReader(ccitt.NewReader(bytes.NewReader(sd.Raw), ccitt.MSB, ccitt.Group4, *w, *h, nil), want+1))
+				columns, rows := 1728, *h
+				if value := params.IntEntry("Columns"); value != nil {
+					columns = *value
+				}
+				if value := params.IntEntry("Rows"); value != nil && *value != 0 {
+					rows = *value
+				}
+				if columns <= 0 || rows <= 0 || columns > 100000000/rows {
+					return "", 0, 0, 0, fmt.Errorf("PDF CCITT image must have supported decoding dimensions")
+				}
+				options := &ccitt.Options{}
+				if align := params.BooleanEntry("EncodedByteAlign"); align != nil {
+					options.Align = *align
+				}
+				want := int64((columns+7)/8) * int64(rows)
+				n, decodeErr := io.Copy(io.Discard, io.LimitReader(ccitt.NewReader(bytes.NewReader(sd.Raw), ccitt.MSB, ccitt.Group4, columns, rows, options), want+1))
 				if decodeErr != nil || n != want {
 					return "", 0, 0, 0, fmt.Errorf("PDF must contain complete CCITT image data")
 				}
@@ -108,6 +122,9 @@ func validateManifest(manifest EditManifest, sources []ImportAsset, allowEmpty b
 		}
 		if len(p.Crop) > 0 && (len(p.Crop) != 4 || !unitValues(p.Crop) || p.Crop[2]-p.Crop[0] < .05 || p.Crop[3]-p.Crop[1] < .05) {
 			return fmt.Errorf("crop must have four normalized edges enclosing an area")
+		}
+		if p.PaperCleanup && a.MIME == "application/pdf" {
+			return fmt.Errorf("paper cleanup is available for photos only")
 		}
 		if len(p.Corners) > 0 {
 			if a.MIME == "application/pdf" || len(p.Corners) != 4 {

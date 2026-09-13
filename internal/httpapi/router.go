@@ -370,7 +370,7 @@ func decodeJSON(request *http.Request, destination any) error {
 
 func handleError(writer http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, app.ErrConflict):
+	case errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged):
 		writeError(writer, http.StatusConflict, err.Error())
 	case errors.Is(err, app.ErrImportLimit):
 		writeError(writer, http.StatusRequestEntityTooLarge, "Import limit reached: max 20 drafts, 200 MiB per draft, and configured per-file limit")
