@@ -361,13 +361,14 @@
                   aria-label="Straighten angle"
                 />
                 <input
+                  #angleInput
                   class="number"
                   type="number"
                   min="-10"
                   max="10"
                   step=".1"
                   [ngModel]="p.angle || 0"
-                  (ngModelChange)="change('angle', +$event)"
+                  (ngModelChange)="change('angle', +$event, angleInput)"
                   (blur)="endGesture()"
                   aria-label="Angle in degrees"
                 />°

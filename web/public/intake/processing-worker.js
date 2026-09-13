@@ -93,24 +93,39 @@ async function lightenPaper(canvas,strength) {
     context.putImageData(pixels,0,0);
   } finally {[src,dilated,blurred,background,kernel].forEach(m=>m.delete());smallCanvas.width=smallCanvas.height=1;}
 }
+// Pixel correction is bounded independently of the immutable source limit.
+// A 4MP RGBA surface is at most 16MB; several surfaces plus the decoder/wasm
+// heap still coexist. Plain JPEG embedding deliberately keeps full resolution.
+const PHOTO_WORK_PIXELS=4000000,PHOTO_WORK_EDGE=2800;
+function photoWorkSize(width,height){
+  const ratio=Math.min(1,Math.sqrt(PHOTO_WORK_PIXELS/(width*height)),PHOTO_WORK_EDGE/width,PHOTO_WORK_EDGE/height);
+  return [Math.max(1,Math.floor(width*ratio)),Math.max(1,Math.floor(height*ratio))];
+}
 async function photoPDF(bytes,edit) {
   const orientation=jpegOrientation(bytes),strength=cleanupStrength(edit);
   if(orientation&&!edit.corners?.length&&!strength)return jpegPDF(bytes,orientation);
   const bitmap=await createImageBitmap(new Blob([bytes]));
   if(bitmap.width*bitmap.height>20000000){bitmap.close();throw Error('Photo exceeds 20 megapixels.');}
-  let width=bitmap.width,height=bitmap.height;const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d');if(strength||edit.fitEdges){context.fillStyle='white';context.fillRect(0,0,width,height);}context.drawImage(bitmap,0,0);bitmap.close();
+  let [width,height]=photoWorkSize(bitmap.width,bitmap.height);const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d');
+  try{if(strength||edit.fitEdges){context.fillStyle='white';context.fillRect(0,0,width,height);}context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(bitmap,0,0,width,height);}finally{bitmap.close();}
   if(strength)await lightenPaper(canvas,strength);
   if(edit.corners?.length){
-    await openCV();const cv=self.cv,src=cv.matFromImageData(context.getImageData(0,0,width,height)),dst=new cv.Mat();
+    await openCV();const cv=self.cv;let src=cv.matFromImageData(context.getImageData(0,0,width,height));const dst=new cv.Mat();
     let targetWidth=width,targetHeight=height;
     if(edit.fitEdges){
       const points=edit.corners.map(([x,y])=>[x*(width-1),y*(height-1)]),distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
       targetWidth=Math.max(2,Math.round((distance(points[0],points[1])+distance(points[3],points[2]))/2));
       targetHeight=Math.max(2,Math.round((distance(points[0],points[3])+distance(points[1],points[2]))/2));
-      if(targetWidth*targetHeight>20000000){const ratio=Math.sqrt(20000000/(targetWidth*targetHeight));targetWidth=Math.max(2,Math.floor(targetWidth*ratio));targetHeight=Math.max(2,Math.floor(targetHeight*ratio));}
+      [targetWidth,targetHeight]=photoWorkSize(targetWidth,targetHeight);
     }
     const a=cv.matFromArray(4,1,cv.CV_32FC2,edit.corners.flatMap(([x,y])=>[x*(width-1),y*(height-1)])),b=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,targetWidth-1,0,targetWidth-1,targetHeight-1,0,targetHeight-1]),matrix=cv.getPerspectiveTransform(a,b);
-    try{cv.warpPerspective(src,dst,matrix,new cv.Size(targetWidth,targetHeight),cv.INTER_CUBIC,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));canvas.width=width=targetWidth;canvas.height=height=targetHeight;context.putImageData(new ImageData(new Uint8ClampedArray(dst.data),width,height),0,0);}finally{[src,dst,a,b,matrix].forEach(m=>m.delete());}
+    try{cv.warpPerspective(src,dst,matrix,new cv.Size(targetWidth,targetHeight),cv.INTER_CUBIC,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));
+      src.delete();src=null;
+      // Copy synchronously from the live wasm view, without a second RGBA clone.
+      const pixels=new Uint8ClampedArray(dst.data.buffer,dst.data.byteOffset,dst.data.byteLength);
+      canvas.width=canvas.height=1;canvas.width=width=targetWidth;canvas.height=height=targetHeight;
+      context.putImageData(new ImageData(pixels,width,height),0,0);
+    }finally{[src,dst,a,b,matrix].forEach(m=>m?.delete());}
   }
   const encodeJPEG=strength>0 || (edit.fitEdges && edit.corners?.length);
   const blob=await canvas.convertToBlob({type:encodeJPEG?'image/jpeg':'image/png',quality:.96});canvas.width=canvas.height=1;

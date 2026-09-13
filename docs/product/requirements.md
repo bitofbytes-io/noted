@@ -135,6 +135,11 @@ erase, reconstruct, or identify notation. Corrected pixels are encoded once as
 high-quality JPEG. Unchanged JPEG photos keep their original compressed image
 bytes, with all eight EXIF orientations applied as PDF placement transforms.
 Original files remain immutable and the setting can be reset or compared.
+Pixel corrections use at most 4 megapixels and 2800 pixels per edge before OpenCV;
+working and rectified images share that bound. This trades some fine texture for
+lower peak memory during correction. Unchanged JPEG embedding retains the full
+original resolution. Each RGBA correction surface is at most 16 MB; that is not
+a bound on total browser memory, which also includes decoding and the wasm heap.
 
 Preparation saves conservatively conflict when the saved piece changes, including
 title or favorite edits made while a draft is open. The newer piece metadata and

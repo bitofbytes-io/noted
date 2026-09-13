@@ -231,8 +231,13 @@ export class PrepareComponent implements OnDestroy {
   endGesture() {
     this.gesture = false;
   }
-  change(key: 'angle' | 'rotation', value: number) {
+  change(key: 'angle' | 'rotation', value: number, input?: HTMLInputElement) {
     if (!this.page || !Number.isFinite(value) || this.editingEdges) return;
+    const requested = value;
+    if (key === 'angle') value = Math.max(-10, Math.min(10, value));
+    // ngModel may already hold the same clamped model value after another
+    // out-of-range entry, so synchronize the native number field as well.
+    if (input && value !== requested) input.value = String(value);
     this.startGesture();
     this.page[key] = value;
     if (

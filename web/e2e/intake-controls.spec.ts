@@ -619,7 +619,12 @@ test('Noted wordmark preserves pending edges and flushes normal changes before r
     await page.getByRole('button', { name: 'Adjust page edges', exact: true }).click();
     const corner = page.getByRole('button', { name: 'Adjust corner 1 with arrow keys or drag' });
     await expect(corner).toBeEnabled();
+    const initialPolygon = await page.locator('.edge-overlay polygon').getAttribute('points');
     await corner.press('ArrowRight');
+    await expect(page.locator('.edge-overlay polygon')).not.toHaveAttribute(
+      'points',
+      initialPolygon!,
+    );
     const polygon = await page.locator('.edge-overlay polygon').getAttribute('points'),
       wordmark = page.getByRole('link', { name: 'Noted', exact: true });
     await expect(wordmark).toHaveAttribute('aria-disabled', 'true');
