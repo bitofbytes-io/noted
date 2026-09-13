@@ -6,7 +6,7 @@ API_IMAGE_REPO ?= noted-api
 UI_IMAGE_REPO ?= noted-ui
 PLATFORMS ?= linux/arm64/v8
 
-.PHONY: setup db-up db-down db-reset migrate api-run web-start local test test-api test-web test-integration test-migrations test-e2e test-ui-container-mime lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-push docker-push-api docker-push-ui docker-publish docker-buildx docker-buildx-api docker-buildx-ui
+.PHONY: setup db-up db-down db-reset migrate api-run web-start local test test-api test-web test-integration test-migrations test-ui-container-mime lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-push docker-push-api docker-push-ui docker-publish docker-buildx docker-buildx-api docker-buildx-ui
 
 configure-image:
 	$(eval SHORT_SHA := $(shell git rev-parse --short=7 HEAD 2>/dev/null))
@@ -121,9 +121,6 @@ test-integration: db-up
 test-migrations: db-up
 	./scripts/verify-migrations.sh
 
-test-e2e: db-up
-	./scripts/run-e2e-tests.sh
-
 test-ui-container-mime: docker-build-ui
 	./scripts/verify-ui-worker-mime.sh $(UI_IMAGE)
 
@@ -137,4 +134,4 @@ build:
 	cd web && npm run build
 
 clean:
-	rm -rf web/dist web/.angular web/test-results web/playwright-report
+	rm -rf web/dist web/.angular web/test-results

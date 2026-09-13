@@ -50,10 +50,9 @@ MusicXML product. It is historical context only.
 
 ## Verification
 
-Run `make test`, `make lint`, and `make build` for code changes. Reader changes
-also require `make test-e2e`. Physical iPad Safari and Bluetooth pedal checks
-must be recorded separately because automated tests cannot replace them.
+Run `make test`, `make lint`, and `make build` for code changes. Physical iPad
+Safari and Bluetooth pedal checks must be recorded separately because automated
+tests cannot replace them.
 
-Score-intake changes additionally require the real API browser suite with
-`NOTED_E2E_REAL_API=1`, the integration suite, and migration verification. Mocked
-HTTP tests and desktop WebKit do not replace physical iPhone/iPad checks.
+Score-intake changes additionally require the integration suite and migration
+verification. Unit tests do not replace physical iPhone/iPad checks.

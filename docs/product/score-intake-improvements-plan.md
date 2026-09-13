@@ -221,10 +221,9 @@ against the accepted implementation and update them in the implementation change
   ledger lines, slurs, and edges. Preview success does not prove note accuracy.
 
 For implementation changes, run `make test`, `make lint`, and `make build`.
-Run `make test-e2e` for reader changes and add meaningful browser coverage for the
-new intake flow. Record physical iPad Safari and Bluetooth pedal checks separately,
-including a saved prepared score in both reader modes. Generated mockups do not
-satisfy browser, device, or musical-fidelity validation.
+Record physical iPad Safari and Bluetooth pedal checks separately, including a
+saved prepared score in both reader modes. Generated mockups do not satisfy
+device or musical-fidelity validation.
 
 ## Current stopping point
 

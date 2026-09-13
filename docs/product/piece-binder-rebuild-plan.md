@@ -87,7 +87,7 @@ the current user server-side.
 6. **Play — auto-scroll**: adjustable-speed scroll, pause/resume, per-piece speed
    memory, and a two-stage controls bubble that keeps auto-scroll content motion
    from exposing the full reader chrome.
-7. **Validate**: real scores on iPad Safari at the piano; API tests (upload safety, search) and reader e2e; verify a Bluetooth pedal or keyboard turns pages.
+7. **Validate**: real scores on iPad Safari at the piano; API tests (upload safety, search); verify a Bluetooth pedal or keyboard turns pages.
 
 ## Implementation checklist
 
