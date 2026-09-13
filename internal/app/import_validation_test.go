@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/bitofbytes-io/noted/internal/assets"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 func TestImportRealFixtures(t *testing.T) {
@@ -32,6 +33,19 @@ func TestImportRealFixtures(t *testing.T) {
 				t.Fatal("truncated photo accepted")
 			}
 		}
+	}
+}
+
+func TestPDFValidationDoesNotRequireAUserConfigDirectory(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/fixtures/noted-valid-ccitt.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err = ValidateImportBytes(data); err != nil {
+		t.Fatal(err)
+	}
+	if model.ConfigPath != "disable" {
+		t.Fatalf("pdfcpu config directory enabled: %q", model.ConfigPath)
 	}
 }
 func TestImportManifestValidation(t *testing.T) {

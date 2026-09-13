@@ -77,6 +77,7 @@ export class PrepareComponent implements OnDestroy {
   private saveTimer?: ReturnType<typeof setTimeout>;
   private pendingSave?: Promise<void>;
   private dirty = false;
+  private discarding = false;
   private destroyed = false;
   private previewRevision = 0;
   private previewTask?: ReturnType<typeof getDocument>;
@@ -189,18 +190,28 @@ export class PrepareComponent implements OnDestroy {
   }
   async discard() {
     const d = this.draft();
-    if (!d) return;
-    if (!confirm('Discard this draft? Your saved score will remain unchanged.')) return;
+    if (!d || this.busy() || this.editingEdges) return;
+    if (!window.confirm('Discard this draft? Your saved score will remain unchanged.')) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.discarding = true;
+    clearTimeout(this.saveTimer);
+    this.dirty = false;
     try {
-      await this.pendingSave;
-      await firstValueFrom(this.api.deleteImport(d.id));
+      // A failed autosave must not trap the user in a draft they chose to discard.
+      await this.pendingSave?.catch(() => {});
       this.dirty = false;
+      await firstValueFrom(this.api.deleteImport(d.id));
       await this.router.navigate(['/']);
     } catch (e) {
       this.error.set(errorMessage(e));
+    } finally {
+      this.discarding = false;
+      this.busy.set(false);
     }
   }
   mark() {
+    if (this.discarding) return;
     this.dirty = true;
     this.saved.set('Unsaved changes');
     clearTimeout(this.saveTimer);
@@ -228,7 +239,7 @@ export class PrepareComponent implements OnDestroy {
         );
         this.saved.set(this.dirty ? 'Unsaved changes' : 'Draft saved');
       } catch (e) {
-        this.dirty = true;
+        this.dirty = !this.discarding;
         throw e;
       } finally {
         this.pendingSave = undefined;
