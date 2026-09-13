@@ -48,6 +48,8 @@ export class PrepareComponent implements OnDestroy {
   readonly error = signal('');
   readonly busy = signal(false);
   readonly progress = signal('');
+  /** True only while cancel can stop remaining uploads or the processing worker. */
+  readonly cancellable = signal(false);
   readonly saved = signal('');
   readonly preview = signal('');
   readonly thumbs = signal<Record<string, string>>({});
@@ -294,6 +296,7 @@ export class PrepareComponent implements OnDestroy {
       this.worker = undefined;
       this.workerReject = undefined;
       this.progress.set('');
+      this.syncCancellable();
     }
   }
   changed() {
@@ -376,6 +379,7 @@ export class PrepareComponent implements OnDestroy {
     this.changed();
   }
   private uploading = false;
+  private skipRemainingUploads = false;
   async upload(event: Event, replace = false) {
     if (this.busy()) return;
     const input = event.target as HTMLInputElement,
@@ -385,6 +389,8 @@ export class PrepareComponent implements OnDestroy {
     this.busy.set(true);
     this.error.set('');
     this.uploading = true;
+    this.skipRemainingUploads = false;
+    this.syncCancellable();
     const uploadGeneration = ++this.uploadGeneration;
     try {
       this.applyIMSLP();
@@ -429,6 +435,8 @@ export class PrepareComponent implements OnDestroy {
       this.error.set(errorMessage(e) + ' Pages already added remain in this draft.');
     } finally {
       this.uploading = false;
+      this.skipRemainingUploads = false;
+      this.syncCancellable();
       this.busy.set(false);
       this.progress.set('');
     }
@@ -502,12 +510,14 @@ export class PrepareComponent implements OnDestroy {
     this.workerReject = undefined;
     const worker = new Worker('/intake/processing-worker.js');
     this.worker = worker;
+    this.syncCancellable();
     return new Promise((resolve, reject) => {
       this.workerReject = reject;
       worker.onerror = () => {
         if (this.worker !== worker) return;
         this.worker = undefined;
         this.workerReject = undefined;
+        this.syncCancellable();
         worker.terminate();
         reject(Error('Page processing could not start. Please reload.'));
       };
@@ -522,6 +532,7 @@ export class PrepareComponent implements OnDestroy {
         if (this.worker === worker) {
           this.worker = undefined;
           this.workerReject = undefined;
+          this.syncCancellable();
         }
         this.progress.set('');
         if (data.error) reject(Error(data.error));
@@ -840,8 +851,11 @@ export class PrepareComponent implements OnDestroy {
     }
   }
   cancel() {
+    if (!this.cancellable()) return;
     if (this.uploading) {
       this.uploadGeneration++;
+      this.skipRemainingUploads = true;
+      this.syncCancellable();
       this.progress.set('Finishing the current upload; remaining files cancelled.');
       return;
     }
@@ -850,8 +864,13 @@ export class PrepareComponent implements OnDestroy {
     this.worker?.terminate();
     this.worker = undefined;
     this.uploadGeneration++;
+    this.syncCancellable();
     this.busy.set(false);
     this.progress.set('');
     this.error.set('Processing cancelled. Your draft and originals are retained.');
+  }
+
+  private syncCancellable(): void {
+    this.cancellable.set((this.uploading && !this.skipRemainingUploads) || this.worker != null);
   }
 }

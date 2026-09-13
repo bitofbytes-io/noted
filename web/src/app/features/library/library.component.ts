@@ -128,6 +128,16 @@ export class LibraryComponent implements OnDestroy {
       /* Library remains usable if drafts are temporarily unavailable. */
     }
   }
+  async editPages(): Promise<void> {
+    if (!this.editing || this.readingPdf() || this.saving()) return;
+    if (this.editorDirty()) {
+      const saved = await this.persistEditor();
+      if (!saved || !this.editing) return;
+    }
+    this.editor?.nativeElement.close();
+    await this.beginImport(this.editing);
+  }
+
   async beginImport(piece?: Piece, event?: Event, mode = 'all'): Promise<void> {
     event?.stopPropagation();
     try {
@@ -194,33 +204,55 @@ export class LibraryComponent implements OnDestroy {
   }
 
   async save(): Promise<void> {
+    const wasNew = !this.editing;
+    const piece = await this.persistEditor();
+    if (!piece) return;
+    this.editor?.nativeElement.close();
+    await this.load();
+    if (wasNew && piece.pdf) await this.router.navigate(['/reader', piece.id]);
+  }
+
+  private editorDirty(): boolean {
+    const piece = this.editing;
+    if (!piece) return false;
+    return (
+      this.selectedFile !== null ||
+      this.form.title !== piece.title ||
+      this.form.composer !== piece.composer ||
+      this.form.favorite !== piece.favorite ||
+      this.form.sourceUrl !== piece.sourceUrl ||
+      this.form.listeningUrl.trim() !== piece.listeningUrl ||
+      this.form.notes !== piece.notes
+    );
+  }
+
+  private async persistEditor(): Promise<Piece | null> {
     this.form.listeningUrl = this.form.listeningUrl.trim();
-    if (
-      !this.form.title.trim() ||
-      this.listeningUrlValidationError() ||
-      this.saving() ||
-      this.readingPdf()
-    )
-      return;
+    if (this.saving() || this.readingPdf()) return null;
+    if (!this.form.title.trim() || this.listeningUrlValidationError()) {
+      this.error.set(this.listeningUrlValidationError() || 'Add a title first.');
+      return null;
+    }
     this.saving.set(true);
     this.error.set('');
-    const wasNew = !this.editing;
     try {
       let piece = this.editing
         ? await firstValueFrom(this.api.updatePiece(this.editing.id, this.form))
         : await firstValueFrom(this.api.createPiece(this.form));
       // Keep the created record as the retry target if the separate upload fails.
-      if (wasNew) this.editing = piece;
+      this.editing = piece;
       if (this.selectedFile) {
         piece = await firstValueFrom(
           this.api.uploadPdf(piece.id, this.selectedFile, this.selectedPageCount),
         );
+        this.editing = piece;
+        this.selectedFile = null;
+        this.selectedPageCount = 0;
       }
-      this.editor?.nativeElement.close();
-      await this.load();
-      if (wasNew && piece.pdf) await this.router.navigate(['/reader', piece.id]);
+      return piece;
     } catch (error) {
       this.error.set(errorMessage(error));
+      return null;
     } finally {
       this.saving.set(false);
     }

@@ -59,9 +59,11 @@
   @if (progress()) {
     <div role="status" class="notice progress">
       <span>{{ progress() }}</span>
-      <span class="notice-actions">
-        <button class="btn-quiet" (click)="cancel()">Cancel processing</button>
-      </span>
+      @if (cancellable()) {
+        <span class="notice-actions">
+          <button class="btn-quiet" (click)="cancel()">Cancel processing</button>
+        </span>
+      }
     </div>
   }
   @if (draft(); as d) {
