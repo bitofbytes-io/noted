@@ -104,3 +104,11 @@ the current user server-side.
 
 - iPad Safari PDF rendering performance on large scans — mitigate with page-level canvas virtualization; the old POC already proved pdf.js viable on iPad.
 - Auto-scroll "feel" is subjective — ship with a manual speed control and easy pause rather than trying to be clever; smarter scrolling (e.g., per-line) can come later.
+
+## Score intake extension
+
+The approved round-one intake implementation follows
+[score-intake-improvements-plan.md](score-intake-improvements-plan.md). It adds
+private drafts and retained source assets around the existing one-PDF reader
+contract. The tool-only proof passed manual review before app integration.
+Production rollout remains behind the separate physical-device checkpoint.

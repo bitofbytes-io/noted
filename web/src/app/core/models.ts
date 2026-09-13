@@ -55,3 +55,44 @@ export interface ReaderState {
   scrollPaused: boolean;
   updatedAt?: string;
 }
+
+export interface PageEdit {
+  id: string;
+  sourceId: string;
+  page: number;
+  angle?: number;
+  rotation?: number;
+  outputWidth?: number;
+  outputHeight?: number;
+  scale?: number;
+  x?: number;
+  y?: number;
+  crop?: number[];
+  corners?: number[][];
+}
+export interface EditManifest {
+  version: 1;
+  pages: PageEdit[];
+}
+export interface ImportAsset {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  checksum: string;
+  pageCount: number;
+  width: number;
+  height: number;
+}
+export interface ImportDraft {
+  id: string;
+  pieceId: string | null;
+  revision: number;
+  metadata: PieceInput;
+  manifest: EditManifest;
+  initialManifest: EditManifest;
+  sources: ImportAsset[];
+  finalized: boolean;
+  updatedAt: string;
+  maxFileBytes: number;
+}

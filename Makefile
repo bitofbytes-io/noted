@@ -121,8 +121,8 @@ test-integration: db-up
 test-migrations: db-up
 	./scripts/verify-migrations.sh
 
-test-e2e:
-	cd web && npm run e2e
+test-e2e: db-up
+	./scripts/run-e2e-tests.sh
 
 test-ui-container-mime: docker-build-ui
 	./scripts/verify-ui-worker-mime.sh $(UI_IMAGE)

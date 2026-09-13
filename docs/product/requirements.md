@@ -91,3 +91,39 @@ IMSLP fetching, photo stitching, sharing, and offline mode are not part of v1.
 6. Turn pages with taps, a swipe, and PageDown/ArrowRight.
 7. Switch to auto-scroll, adjust speed and zoom, pause, leave, and return.
 8. Verify the prior mode, position, zoom, and speed are restored.
+
+## Approved score intake extension (2026-09-13)
+
+The user approved the tool-generated corrected PDFs before application work.
+Private draft preparation now precedes publishing one active PDF per piece.
+Inputs are PDFs and JPEG/PNG photos, including phone captures. Drafts support
+page extraction/order/replacement, manual crop and photo corners, straightening,
+scale/position, opt-in staff-line suggestions, original comparison and reset.
+Assisted IMSLP intake retains an HTTPS work link and lets the user choose and
+download the edition on IMSLP before uploading; no automatic edition list or
+backend download proxy is included.
+
+Originals needed by the current saved manifest or an open draft remain private.
+Superseded, unreferenced files enter a durable deletion queue; drafts expire after
+seven inactive days. Limits are the configured file limit, 200 MiB per draft,
+100 prepared pages, 20 active drafts per owner, and 20 megapixels per photo.
+Revision checks prevent stale saves; repeat finalization returns the same piece.
+Unchanged preparation preserves original output bytes and reader state; content
+changes reset position/page/zoom while retaining reading mode and scroll speed.
+
+Editing pre-cropped or pre-rotated PDF geometry requires normalization and is
+explicitly rejected for now. Page copying, extraction and quarter turns preserve
+that source geometry. HEIC requires JPEG export. Curved-page correction, image
+reconstruction, OMR, whole-book processing and direct IMSLP fetching remain
+outside this extension. Physical iPhone capture, iPad reading and pedal checks
+remain a separate release checkpoint.
+
+Preparation transforms use a fixed output canvas. Scale changes notation size;
+position is a fraction of that canvas. Optional manifest `outputWidth` and
+`outputHeight` are PDF points (72 points per inch), defaulting to source/cropped
+page dimensions. Matching measures the adjusted reference and saves its physical
+canvas dimensions on targets. Preview, matching and export use the same worker
+PDF transformations. A rendered ink check rejects unintended content clipping;
+explicit manual crop removes only content outside the selected rectangle.
+Upload cancellation waits for the in-flight file to settle and retains it, while
+cancelling later files. Controls remain busy until the draft is reconciled.

@@ -1,11 +1,43 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Piece, PieceInput, ReaderState, Session } from './models';
+import { Piece, PieceInput, ReaderState, Session, ImportDraft } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
+
+  imports(): Observable<ImportDraft[]> {
+    return this.http.get<ImportDraft[]>('/api/imports/');
+  }
+  createImport(pieceId = '', sourceUrl = ''): Observable<ImportDraft> {
+    return this.http.post<ImportDraft>('/api/imports/', { pieceId, sourceUrl });
+  }
+  importDraft(id: string): Observable<ImportDraft> {
+    return this.http.get<ImportDraft>(`/api/imports/${id}/`);
+  }
+  updateImport(d: ImportDraft): Observable<ImportDraft> {
+    return this.http.patch<ImportDraft>(`/api/imports/${d.id}/`, {
+      revision: d.revision,
+      metadata: d.metadata,
+      manifest: d.manifest,
+    });
+  }
+  deleteImport(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/imports/${id}/`);
+  }
+  uploadImport(d: ImportDraft, file: File): Observable<ImportDraft> {
+    const body = new FormData();
+    body.set('file', file);
+    body.set('revision', String(d.revision));
+    return this.http.post<ImportDraft>(`/api/imports/${d.id}/sources`, body);
+  }
+  finalizeImport(d: ImportDraft, file: Blob): Observable<Piece> {
+    const body = new FormData();
+    body.set('file', file, 'score.pdf');
+    body.set('revision', String(d.revision));
+    return this.http.post<Piece>(`/api/imports/${d.id}/finalize`, body);
+  }
 
   session(): Observable<Session> {
     return this.http.get<Session>('/api/session');

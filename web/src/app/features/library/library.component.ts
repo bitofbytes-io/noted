@@ -17,7 +17,7 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { Piece, PieceInput, Session } from '../../core/models';
+import { Piece, PieceInput, Session, ImportDraft } from '../../core/models';
 import { listeningUrlError, titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
@@ -42,6 +42,8 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
   styleUrl: './library.component.scss',
 })
 export class LibraryComponent implements OnDestroy {
+  @ViewChild('intake') private intake?: ElementRef<HTMLDialogElement>;
+  protected readonly drafts = signal<ImportDraft[]>([]);
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
@@ -64,6 +66,7 @@ export class LibraryComponent implements OnDestroy {
   constructor() {
     void this.loadSession();
     void this.load();
+    void this.loadDrafts();
   }
 
   async loadSession(): Promise<void> {
@@ -107,6 +110,28 @@ export class LibraryComponent implements OnDestroy {
     }
   }
 
+  async loadDrafts(): Promise<void> {
+    try {
+      this.drafts.set(await firstValueFrom(this.api.imports()));
+    } catch {
+      /* Library remains usable if drafts are temporarily unavailable. */
+    }
+  }
+  openIntake(): void {
+    this.intake?.nativeElement.showModal();
+  }
+  async beginImport(piece?: Piece, event?: Event, mode = 'pdf'): Promise<void> {
+    event?.stopPropagation();
+    try {
+      const d = await firstValueFrom(this.api.createImport(piece?.id));
+      await this.router.navigate(['/prepare', d.id], { queryParams: { source: mode } });
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+  resumeImport(id: string): void {
+    void this.router.navigate(['/prepare', id]);
+  }
   openCreate(): void {
     this.editing = null;
     this.form = emptyPiece();

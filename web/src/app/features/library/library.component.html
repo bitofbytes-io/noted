@@ -14,7 +14,7 @@
           }
         </div>
       }
-      <button class="add-button" type="button" (click)="openCreate()">
+      <button class="add-button" type="button" (click)="openIntake()">
         <svg lucidePlus aria-hidden="true"></svg>
         <span>Add piece</span>
       </button>
@@ -55,6 +55,16 @@
       }
     </div>
 
+    @if (drafts().length) {
+      <div class="draft-list">
+        <h2>Continue preparing</h2>
+        @for (d of drafts(); track d.id) {
+          <button class="secondary-button" (click)="resumeImport(d.id)">
+            {{ d.metadata.title || 'Untitled score' }} · {{ d.manifest.pages.length }} pages
+          </button>
+        }
+      </div>
+    }
     @if (loading()) {
       <div class="empty-state">
         <p>Opening the binder…</p>
@@ -71,7 +81,7 @@
           }}
         </p>
         @if (!query && !favoritesOnly) {
-          <button class="text-action" type="button" (click)="openCreate()">
+          <button class="text-action" type="button" (click)="openIntake()">
             Add the first piece
           </button>
         }
@@ -123,6 +133,15 @@
                 } @else {
                   <svg lucideHeartOff aria-hidden="true"></svg>
                 }
+              </button>
+              <button
+                class="icon-button"
+                type="button"
+                aria-label="Prepare pages"
+                title="Prepare pages"
+                (click)="beginImport(piece, $event)"
+              >
+                ⇄
               </button>
               <button
                 class="icon-button"
@@ -257,4 +276,41 @@
       </button>
     </footer>
   </form>
+</dialog>
+
+<dialog #intake class="editor intake" (cancel)="intake.close()">
+  <div class="editor-heading">
+    <div>
+      <p class="eyebrow">ADD TO YOUR BINDER</p>
+      <h2>Where is your score?</h2>
+    </div>
+    <button
+      type="button"
+      class="icon-button"
+      aria-label="Close source choices"
+      (click)="intake.close()"
+    >
+      ×
+    </button>
+  </div>
+  <div class="intake-choices">
+    <button type="button" (click)="beginImport()">
+      <strong>Upload PDF</strong><span>A scanner export or downloaded score</span></button
+    ><button type="button" (click)="beginImport(undefined, undefined, 'imslp')">
+      <strong>From IMSLP</strong><span>Choose an edition, then add its PDF</span></button
+    ><button type="button" (click)="beginImport(undefined, undefined, 'photos')">
+      <strong>Photos from your books</strong><span>Capture pages or choose phone photos</span>
+    </button>
+  </div>
+  <button type="button" class="text-action" (click)="intake.close(); openCreate()">
+    Add details without a PDF
+  </button>
+  @if (drafts().length) {
+    <h3>Continue a draft</h3>
+    @for (d of drafts(); track d.id) {
+      <button type="button" class="secondary-button" (click)="resumeImport(d.id)">
+        {{ d.metadata.title || 'Untitled score' }}
+      </button>
+    }
+  }
 </dialog>

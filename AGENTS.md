@@ -29,8 +29,12 @@ MusicXML product. It is historical context only.
   authorization through that piece and are never shared implicitly.
 - Library search covers title and composer; favorites are a filter.
 - The reader has page and auto-scroll modes and persists per-piece state.
-- Practice, metronome, lessons, OMR, MusicXML, playback, annotations, IMSLP
-  automation, photo stitching, sharing, and offline mode are deferred.
+- Score intake now includes private preparation drafts, original PDF/JPEG/PNG
+  retention, page organization/correction, phone capture and assisted IMSLP links.
+  The tool proof was manually approved before app implementation.
+- Practice, metronome, lessons, OMR, MusicXML, playback, annotations, direct IMSLP
+  download automation, curved-page correction, photo stitching, sharing, and
+  offline mode remain deferred.
 
 ## Safety
 
@@ -49,3 +53,7 @@ MusicXML product. It is historical context only.
 Run `make test`, `make lint`, and `make build` for code changes. Reader changes
 also require `make test-e2e`. Physical iPad Safari and Bluetooth pedal checks
 must be recorded separately because automated tests cannot replace them.
+
+Score-intake changes additionally require the real API browser suite with
+`NOTED_E2E_REAL_API=1`, the integration suite, and migration verification. Mocked
+HTTP tests and desktop WebKit do not replace physical iPhone/iPad checks.

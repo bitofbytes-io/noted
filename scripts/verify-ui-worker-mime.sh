@@ -25,13 +25,16 @@ until curl -fsS "$base_url/health" >/dev/null; do
 	sleep 1
 done
 
-content_type=$(curl -fsSI "$base_url/pdfjs/pdf.worker.min.mjs" | awk 'tolower($1) == "content-type:" { gsub("\r", "", $2); print tolower($2) }')
-case "$content_type" in
-	application/javascript* | text/javascript*) ;;
-	*)
-		echo "/pdfjs/pdf.worker.min.mjs returned unexpected Content-Type: ${content_type:-missing}" >&2
-		exit 1
-		;;
-esac
-
-echo "PDF.js module worker uses a JavaScript MIME type"
+for asset in /pdfjs/pdf.worker.min.mjs /pdfjs/pdf.min.mjs /intake/processing-worker.js /intake/pdf-lib.min.js /intake/opencv.js; do
+  content_type=$(curl -fsSI "$base_url$asset" | awk 'tolower($1) == "content-type:" { gsub("\r", "", $2); print tolower($2) }')
+  case "$content_type" in
+    application/javascript* | text/javascript*) ;;
+    *) echo "$asset returned unexpected Content-Type: ${content_type:-missing}" >&2; exit 1 ;;
+  esac
+  # A SPA fallback can return 200 for a missing asset. Compare served bytes to
+  # the built asset inside this container, in addition to checking MIME.
+  expected=$(docker exec "$container" sha256sum "/usr/share/nginx/html$asset" | awk '{print $1}')
+  actual=$(curl -fsS "$base_url$asset" | shasum -a 256 | awk '{print $1}')
+  [ "$expected" = "$actual" ] || { echo "$asset bytes did not match" >&2; exit 1; }
+  echo "$asset: JavaScript MIME and asset checksum verified"
+done

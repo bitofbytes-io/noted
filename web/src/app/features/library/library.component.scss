@@ -527,3 +527,36 @@ input[type='checkbox'] {
     background: var(--paper-raised);
   }
 }
+
+.intake-choices {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0;
+}
+.intake-choices button {
+  display: grid;
+  text-align: left;
+  padding: 20px;
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  cursor: pointer;
+  min-height: 80px;
+}
+.intake-choices button:hover {
+  background: var(--green-soft);
+}
+.intake-choices strong {
+  font-size: 19px;
+}
+.intake-choices span {
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.draft-list {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.draft-list button {
+  margin: 5px;
+}

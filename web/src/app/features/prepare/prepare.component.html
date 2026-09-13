@@ -1,0 +1,422 @@
+<main class="prepare">
+  <header class="topline">
+    <a routerLink="/" class="brand" (click)="$event.preventDefault(); close()">Noted</a
+    ><button (click)="close()" [disabled]="busy()">Save draft & close</button>
+  </header>
+  <div class="heading">
+    <div>
+      <p class="eyebrow">YOUR SCORE, READY TO PLAY</p>
+      <h1>
+        {{
+          step() === 'source'
+            ? 'Add a score'
+            : step() === 'pages'
+              ? 'Prepare pages'
+              : 'Ready for your binder'
+        }}
+      </h1>
+      <p>
+        {{ draft()?.metadata?.title || 'A new piece' }} ·
+        {{ draft()?.manifest?.pages?.length || 0 }} pages
+      </p>
+    </div>
+    <nav aria-label="Preparation steps">
+      @for (s of ['source', 'pages', 'details']; track s; let i = $index) {
+        <button [class.active]="step() === s" [disabled]="busy()" (click)="step.set($any(s))">
+          <span>{{ i + 1 }}</span
+          >{{ s }}
+        </button>
+      }
+    </nav>
+  </div>
+  @if (error()) {
+    <div role="alert" class="alert">
+      {{ error() }} <button (click)="error.set('')">Dismiss</button
+      ><button [disabled]="busy()" (click)="load()">Reload draft</button>
+    </div>
+  }
+  @if (progress()) {
+    <div role="status" class="progress">
+      {{ progress() }}<button (click)="cancel()">Cancel processing</button>
+    </div>
+  }
+  @if (draft(); as d) {
+    <input
+      #pdfInput
+      hidden
+      type="file"
+      accept="application/pdf"
+      multiple
+      (change)="upload($event)"
+    />
+    <input
+      #photoInput
+      hidden
+      type="file"
+      accept="image/jpeg,image/png"
+      multiple
+      (change)="upload($event)"
+    />
+    <input
+      #cameraInput
+      hidden
+      type="file"
+      accept="image/*"
+      capture="environment"
+      (change)="upload($event)"
+    />
+    <input
+      #addInput
+      hidden
+      type="file"
+      accept="application/pdf,image/jpeg,image/png"
+      multiple
+      (change)="upload($event)"
+    />
+    <input
+      #replaceInput
+      hidden
+      type="file"
+      accept="application/pdf,image/jpeg,image/png"
+      (change)="upload($event, true)"
+    />
+    @if (step() === 'source') {
+      @if (sourceMode() !== 'all') {
+        <button class="quiet" (click)="sourceMode.set('all')">Choose a different source</button>
+      }
+      <section
+        class="source-options"
+        [class.focused]="sourceMode() !== 'all'"
+        aria-label="Choose a source"
+      >
+        <article [hidden]="sourceMode() !== 'all' && sourceMode() !== 'pdf'">
+          <span class="source-number">01</span>
+          <h2>Upload a PDF</h2>
+          <p>
+            A scanner export or a score you have already downloaded. Keep good PDFs exactly as they
+            are.
+          </p>
+          <button class="primary" (click)="pdfInput.click()" [disabled]="busy()">Choose PDF</button>
+        </article>
+        <article [hidden]="sourceMode() !== 'all' && sourceMode() !== 'photos'">
+          <span class="source-number">02</span>
+          <h2>From your books</h2>
+          <p>
+            Take one photo per page, or choose photos already on your phone. Originals stay
+            available for re-editing.
+          </p>
+          <div class="actions">
+            <button (click)="cameraInput.click()" [disabled]="busy()">Take a photo</button
+            ><button (click)="photoInput.click()" [disabled]="busy()">Choose photos</button>
+          </div>
+          <small>JPEG or PNG · Export HEIC as JPEG · Up to 20 megapixels</small>
+        </article>
+        <article class="imslp" [hidden]="sourceMode() !== 'all' && sourceMode() !== 'imslp'">
+          <span class="source-number">03</span>
+          <h2>Bring an edition from IMSLP</h2>
+          <p>
+            Open the work, choose your edition and download its PDF. Add that file here; your source
+            link stays with the piece.
+          </p>
+          <label
+            >IMSLP work link<input
+              type="url"
+              [(ngModel)]="imslp"
+              placeholder="https://imslp.org/wiki/…"
+          /></label>
+          <div class="actions">
+            <button (click)="openIMSLP()" [disabled]="busy() || !imslp">Open IMSLP ↗</button
+            ><button (click)="pdfInput.click()" [disabled]="busy()">Add downloaded PDF</button>
+          </div>
+          <small>Check the edition and download terms on IMSLP before importing.</small>
+        </article>
+      </section>
+      <p class="limits">
+        {{ d.maxFileBytes / 1048576 }} MiB per file · 200 MiB per draft · Up to 100 prepared pages
+      </p>
+    }
+    @if (step() === 'pages') {
+      <section class="workspace">
+        <aside class="page-rail" aria-label="Score pages">
+          <details class="source-range">
+            <summary>Choose source pages</summary>
+            <label
+              >Source<select [(ngModel)]="rangeSourceId">
+                @for (a of d.sources; track a.id) {
+                  <option [value]="a.id">{{ a.filename }} ({{ a.pageCount }} pages)</option>
+                }
+              </select></label
+            ><label>Page numbers<input [(ngModel)]="rangeText" placeholder="1-4, 7" /></label
+            ><button (click)="useRange()" [disabled]="busy()">Use this range only</button>
+          </details>
+          <div class="thumbs">
+            @for (p of d.manifest.pages; track p.id; let i = $index) {
+              <div class="thumbnail" [class.active]="selected() === i">
+                <button
+                  [disabled]="busy()"
+                  (click)="choose(i)"
+                  [attr.aria-label]="'Preview page ' + (i + 1)"
+                >
+                  @if (thumbs()[p.id]) {
+                    <img [src]="thumbs()[p.id]" alt="" />
+                  } @else {
+                    <span class="placeholder">PDF</span>
+                  }
+                  <span>Page {{ i + 1 }}</span></button
+                ><input
+                  type="checkbox"
+                  [checked]="selectedIDs().has(p.id)"
+                  (change)="toggle(p.id)"
+                  [attr.aria-label]="'Select page ' + (i + 1)"
+                />
+              </div>
+            }
+          </div>
+          <div class="rail-tools">
+            <button
+              (click)="move(-1)"
+              [disabled]="busy() || selected() <= 0"
+              aria-label="Move page earlier"
+            >
+              ↑</button
+            ><button
+              (click)="move(1)"
+              [disabled]="busy() || selected() >= d.manifest.pages.length - 1"
+              aria-label="Move page later"
+            >
+              ↓</button
+            ><button (click)="addInput.click()" [disabled]="busy()">+ Add pages</button
+            ><button (click)="keepSelected()" [disabled]="busy() || !selectedIDs().size">
+              Keep selected only
+            </button>
+          </div>
+        </aside>
+        <div class="preview-column">
+          <div class="preview-toolbar">
+            <div class="segmented">
+              <button [disabled]="busy()" [class.active]="compare()" (click)="setCompare(true)">
+                Original</button
+              ><button [disabled]="busy()" [class.active]="!compare()" (click)="setCompare(false)">
+                Adjusted
+              </button>
+            </div>
+            <div>
+              <button (click)="zoom.set(Math.max(0.5, zoom() - 0.25))" aria-label="Zoom out">
+                −</button
+              ><span>{{ (zoom() * 100).toFixed(0) }}%</span
+              ><button (click)="zoom.set(Math.min(2, zoom() + 0.25))" aria-label="Zoom in">
+                +
+              </button>
+            </div>
+          </div>
+          <div class="preview-scroll">
+            @if (preview()) {
+              <div #surface class="page-surface" [style.width.%]="zoom() * 100">
+                <img [src]="preview()" alt="Current score page preview" draggable="false" />
+                @if (handles()) {
+                  @for (point of edgePoints; track $index; let i = $index) {
+                    <button
+                      class="corner"
+                      [disabled]="busy()"
+                      [style.left.%]="point[0] * 100"
+                      [style.top.%]="point[1] * 100"
+                      [attr.aria-label]="'Adjust corner ' + (i + 1) + ' with arrow keys or drag'"
+                      (pointerdown)="dragCorner($event, i)"
+                      (keydown)="nudgeCorner(i, $event)"
+                    ></button>
+                  }
+                }
+              </div>
+            } @else {
+              <div class="empty">
+                <h2>Add your first page</h2>
+                <button (click)="addInput.click()">Choose PDF or photos</button>
+              </div>
+            }
+          </div>
+          @if (handles()) {
+            <p class="hint">
+              Drag the four corners, or use arrow keys on a handle. Check every musical mark before
+              cropping. <button (click)="setHandles(null)">View adjusted result</button>
+            </p>
+          }
+        </div>
+        <aside class="adjustments" aria-label="Page adjustments">
+          @if (page; as p) {
+            <h2>Page {{ selected() + 1 }}</h2>
+            <fieldset [disabled]="busy()">
+              <legend>Straighten</legend>
+              <label class="slider"
+                ><input
+                  type="range"
+                  min="-10"
+                  max="10"
+                  step=".1"
+                  [ngModel]="p.angle || 0"
+                  (ngModelChange)="change('angle', +$event)"
+                  aria-label="Straighten angle"
+                /><input
+                  class="number"
+                  type="number"
+                  min="-10"
+                  max="10"
+                  step=".1"
+                  [ngModel]="p.angle || 0"
+                  (ngModelChange)="change('angle', +$event)"
+                  aria-label="Angle in degrees"
+                />°</label
+              ><button (click)="suggest()">Suggest straightening</button>
+              @if (suggestion(); as s) {
+                <p class="hint">
+                  {{
+                    s.confident
+                      ? 'Suggested correction: ' + (s.angle || 0).toFixed(2) + '°'
+                      : s.reason
+                  }}
+                </p>
+                @if (s.confident) {
+                  <button (click)="applySuggestion()">Apply suggestion</button>
+                }
+              }
+            </fieldset>
+            <fieldset [disabled]="busy()">
+              <legend>Crop & perspective</legend>
+              <button (click)="setHandles(handles() === 'crop' ? null : 'crop')">
+                Adjust page edges
+              </button>
+              @if (isPhoto) {
+                <button (click)="setHandles(handles() === 'corners' ? null : 'corners')">
+                  Set photo corners
+                </button>
+              }
+              <small
+                >Fine adjustments keep PDF content sharp. Existing cropped or rotated PDFs support
+                ordering and quarter turns.</small
+              >
+            </fieldset>
+            <fieldset [disabled]="busy()">
+              <legend>Align music</legend>
+              <label
+                >Horizontal position<input
+                  type="range"
+                  min="-.3"
+                  max=".3"
+                  step=".005"
+                  [ngModel]="p.x || 0"
+                  (ngModelChange)="change('x', +$event)" /></label
+              ><label
+                >Vertical position<input
+                  type="range"
+                  min="-.3"
+                  max=".3"
+                  step=".005"
+                  [ngModel]="p.y || 0"
+                  (ngModelChange)="change('y', +$event)" /></label
+              ><label
+                >Music scale<input
+                  type="range"
+                  min=".5"
+                  max="1.5"
+                  step=".01"
+                  [ngModel]="p.scale || 1"
+                  (ngModelChange)="change('scale', +$event)" /></label
+              ><button (click)="match()">Match selected pages to this one</button>
+            </fieldset>
+            <div class="actions">
+              <button
+                (click)="change('rotation', ((p.rotation || 0) + 90) % 360)"
+                [disabled]="busy()"
+              >
+                Rotate 90°</button
+              ><button (click)="replaceInput.click()" [disabled]="busy()">Replace page</button
+              ><button (click)="remove()" [disabled]="busy()" class="danger">Remove page</button>
+            </div>
+            <div class="actions">
+              <button (click)="resetPage()" [disabled]="busy()">Reset page</button
+              ><button (click)="undo()" [disabled]="busy()">Undo</button>
+            </div>
+          }
+        </aside>
+      </section>
+    }
+    @if (step() === 'details') {
+      <section class="details">
+        <div>
+          <p class="eyebrow">ONE PIECE · {{ d.manifest.pages.length }} PAGES</p>
+          <h2>Make it easy to find.</h2>
+          <label
+            >Title<input
+              [(ngModel)]="d.metadata.title"
+              (ngModelChange)="mark()"
+              maxlength="300"
+              required /></label
+          ><label
+            >Composer<input
+              [(ngModel)]="d.metadata.composer"
+              (ngModelChange)="mark()"
+              maxlength="300" /></label
+          ><label
+            >Source link<input
+              type="url"
+              [(ngModel)]="d.metadata.sourceUrl"
+              (ngModelChange)="mark()"
+              maxlength="2000" /></label
+          ><label
+            >Listening URL<input
+              type="url"
+              [(ngModel)]="d.metadata.listeningUrl"
+              (ngModelChange)="mark()"
+              maxlength="2000" /></label
+          ><label
+            >Edition / notes<textarea
+              [(ngModel)]="d.metadata.notes"
+              (ngModelChange)="mark()"
+              maxlength="10000"
+              rows="3"
+            ></textarea></label
+          ><label class="check"
+            ><input type="checkbox" [(ngModel)]="d.metadata.favorite" (ngModelChange)="mark()" />Add
+            to favorites</label
+          >
+          <p class="hint">
+            Check page order, edges and small notation at reading size. Original files are retained
+            so you can revisit these adjustments.
+          </p>
+        </div>
+        <div class="review-stack">
+          @for (p of d.manifest.pages.slice(0, 3); track p.id) {
+            <img [src]="thumbs()[p.id]" alt="Score page thumbnail" />
+          }
+          <button (click)="step.set('pages')">Review pages</button>
+        </div>
+      </section>
+    }
+    <footer>
+      <span>{{ saved() || 'Originals kept for re-editing' }}</span>
+      <div>
+        <button class="quiet danger" (click)="discard()" [disabled]="busy()">Discard draft</button>
+        @if (step() === 'pages') {
+          <button (click)="step.set('source')" [disabled]="busy()">Back</button>
+        }
+        @if (step() === 'details') {
+          <button (click)="step.set('pages')" [disabled]="busy()">Back</button
+          ><button
+            class="primary"
+            (click)="save()"
+            [disabled]="busy() || !d.manifest.pages.length || !d.metadata.title.trim()"
+          >
+            Save & open
+          </button>
+        } @else {
+          <button
+            class="primary"
+            (click)="continue()"
+            [disabled]="busy() || !d.manifest.pages.length"
+          >
+            Continue
+          </button>
+        }
+      </div>
+    </footer>
+  }
+</main>
