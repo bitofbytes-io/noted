@@ -3,8 +3,6 @@ package app
 import (
 	"bytes"
 	"fmt"
-	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
-	"golang.org/x/image/ccitt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -13,17 +11,25 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
+	"golang.org/x/image/ccitt"
 )
+
+var disablePDFCPUConfig sync.Once
 
 func ValidateImportBytes(data []byte) (string, int, int, int, error) {
 	if len(data) == 0 {
 		return "", 0, 0, 0, fmt.Errorf("source must contain a PDF, JPEG or PNG")
 	}
 	if bytes.HasPrefix(data, []byte("%PDF-")) {
+		// Validation uses pdfcpu's built-in settings and core fonts only. Disable its
+		// optional user config directory so the API can run with a read-only home.
+		disablePDFCPUConfig.Do(api.DisableConfigDir)
 		conf := model.NewDefaultConfiguration()
 		conf.ValidationMode = model.ValidationRelaxed
 		parsed, err := api.ReadAndValidate(bytes.NewReader(data), conf)
