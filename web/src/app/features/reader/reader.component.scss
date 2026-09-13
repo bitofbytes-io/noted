@@ -56,11 +56,12 @@
 
 .reader-title strong {
   font-size: 14px;
+  font-weight: 600;
 }
 
 .reader-title span {
   color: rgb(255 255 255 / 65%);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .page-counter {
@@ -202,6 +203,22 @@
   cursor: pointer;
 }
 
+.icon-button svg,
+.play-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.icon-button:hover:not(:disabled),
+.play-button:hover:not(:disabled) {
+  color: white;
+  background: rgb(255 255 255 / 10%);
+}
+
+.play-button:hover:not(:disabled) {
+  background: var(--green-dark);
+}
+
 .icon-button:disabled {
   opacity: 0.3;
   cursor: default;
@@ -215,8 +232,9 @@
 
 .mode-control button {
   width: 56px;
-  gap: 1px;
-  font-size: 9px;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .mode-control button.active {
@@ -232,7 +250,7 @@
 .zoom-control span {
   min-width: 48px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -247,7 +265,8 @@
   align-items: center;
   gap: 8px;
   padding: 0 7px;
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .speed-control input {

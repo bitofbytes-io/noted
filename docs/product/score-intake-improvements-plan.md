@@ -251,7 +251,8 @@ manual straightening, quarter turns and optional explicit margins. Scale, positi
 match and automatic suggestions are removed from the visible controls. Zero margins
 adds no border. Existing edit manifests remain compatible until an explicit change;
 combined legacy perspective/crop has a clearly labelled start-over option.
-Library buttons say Edit pages and Edit details, with separate Resume draft actions.
+Library rows keep Edit details; Edit pages moved into the details dialog during the
+UI polish pass, and drafts are listed as rows with a Resume action.
 PDF/IMSLP pages can still be removed, reordered or extracted without changing originals.
 
 Stop after the working local preview and required checks so the user can retry the

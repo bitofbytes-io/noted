@@ -306,7 +306,7 @@ test('IMSLP PDF pages remove, reorder and extract with source and metadata retai
     );
     await page.getByLabel('Select page 1', { exact: true }).check();
     await page.getByRole('button', { name: 'Keep selected only' }).click();
-    await page.getByText('Margins · optional', { exact: true }).click();
+    await page.getByText('Margins (optional)', { exact: true }).click();
     await page.getByLabel('Left margin in millimetres').fill('10');
     await page.getByLabel('Left margin in millimetres').blur();
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -325,7 +325,7 @@ test('IMSLP PDF pages remove, reorder and extract with source and metadata retai
     const original = await request.get(`/api/imports/${d.id}/sources/${source}`);
     expect(await original.body()).toEqual(await readFile(fixture));
     await page.goto(`/prepare/${d.id}`);
-    await page.getByText('Margins · optional', { exact: true }).click();
+    await page.getByText('Margins (optional)', { exact: true }).click();
     await expect(page.getByLabel('Top margin in millimetres')).toHaveValue('5');
   } finally {
     await request.delete(`/api/imports/${d.id}/`);
@@ -363,9 +363,9 @@ test('library actions are labelled and contained on touch layouts without openin
       row.getByRole('button', { name: 'Remove from favorites' }).locator('svg'),
     ).toHaveClass(/filled-heart/);
     await expect(page).toHaveURL(/\/$/);
-    for (const label of ['Edit pages', 'Edit details']) {
+    for (const label of ['Remove from favorites', 'Edit details']) {
       const b = await row.getByRole('button', { name: label, exact: true }).boundingBox();
-      expect(b!.width).toBeGreaterThan(70);
+      expect(b!.width).toBeGreaterThanOrEqual(44);
       expect(b!.height).toBeGreaterThanOrEqual(44);
       expect(b!.x + b!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     }
@@ -380,7 +380,7 @@ test('library actions are labelled and contained on touch layouts without openin
     );
     await row.hover();
     await page.screenshot({ path: testInfo.outputPath('library-row-hover.png'), fullPage: true });
-    await row.getByRole('button', { name: 'Edit pages', exact: true }).focus();
+    await row.getByRole('button', { name: 'Remove from favorites', exact: true }).focus();
     await page.keyboard.press('Tab');
     const detailsButton = row.getByRole('button', { name: 'Edit details', exact: true });
     await detailsButton.focus();
@@ -388,7 +388,14 @@ test('library actions are labelled and contained on touch layouts without openin
     await expect(detailsButton).toHaveJSProperty('tabIndex', 0);
     expect(await detailsButton.evaluate((element) => element.matches(':focus-visible'))).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('library-row-focus.png'), fullPage: true });
-    await row.getByRole('button', { name: 'Edit pages', exact: true }).click();
+    await detailsButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const editPages = dialog.getByRole('button', { name: 'Edit pages', exact: true });
+    const editPagesBox = await editPages.boundingBox();
+    expect(editPagesBox!.width).toBeGreaterThan(70);
+    expect(editPagesBox!.height).toBeGreaterThanOrEqual(44);
+    await editPages.click();
     await expect(page).toHaveURL(/prepare\//);
     draftId = new URL(page.url()).pathname.split('/').at(-1);
     await expect(page.getByRole('heading', { name: 'Add a score' })).toBeVisible();
@@ -469,7 +476,7 @@ test('Back saves existing preparation to library while new scores and Details ke
     await expect(page.getByRole('button', { name: 'Choose PDF', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Make it easy to find.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Details', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(
       page.getByRole('button', { name: 'Adjust page edges', exact: true }),
@@ -554,7 +561,7 @@ test('rapid adjustments debounce to latest snapshot and immediately discard an i
     await expect(page.locator('.page-surface img')).toBeVisible();
     await page.getByLabel('Angle in degrees').fill('1');
     await expect.poll(() => page.evaluate(() => (window as any).__previewProbe.held)).toBe(true);
-    await page.getByText('Margins · optional', { exact: true }).click();
+    await page.getByText('Margins (optional)', { exact: true }).click();
     await page.evaluate(() => {
       const input = (label: string, value: string) => {
         const el = document.querySelector(`[aria-label="${label}"]`) as HTMLInputElement;

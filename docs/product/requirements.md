@@ -171,6 +171,8 @@ geometric white wedges around a tilted selection.
 
 Add piece opens Source directly with PDF, phone-photo and assisted IMSLP choices.
 There is no source-choice dialog. The secondary details-without-PDF action removes
-its empty draft before opening the existing metadata form. Library actions have
-visible Edit pages and Edit details labels; Resume draft is separate. PDF pages,
-including IMSLP downloads, retain removal, reordering and extraction controls.
+its empty draft before opening the existing metadata form. Library rows expose
+Listen, favorite and an Edit details action with accessible labels; Edit pages
+lives inside the details dialog, and unfinished drafts appear as rows with a
+Resume action. PDF pages, including IMSLP downloads, retain removal, reordering
+and extraction controls.

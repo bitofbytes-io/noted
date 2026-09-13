@@ -1,6 +1,13 @@
 import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import {
+  LucideChevronDown,
+  LucideChevronUp,
+  LucideExternalLink,
+  LucideMinus,
+  LucidePlus,
+} from '@lucide/angular';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
@@ -14,12 +21,24 @@ interface Suggestion {
 }
 @Component({
   selector: 'app-prepare',
-  imports: [FormsModule],
+  imports: [
+    FormsModule,
+    LucideChevronDown,
+    LucideChevronUp,
+    LucideExternalLink,
+    LucideMinus,
+    LucidePlus,
+  ],
   templateUrl: './prepare.component.html',
   styleUrl: './prepare.component.scss',
 })
 export class PrepareComponent implements OnDestroy {
   readonly Math = Math;
+  readonly steps: { id: 'source' | 'pages' | 'details'; label: string }[] = [
+    { id: 'source', label: 'Source' },
+    { id: 'pages', label: 'Pages' },
+    { id: 'details', label: 'Details' },
+  ];
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);

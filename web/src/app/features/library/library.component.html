@@ -4,17 +4,17 @@
     <div class="masthead-actions">
       @if (session()?.user; as user) {
         <div class="account" [title]="user.email">
-          <span>{{ user.displayName }}</span>
+          <span class="account-name">{{ user.displayName }}</span>
           @if (session()?.development) {
-            <small>DEV</small>
+            <small class="dev-chip">Dev</small>
           } @else {
-            <button type="button" (click)="logout()" [disabled]="signingOut()">
+            <button class="btn-quiet" type="button" (click)="logout()" [disabled]="signingOut()">
               {{ signingOut() ? 'Signing out…' : 'Sign out' }}
             </button>
           }
         </div>
       }
-      <button class="add-button" type="button" (click)="beginImport()">
+      <button class="btn-primary" type="button" (click)="beginImport()">
         <svg lucidePlus aria-hidden="true"></svg>
         <span>Add piece</span>
       </button>
@@ -22,7 +22,6 @@
   </header>
 
   <section class="library-head" aria-labelledby="library-title">
-    <p class="overline">DIGITAL SHEET-MUSIC BINDER</p>
     <h1 id="library-title">Library</h1>
     <div class="search-row">
       <label class="search">
@@ -36,7 +35,7 @@
           (ngModelChange)="onSearch()"
         />
       </label>
-      <label class="favorite-filter">
+      <label class="check-field favorite-filter">
         <input type="checkbox" [(ngModel)]="favoritesOnly" (ngModelChange)="load()" />
         <span>Favorites</span>
       </label>
@@ -48,24 +47,40 @@
   }
 
   <section class="results" aria-live="polite" aria-busy="{{ loading() }}">
-    <div class="results-meta">
-      <span>{{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}</span>
-      @if (query) {
-        <span>for “{{ query }}”</span>
-      }
-    </div>
+    @if (!loading()) {
+      <p class="results-count">
+        {{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}
+        @if (query) {
+          matching “{{ query }}”
+        }
+      </p>
+    }
 
     @if (drafts().length) {
-      <div class="draft-list">
-        <h2>Drafts</h2>
+      <div class="piece-list" aria-label="Unfinished drafts">
         @for (d of drafts(); track d.id) {
-          <button class="secondary-button" (click)="resumeImport(d.id)">
-            Resume draft · {{ d.metadata.title || 'Untitled score' }} ·
-            {{ d.manifest.pages.length }} {{ d.manifest.pages.length === 1 ? 'page' : 'pages' }}
-          </button>
+          <article class="piece-row draft-row">
+            <div class="piece-mark" aria-hidden="true">
+              <svg lucideFileText aria-hidden="true"></svg>
+              <span class="tabular">{{ d.manifest.pages.length || '—' }}</span>
+            </div>
+            <div class="piece-copy">
+              <h2>{{ d.metadata.title || 'Untitled score' }}</h2>
+              <p>
+                Draft, {{ d.manifest.pages.length }}
+                {{ d.manifest.pages.length === 1 ? 'page' : 'pages' }} prepared
+              </p>
+            </div>
+            <div class="row-actions">
+              <button class="btn-secondary" type="button" (click)="resumeImport(d.id)">
+                Resume
+              </button>
+            </div>
+          </article>
         }
       </div>
     }
+
     @if (loading()) {
       <div class="empty-state">
         <p>Opening the binder…</p>
@@ -82,7 +97,7 @@
           }}
         </p>
         @if (!query && !favoritesOnly) {
-          <button class="text-action" type="button" (click)="beginImport()">
+          <button class="btn-quiet accent" type="button" (click)="beginImport()">
             Add the first piece
           </button>
         }
@@ -99,16 +114,16 @@
           >
             <div class="piece-mark" aria-hidden="true">
               <svg lucideFileText aria-hidden="true"></svg>
-              <span>{{ piece.pdf?.pageCount || '—' }}</span>
+              <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
             </div>
             <div class="piece-copy">
               <h2>{{ piece.title }}</h2>
-              <p>{{ piece.composer || 'Composer unknown' }}</p>
-              <span>{{
-                piece.pdf
-                  ? piece.pdf.pageCount + (piece.pdf.pageCount === 1 ? ' page' : ' pages')
-                  : 'PDF needed'
-              }}</span>
+              <p>
+                {{ piece.composer || 'Composer unknown' }}
+                @if (!piece.pdf) {
+                  <span class="piece-note">No PDF yet</span>
+                }
+              </p>
             </div>
             <div class="row-actions">
               @if (piece.listeningUrl) {
@@ -136,22 +151,13 @@
                 <svg lucideHeart [class.filled-heart]="piece.favorite" aria-hidden="true"></svg>
               </button>
               <button
-                class="page-action"
-                type="button"
-                aria-label="Edit pages"
-                title="Edit pages"
-                (click)="beginImport(piece, $event)"
-              >
-                <svg lucideFileText aria-hidden="true"></svg><span>Edit pages</span>
-              </button>
-              <button
-                class="page-action"
+                class="icon-button"
                 type="button"
                 aria-label="Edit details"
                 title="Edit details"
                 (click)="openEdit(piece, $event)"
               >
-                <svg lucidePencil aria-hidden="true"></svg><span>Edit details</span>
+                <svg lucidePencil aria-hidden="true"></svg>
               </button>
             </div>
           </article>
@@ -164,10 +170,7 @@
 <dialog #editor class="editor" (cancel)="closeEditor()">
   <form (ngSubmit)="save()">
     <header class="editor-head">
-      <div>
-        <p class="overline">{{ editing ? 'EDIT PIECE' : 'NEW PIECE' }}</p>
-        <h2>{{ editing ? editing.title : 'Add to binder' }}</h2>
-      </div>
+      <h2>{{ editing ? editing.title : 'Add a piece' }}</h2>
       <button
         class="icon-button"
         type="button"
@@ -214,7 +217,7 @@
         "
       />
       <small id="listening-url-help" class="field-help">
-        Link to a recording, such as YouTube. It opens in a new tab.
+        A recording, such as YouTube. It opens in a new tab.
       </small>
       @if (listeningUrlValidationError(); as validationError) {
         <small id="listening-url-error" class="field-error">{{ validationError }}</small>
@@ -236,21 +239,30 @@
         @if (readingPdf()) {
           Reading PDF…
         } @else if (selectedFile) {
-          {{ selectedFile.name }} · {{ selectedPageCount }} pages
+          {{ selectedFile.name }} ({{ selectedPageCount }}
+          {{ selectedPageCount === 1 ? 'page' : 'pages' }})
         } @else if (editing?.pdf) {
           Replace {{ editing?.pdf?.originalFilename }}
         } @else {
           Choose PDF
         }
       </span>
-      <small>PDF file · Your account’s upload limit applies</small>
+      <small>PDF only. Your account’s upload limit applies.</small>
     </label>
 
-    @if (editing?.pdf; as pdf) {
-      <a class="download-action" [href]="pdf.contentUrl + '/download'">
-        <svg lucideDownload aria-hidden="true"></svg>
-        <span>Download current PDF</span>
-      </a>
+    @if (editing) {
+      <div class="pdf-actions">
+        <button class="btn-secondary" type="button" (click)="beginImport(editing)">
+          <svg lucideFileText aria-hidden="true"></svg>
+          <span>Edit pages</span>
+        </button>
+        @if (editing.pdf; as pdf) {
+          <a class="btn-secondary" [href]="pdf.contentUrl + '/download'">
+            <svg lucideDownload aria-hidden="true"></svg>
+            <span>Download current PDF</span>
+          </a>
+        }
+      </div>
     }
 
     @if (error()) {
@@ -259,15 +271,15 @@
 
     <footer class="editor-actions">
       @if (editing) {
-        <button class="delete-button" type="button" (click)="deletePiece(editing)">
+        <button class="btn-quiet danger" type="button" (click)="deletePiece(editing)">
           <svg lucideTrash2 aria-hidden="true"></svg>
           <span>Delete</span>
         </button>
       }
       <span class="action-spacer"></span>
-      <button class="secondary-button" type="button" (click)="closeEditor()">Cancel</button>
+      <button class="btn-secondary" type="button" (click)="closeEditor()">Cancel</button>
       <button
-        class="primary-button"
+        class="btn-primary"
         type="submit"
         [disabled]="
           saving() || readingPdf() || !form.title.trim() || !!listeningUrlValidationError()
