@@ -12,13 +12,13 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { EditManifest, ImportAsset, ImportDraft, PageEdit } from '../../core/models';
+import { measureAsync } from '../../core/performance';
 import {
   PreparedPageCache,
   ProcessingResponse,
   ProcessingStoppedError,
   ProcessingWorkerClient,
   isProcessingStopped,
-  measureAsync,
   preparedPhotoKey,
 } from './prepare-processing';
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';

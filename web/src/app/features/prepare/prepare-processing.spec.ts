@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ImportAsset, PageEdit } from '../../core/models';
-import {
-  PreparedPageCache,
-  ProcessingWorkerClient,
-  measureAsync,
-  preparedPhotoKey,
-} from './prepare-processing';
+import { measureAsync } from '../../core/performance';
+import { PreparedPageCache, ProcessingWorkerClient, preparedPhotoKey } from './prepare-processing';
 
 const source: ImportAsset = {
   id: 'source-one',

@@ -3,7 +3,6 @@ import { ImportAsset, PageEdit } from '../../core/models';
 const PREPARED_KEY_VERSION = 'prepared-photo-v1';
 const DEFAULT_MAX_ENTRIES = 20;
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
-let timingSequence = 0;
 
 function finite(value: number | undefined, fallback = 0): number {
   return Number.isFinite(value) ? Number(value!.toFixed(6)) : fallback;
@@ -229,22 +228,5 @@ export class ProcessingWorkerClient {
   private releaseWorker(): void {
     this.worker?.terminate();
     this.worker = undefined;
-  }
-}
-
-export async function measureAsync<T>(name: string, work: () => Promise<T>): Promise<T> {
-  if (typeof performance === 'undefined' || !performance.mark || !performance.measure)
-    return work();
-  const invocation = ++timingSequence;
-  const start = `${name}:start:${invocation}`;
-  const end = `${name}:end:${invocation}`;
-  performance.mark(start);
-  try {
-    return await work();
-  } finally {
-    performance.mark(end);
-    performance.measure(name, start, end);
-    performance.clearMarks(start);
-    performance.clearMarks(end);
   }
 }
