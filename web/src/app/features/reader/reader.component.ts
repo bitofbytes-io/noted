@@ -28,6 +28,7 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
+import { measureAsync } from '../../core/performance';
 import { PageMetric, PdfDocument } from './pdf-document.service';
 import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 import { ScreenWakeLock } from './screen-wake-lock';
@@ -118,35 +119,37 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   }
 
   private async load(): Promise<void> {
-    this.loading.set(true);
-    this.error.set('');
-    try {
-      const [piece, state] = await Promise.all([
-        firstValueFrom(this.api.piece(this.pieceId)),
-        firstValueFrom(this.api.readerState(this.pieceId)),
-      ]);
-      if (!piece.pdf) throw new Error('This piece does not have a PDF yet.');
-      this.piece.set(piece);
-      this.mode.set(state.mode);
-      this.zoom.set(clamp(state.zoom, 0.5, 2.5));
-      this.speed.set(clamp(state.scrollSpeed, 5, 120));
-      this.paused.set(state.scrollPaused);
-      const metrics = await this.pdf.load(piece.pdf.contentUrl);
-      this.metrics.set(metrics);
-      this.currentPage.set(clamp(Math.round(state.lastPage), 1, metrics.length));
-      this.loading.set(false);
-      setTimeout(() => {
-        if (this.mode() === 'scroll') {
-          this.stage.nativeElement.scrollTop = Math.max(0, state.scrollPosition);
-        }
-        this.scheduleRender();
-        this.syncAutoScroll();
-      });
-    } catch (error) {
-      this.wakeLock.stop();
-      this.error.set(errorMessage(error));
-      this.loading.set(false);
-    }
+    await measureAsync('noted.reader.load', async () => {
+      this.loading.set(true);
+      this.error.set('');
+      try {
+        const [piece, state] = await Promise.all([
+          firstValueFrom(this.api.piece(this.pieceId)),
+          firstValueFrom(this.api.readerState(this.pieceId)),
+        ]);
+        if (!piece.pdf) throw new Error('This piece does not have a PDF yet.');
+        this.piece.set(piece);
+        this.mode.set(state.mode);
+        this.zoom.set(clamp(state.zoom, 0.5, 2.5));
+        this.speed.set(clamp(state.scrollSpeed, 5, 120));
+        this.paused.set(state.scrollPaused);
+        const metrics = await this.pdf.load(piece.pdf.contentUrl);
+        this.metrics.set(metrics);
+        this.currentPage.set(clamp(Math.round(state.lastPage), 1, metrics.length));
+        this.loading.set(false);
+        setTimeout(() => {
+          if (this.mode() === 'scroll') {
+            this.stage.nativeElement.scrollTop = Math.max(0, state.scrollPosition);
+          }
+          this.scheduleRender();
+          this.syncAutoScroll();
+        });
+      } catch (error) {
+        this.wakeLock.stop();
+        this.error.set(errorMessage(error));
+        this.loading.set(false);
+      }
+    });
   }
 
   back(): void {

@@ -37,7 +37,7 @@
           [class.active]="step() === s.id"
           [attr.aria-current]="step() === s.id ? 'step' : null"
           [disabled]="busy() || editingEdges"
-          (click)="step.set(s.id)"
+          (click)="setStep(s.id)"
         >
           <span class="step-number tabular">{{ i + 1 }}</span>
           <span>{{ s.label }}</span>
@@ -220,9 +220,13 @@
               Use this range only
             </button>
           </details>
-          <div class="thumbs">
+          <div #thumbRail class="thumbs" (scroll)="thumbnailRailScrolled($event)">
             @for (p of d.manifest.pages; track p.id; let i = $index) {
-              <div class="thumbnail" [class.active]="selected() === i">
+              <div
+                class="thumbnail"
+                [class.active]="selected() === i"
+                [attr.data-thumbnail-id]="p.id"
+              >
                 <button
                   type="button"
                   [disabled]="busy() || editingEdges"
@@ -581,7 +585,7 @@
           @for (p of d.manifest.pages.slice(0, 3); track p.id) {
             <img [src]="thumbs()[p.id]" alt="Score page thumbnail" />
           }
-          <button class="btn-quiet accent" (click)="step.set('pages')">Review pages</button>
+          <button class="btn-quiet accent" (click)="setStep('pages')">Review pages</button>
         </div>
       </section>
     }
@@ -613,7 +617,7 @@
           @if (step() === 'details') {
             <button
               class="btn-secondary"
-              (click)="step.set('pages')"
+              (click)="setStep('pages')"
               [disabled]="busy() || editingEdges"
             >
               Back
