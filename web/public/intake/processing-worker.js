@@ -97,16 +97,13 @@ async function lightenPaper(canvas,strength) {
 // A 4MP RGBA surface is at most 16MB; several surfaces plus the decoder/wasm
 // heap still coexist. Plain JPEG embedding deliberately keeps full resolution.
 const PHOTO_WORK_PIXELS=4000000,PHOTO_WORK_EDGE=2800;
-function photoWorkSize(width,height){
-  const ratio=Math.min(1,Math.sqrt(PHOTO_WORK_PIXELS/(width*height)),PHOTO_WORK_EDGE/width,PHOTO_WORK_EDGE/height);
+function photoWorkSize(width,height,maxPixels=PHOTO_WORK_PIXELS,maxEdge=PHOTO_WORK_EDGE){
+  const ratio=Math.min(1,Math.sqrt(maxPixels/(width*height)),maxEdge/width,maxEdge/height);
   return [Math.max(1,Math.floor(width*ratio)),Math.max(1,Math.floor(height*ratio))];
 }
-async function photoPDF(bytes,edit) {
-  const orientation=jpegOrientation(bytes),strength=cleanupStrength(edit);
-  if(orientation&&!edit.corners?.length&&!strength)return jpegPDF(bytes,orientation);
-  const bitmap=await createImageBitmap(new Blob([bytes]));
-  if(bitmap.width*bitmap.height>20000000){bitmap.close();throw Error('Photo exceeds 20 megapixels.');}
-  let [width,height]=photoWorkSize(bitmap.width,bitmap.height);const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d');
+async function correctPhoto(bitmap,edit,maxPixels=PHOTO_WORK_PIXELS,maxEdge=PHOTO_WORK_EDGE) {
+  const strength=cleanupStrength(edit);
+  let [width,height]=photoWorkSize(bitmap.width,bitmap.height,maxPixels,maxEdge);const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d');
   try{if(strength||edit.fitEdges){context.fillStyle='white';context.fillRect(0,0,width,height);}context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(bitmap,0,0,width,height);}finally{bitmap.close();}
   if(strength)await lightenPaper(canvas,strength);
   if(edit.corners?.length){
@@ -116,7 +113,7 @@ async function photoPDF(bytes,edit) {
       const points=edit.corners.map(([x,y])=>[x*(width-1),y*(height-1)]),distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
       targetWidth=Math.max(2,Math.round((distance(points[0],points[1])+distance(points[3],points[2]))/2));
       targetHeight=Math.max(2,Math.round((distance(points[0],points[3])+distance(points[1],points[2]))/2));
-      [targetWidth,targetHeight]=photoWorkSize(targetWidth,targetHeight);
+      [targetWidth,targetHeight]=photoWorkSize(targetWidth,targetHeight,maxPixels,maxEdge);
     }
     const a=cv.matFromArray(4,1,cv.CV_32FC2,edit.corners.flatMap(([x,y])=>[x*(width-1),y*(height-1)])),b=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,targetWidth-1,0,targetWidth-1,targetHeight-1,0,targetHeight-1]),matrix=cv.getPerspectiveTransform(a,b);
     try{cv.warpPerspective(src,dst,matrix,new cv.Size(targetWidth,targetHeight),cv.INTER_CUBIC,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));
@@ -127,9 +124,43 @@ async function photoPDF(bytes,edit) {
       context.putImageData(new ImageData(pixels,width,height),0,0);
     }finally{[src,dst,a,b,matrix].forEach(m=>m?.delete());}
   }
-  const encodeJPEG=strength>0 || (edit.fitEdges && edit.corners?.length);
-  const blob=await canvas.convertToBlob({type:encodeJPEG?'image/jpeg':'image/png',quality:.96});canvas.width=canvas.height=1;
-  const doc=await PDFLib.PDFDocument.create(),img=encodeJPEG?await doc.embedJpg(await blob.arrayBuffer()):await doc.embedPng(await blob.arrayBuffer());const w=600,h=600*height/width;doc.addPage([w,h]).drawImage(img,{x:0,y:0,width:w,height:h});await doc.flush();return doc;
+  return {canvas,width,height,encodeJPEG:strength>0 || (edit.fitEdges && edit.corners?.length)};
+}
+async function photoPDF(bytes,edit) {
+  const orientation=jpegOrientation(bytes),strength=cleanupStrength(edit);
+  if(orientation&&!edit.corners?.length&&!strength)return jpegPDF(bytes,orientation);
+  const bitmap=await createImageBitmap(new Blob([bytes]));
+  if(bitmap.width*bitmap.height>20000000){bitmap.close();throw Error('Photo exceeds 20 megapixels.');}
+  const corrected=await correctPhoto(bitmap,edit),{canvas,width,height}=corrected;
+  const blob=await canvas.convertToBlob({type:corrected.encodeJPEG?'image/jpeg':'image/png',quality:.96});canvas.width=canvas.height=1;
+  const doc=await PDFLib.PDFDocument.create(),img=corrected.encodeJPEG?await doc.embedJpg(await blob.arrayBuffer()):await doc.embedPng(await blob.arrayBuffer());const w=600,h=600*height/width;doc.addPage([w,h]).drawImage(img,{x:0,y:0,width:w,height:h});await doc.flush();return doc;
+}
+function pageLayout(width,height,edit) {
+  const scale=edit.fitEdges?1:(edit.scale||1),angle=(edit.angle||0)+(edit.rotation||0),r=angle*Math.PI/180;
+  const quarter=(edit.rotation||0)%180!==0;
+  const baseWidth=edit.fitEdges?Math.abs(width*Math.cos(r))+Math.abs(height*Math.sin(r)):(edit.outputWidth||(quarter?height:width));
+  const baseHeight=edit.fitEdges?Math.abs(width*Math.sin(r))+Math.abs(height*Math.cos(r)):(edit.outputHeight||(quarter?width:height));
+  const [mt,mr,mb,ml]=edit.margins||[0,0,0,0],outputWidth=baseWidth+ml+mr,outputHeight=baseHeight+mt+mb;
+  const cx=width/2,cy=height/2,dx=(edit.fitEdges?0:(edit.x||0))*baseWidth,dy=-(edit.fitEdges?0:(edit.y||0))*baseHeight;
+  const transform=(x,y)=>[ml+baseWidth/2+dx+scale*((x-cx)*Math.cos(r)-(y-cy)*Math.sin(r)),mb+baseHeight/2+dy+scale*((x-cx)*Math.sin(r)+(y-cy)*Math.cos(r))];
+  return {scale,angle,baseWidth,baseHeight,outputWidth,outputHeight,center:transform(cx,cy),transform};
+}
+async function previewRaster(raster,edit,maxEdge=1050) {
+  const bitmap=await createImageBitmap(raster),corrected=await correctPhoto(bitmap,edit,maxEdge*maxEdge,maxEdge);
+  const source=corrected.canvas,mediaWidth=600,mediaHeight=600*corrected.height/corrected.width;
+  try {
+    const edges=edit.crop||[0,0,1,1],width=(edges[2]-edges[0])*mediaWidth,height=(edges[3]-edges[1])*mediaHeight;
+    if(width<=0||height<=0)throw Error('Page edges are invalid.');
+    const layout=pageLayout(width,height,edit),ratio=maxEdge/Math.max(layout.outputWidth,layout.outputHeight);
+    const output=new OffscreenCanvas(Math.max(1,Math.round(layout.outputWidth*ratio)),Math.max(1,Math.round(layout.outputHeight*ratio))),context=output.getContext('2d');
+    context.fillStyle='white';context.fillRect(0,0,output.width,output.height);
+    context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';
+    context.translate(layout.center[0]*ratio,(layout.outputHeight-layout.center[1])*ratio);
+    context.rotate(-layout.angle*Math.PI/180);context.scale(layout.scale,layout.scale);
+    context.drawImage(source,edges[0]*source.width,edges[1]*source.height,(edges[2]-edges[0])*source.width,(edges[3]-edges[1])*source.height,-width*ratio/2,-height*ratio/2,width*ratio,height*ratio);
+    const blob=await output.convertToBlob({type:'image/jpeg',quality:.92}),result={blob,width:output.width,height:output.height};
+    output.width=output.height=1;return result;
+  } finally {source.width=source.height=1;}
 }
 // Render the exact same PDF used by preview/export. Coordinates stay in PDF points.
 async function renderPDF(bytes, pageIndex = 0) {
@@ -166,18 +197,25 @@ async function checkInk(bytes,index,edges,transform,outputWidth,outputHeight) {
     }
   } finally {c.width=c.height=1;}
 }
-async function build(draftId,sources,manifest) {
+async function build(draftId,sources,manifest,prepared=[],preparedKeys=[],requestId) {
   const sourceMap=new Map(sources.map(a=>[a.id,a]));
+  const preparedMap=new Map(prepared.map(item=>[item.key,item.bytes]));
   async function read(id){const response=await fetch(`/api/imports/${draftId}/sources/${id}`,{credentials:'same-origin'});if(!response.ok)throw Error('Source could not be loaded. Reload the draft.');return response.arrayBuffer();}
   if(!manifest.pages.length)throw Error('Choose at least one page.');
   const first=sourceMap.get(manifest.pages[0].sourceId);
-  if(first.mime==='application/pdf'&&manifest.pages.length===first.pageCount&&manifest.pages.every((p,i)=>p.sourceId===first.id&&p.page===i&&isPlain(p))){return read(first.id);}
+  if(!prepared.length&&first.mime==='application/pdf'&&manifest.pages.length===first.pageCount&&manifest.pages.every((p,i)=>p.sourceId===first.id&&p.page===i&&isPlain(p))){return read(first.id);}
   const out=await PDFLib.PDFDocument.create(),pdfSources=new Map(),remaining=new Map();
   for(const p of manifest.pages)remaining.set(p.sourceId,(remaining.get(p.sourceId)||0)+1);
   for(let i=0;i<manifest.pages.length;i++){
     const edit=manifest.pages[i],asset=sourceMap.get(edit.sourceId);if(!asset)throw Error('Unknown source.');
     if(cleanupStrength(edit)&&asset.mime==='application/pdf')throw Error('Lighten paper is available for photos only.');
-    self.postMessage({progress:`Preparing page ${i+1} of ${manifest.pages.length}`});
+    self.postMessage({requestId,progress:`Preparing page ${i+1} of ${manifest.pages.length}`});
+    const preparedBytes=preparedMap.get(preparedKeys[i]);
+    if(preparedBytes){
+      const preparedDoc=await PDFLib.PDFDocument.load(preparedBytes,{updateMetadata:false});
+      if(preparedDoc.getPageCount()!==1)throw Error('A prepared page is invalid. Reopen the draft and try again.');remaining.set(asset.id,remaining.get(asset.id)-1);
+      const [copy]=await out.copyPages(preparedDoc,[0]);out.addPage(copy);continue;
+    }
     let source=pdfSources.get(asset.id);
     if(!source){const bytes=await read(asset.id);source={bytes,doc:asset.mime==='application/pdf'?await PDFLib.PDFDocument.load(bytes,{updateMetadata:false}):await photoPDF(bytes,edit)};if(asset.mime==='application/pdf')pdfSources.set(asset.id,source);}
     const {doc}=source,original=doc.getPage(asset.mime==='application/pdf'?edit.page:0);
@@ -190,15 +228,10 @@ async function build(draftId,sources,manifest) {
     if(original.getRotation().angle%360||media.x||media.y||['x','y','width','height'].some(k=>crop[k]!==media[k]))throw Error('This PDF already has a page rotation or crop. Reorder, extract and quarter-turn rotation are supported; fine adjustments need a normalized source PDF.');
     const edges=edit.crop||[0,0,1,1],w=media.width,h=media.height;
     const embed=await out.embedPage(original,{left:edges[0]*w,bottom:(1-edges[3])*h,right:edges[2]*w,top:(1-edges[1])*h});
-    const width=embed.width,height=embed.height,scale=edit.fitEdges?1:(edit.scale||1),angle=(edit.angle||0)+(edit.rotation||0),r=angle*Math.PI/180;
-    const quarter=(edit.rotation||0)%180!==0;
-    const baseWidth=edit.fitEdges?Math.abs(width*Math.cos(r))+Math.abs(height*Math.sin(r)):(edit.outputWidth||(quarter?height:width)),baseHeight=edit.fitEdges?Math.abs(width*Math.sin(r))+Math.abs(height*Math.cos(r)):(edit.outputHeight||(quarter?width:height));
-    const [mt,mr,mb,ml]=edit.margins||[0,0,0,0],outputWidth=baseWidth+ml+mr,outputHeight=baseHeight+mt+mb;
-    const cx=width/2,cy=height/2,dx=(edit.fitEdges?0:(edit.x||0))*baseWidth,dy=-(edit.fitEdges?0:(edit.y||0))*baseHeight;
-    const transform=(x,y)=>[ml+baseWidth/2+dx+scale*((x-cx)*Math.cos(r)-(y-cy)*Math.sin(r)),mb+baseHeight/2+dy+scale*((x-cx)*Math.sin(r)+(y-cy)*Math.cos(r))];
-    if(!edit.fitEdges)await checkInk(asset.mime==='application/pdf'?source.bytes:await doc.save(),asset.mime==='application/pdf'?edit.page:0,edges,transform,outputWidth,outputHeight);
-    const origin=transform(0,0);
-    out.addPage([outputWidth,outputHeight]).drawPage(embed,{x:origin[0],y:origin[1],xScale:scale,yScale:scale,rotate:PDFLib.degrees(angle)});
+    const width=embed.width,height=embed.height,layout=pageLayout(width,height,edit);
+    if(!edit.fitEdges)await checkInk(asset.mime==='application/pdf'?source.bytes:await doc.save(),asset.mime==='application/pdf'?edit.page:0,edges,layout.transform,layout.outputWidth,layout.outputHeight);
+    const origin=layout.transform(0,0);
+    out.addPage([layout.outputWidth,layout.outputHeight]).drawPage(embed,{x:origin[0],y:origin[1],xScale:layout.scale,yScale:layout.scale,rotate:PDFLib.degrees(layout.angle)});
   }
   return (await out.save()).buffer;
 }
@@ -234,9 +267,11 @@ async function matchPages(data) {
   return pages;
 }
 self.onmessage=async({data})=>{
+  const requestId=data.requestId;
   try {
-    if(data.kind==='match'){self.postMessage({result:await matchPages(data)});return;}
-    if(data.kind==='analyze'){await openCV();self.postMessage({result:analyze(data.image)});return;}
-    const bytes=await build(data.draftId,data.sources,data.manifest);self.postMessage({bytes},[bytes]);
-  } catch(error){self.postMessage({error:error instanceof Error?error.message:String(error)});}
+    if(data.kind==='match'){self.postMessage({requestId,result:await matchPages(data)});return;}
+    if(data.kind==='analyze'){await openCV();self.postMessage({requestId,result:analyze(data.image)});return;}
+    if(data.kind==='preview'){const result=await previewRaster(data.raster,data.edit,data.maxEdge);self.postMessage({requestId,...result});return;}
+    const bytes=await build(data.draftId,data.sources,data.manifest,data.prepared,data.preparedKeys,requestId);self.postMessage({requestId,bytes},[bytes]);
+  } catch(error){self.postMessage({requestId,error:error instanceof Error?error.message:String(error)});}
 };

@@ -24,3 +24,11 @@ JPEG dimensions. No uploaded user music or external edition is included.
 `fixtures/generate/high-resolution-photo.py` (Pillow). Its 4000×5000 pixels include
 thin staff lines, dots, faint gray pencil strokes and a color mark. It tests the
 bounded photo-correction working resolution and unchanged JPEG passthrough.
+
+With the local API and web app running, `scripts/verify-photo-preview.sh` uses this
+fixture in a temporary Chromium session. It compares the fast raster preview with
+the final worker PDF and checks geometry, page order, paper cleanup, staff marks,
+faint pencil strokes and the color mark. Its two-page build also combines a cached
+page whose source cannot be fetched with an uncached photo, proving partial cache
+reuse and output order. The script installs its browser driver in a temporary
+directory and deletes its draft and temporary files when it exits.

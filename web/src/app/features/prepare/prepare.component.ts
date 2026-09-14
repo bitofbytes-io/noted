@@ -11,13 +11,35 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { EditManifest, ImportDraft, PageEdit } from '../../core/models';
+import { EditManifest, ImportAsset, ImportDraft, PageEdit } from '../../core/models';
+import {
+  PreparedPageCache,
+  ProcessingResponse,
+  ProcessingStoppedError,
+  ProcessingWorkerClient,
+  isProcessingStopped,
+  measureAsync,
+  preparedPhotoKey,
+} from './prepare-processing';
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
 interface Suggestion {
   confident: boolean;
   angle?: number;
   bounds?: number[];
   reason?: string;
+}
+interface DisplayRaster {
+  key: string;
+  blob: Blob;
+  url: string;
+  width: number;
+  height: number;
+}
+interface ThumbnailRequest {
+  revision: number;
+  key: string;
+  ids: Set<string>;
+  pages: PageEdit[];
 }
 @Component({
   selector: 'app-prepare',
@@ -43,6 +65,7 @@ export class PrepareComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   @ViewChild('surface') surface?: ElementRef<HTMLElement>;
+  @ViewChild('thumbRail') thumbRail?: ElementRef<HTMLElement>;
   readonly draft = signal<ImportDraft | null>(null);
   readonly step = signal<'source' | 'pages' | 'details'>('source');
   readonly error = signal('');
@@ -64,6 +87,7 @@ export class PrepareComponent implements OnDestroy {
   private edgeCompare = false;
   private gesture = false;
   private previewTimer?: ReturnType<typeof setTimeout>;
+  private backgroundTimer?: ReturnType<typeof setTimeout>;
   private dragCleanup?: () => void;
   readonly selectedIDs = signal<Set<string>>(new Set());
   readonly suggestion = signal<Suggestion | null>(null);
@@ -72,8 +96,13 @@ export class PrepareComponent implements OnDestroy {
   rangeSourceId = '';
   rangeText = '';
   private uploadGeneration = 0;
-  private worker?: Worker;
-  private workerReject?: (error: Error) => void;
+  private readonly workerClient = new ProcessingWorkerClient(
+    () => new Worker('/intake/processing-worker.js'),
+  );
+  private foregroundWorker = false;
+  private readonly preparedPages = new PreparedPageCache();
+  private preparedKeysByPage = new Map<string, string>();
+  private lastEditOrSelectionAt = performance.now();
   private saveTimer?: ReturnType<typeof setTimeout>;
   private pendingSave?: Promise<void>;
   private dirty = false;
@@ -82,10 +111,18 @@ export class PrepareComponent implements OnDestroy {
   private previewRevision = 0;
   private previewTask?: ReturnType<typeof getDocument>;
   private thumbnailRevision = 0;
+  private thumbnailRequest?: ThumbnailRequest;
+  private thumbnailPump?: Promise<void>;
   private pdfTasks = new Map<string, { task: ReturnType<typeof getDocument>; users: number }>();
   private history: EditManifest[] = [];
   private replaceID?: string;
   private objectURL = '';
+  private displayRaster?: DisplayRaster;
+  private displayRasterLoad?: {
+    key: string;
+    promise: Promise<DisplayRaster>;
+    controller: AbortController;
+  };
   constructor() {
     void this.load();
   }
@@ -140,7 +177,9 @@ export class PrepareComponent implements OnDestroy {
         ? d.metadata.sourceUrl
         : '';
       this.step.set(d.manifest.pages.length ? 'pages' : 'source');
+      this.reconcilePreparedKeys();
       void this.renderThumbnails();
+      setTimeout(() => void this.renderThumbnails());
       await this.renderPreview();
     } catch (e) {
       this.error.set(errorMessage(e));
@@ -151,12 +190,17 @@ export class PrepareComponent implements OnDestroy {
     this.invalidatePreview();
     this.dragCleanup?.();
     clearTimeout(this.previewTimer);
+    clearTimeout(this.backgroundTimer);
     this.thumbnailRevision++;
+    this.thumbnailRequest = undefined;
     for (const entry of this.pdfTasks.values()) void entry.task.destroy();
     this.pdfTasks.clear();
-    this.worker?.terminate();
+    this.workerClient.destroy();
+    this.preparedPages.clear();
     clearTimeout(this.saveTimer);
-    if (this.objectURL) URL.revokeObjectURL(this.objectURL);
+    this.revokePreviewURL();
+    this.revokeDisplayRaster();
+    this.revokeThumbnails();
   }
   async detailsWithoutPDF() {
     const d = this.draft();
@@ -176,7 +220,7 @@ export class PrepareComponent implements OnDestroy {
   async backFromPages() {
     if (this.busy() || this.editingEdges) return;
     if (this.draft()?.pieceId) await this.close();
-    else this.step.set('source');
+    else this.setStep('source');
   }
   async close() {
     if (this.busy() || this.editingEdges) return;
@@ -297,24 +341,25 @@ export class PrepareComponent implements OnDestroy {
   private invalidatePreview() {
     ++this.previewRevision;
     clearTimeout(this.previewTimer);
+    clearTimeout(this.backgroundTimer);
     if (this.previewTask) {
       void this.previewTask.destroy().catch(() => {});
       this.previewTask = undefined;
     }
-    if (!this.busy() || this.uploading) {
-      this.worker?.terminate();
-      this.workerReject?.(new Error('Preview superseded.'));
-      this.worker = undefined;
-      this.workerReject = undefined;
+    if (this.workerClient.activeRequest && (!this.busy() || this.uploading)) {
+      this.workerClient.supersede();
+      this.foregroundWorker = false;
       this.progress.set('');
       this.syncCancellable();
     }
   }
   changed() {
+    this.lastEditOrSelectionAt = performance.now();
     this.invalidatePreview();
     this.draft.update((d) =>
       d ? { ...d, manifest: { ...d.manifest, pages: [...d.manifest.pages] } } : null,
     );
+    this.reconcilePreparedKeys();
     this.mark();
     this.suggestion.set(null);
     clearTimeout(this.previewTimer);
@@ -326,6 +371,7 @@ export class PrepareComponent implements OnDestroy {
     if (m) {
       this.draft.update((d) => (d ? { ...d, manifest: m } : null));
       this.selected.set(Math.min(this.selected(), m.pages.length - 1));
+      this.reconcilePreparedKeys();
       this.mark();
       void this.renderPreview();
       void this.renderThumbnails();
@@ -352,9 +398,18 @@ export class PrepareComponent implements OnDestroy {
   choose(index: number) {
     if (this.busy() || this.editingEdges) return;
     this.endGesture();
+    const nextPage = this.draft()?.manifest.pages[index];
+    const nextSource = this.draft()?.sources.find((source) => source.id === nextPage?.sourceId);
+    if (
+      this.displayRaster &&
+      `${nextSource?.checksum}:${nextPage?.page}` !== this.displayRaster.key
+    )
+      this.revokeDisplayRaster();
+    this.lastEditOrSelectionAt = performance.now();
     this.selected.set(index);
     this.handles.set(null);
     this.suggestion.set(null);
+    void this.renderThumbnails();
     void this.renderPreview();
   }
   move(delta: number) {
@@ -432,15 +487,18 @@ export class PrepareComponent implements OnDestroy {
           const replacementID = this.replaceID;
           this.thumbs.update((t) => {
             const next = { ...t };
+            if (next[replacementID!]) URL.revokeObjectURL(next[replacementID!]);
             delete next[replacementID!];
             return next;
           });
+          this.revokeDisplayRaster();
+          this.reconcilePreparedKeys();
           this.replaceID = undefined;
         }
         this.selected.set(Math.min(oldCount, this.draft()!.manifest.pages.length - 1));
       }
-      this.step.set('pages');
-      void this.renderThumbnails();
+      this.setStep('pages');
+      this.reconcilePreparedKeys();
       await this.renderPreview();
     } catch (e) {
       this.error.set(errorMessage(e) + ' Pages already added remain in this draft.');
@@ -497,60 +555,215 @@ export class PrepareComponent implements OnDestroy {
     }
     return canvas;
   }
-  async renderThumbnails() {
-    const revision = ++this.thumbnailRevision;
+  async renderThumbnails(container = this.thumbRail?.nativeElement) {
+    if (this.destroyed) return;
     const d = this.draft();
     if (!d) return;
-    for (const p of d.manifest.pages) {
-      if (this.destroyed || revision !== this.thumbnailRevision) return;
-      if (this.thumbs()[p.id]) continue;
+    const visibleIDs = this.thumbnailIDs(d, container);
+    const selectedPage = d.manifest.pages[this.selected()];
+    const visiblePages = d.manifest.pages.filter((page) => visibleIDs.has(page.id));
+    const visible = selectedPage
+      ? [selectedPage, ...visiblePages.filter((page) => page.id !== selectedPage.id)]
+      : visiblePages;
+    this.thumbs.update((current) => {
+      const next = { ...current };
+      for (const [id, url] of Object.entries(next)) {
+        if (visibleIDs.has(id)) continue;
+        URL.revokeObjectURL(url);
+        delete next[id];
+      }
+      return next;
+    });
+    const key = visible
+      .map((page) => {
+        const source = d.sources.find((item) => item.id === page.sourceId);
+        return `${page.id}:${source?.checksum ?? page.sourceId}:${page.page}`;
+      })
+      .join('|');
+    if (this.thumbnailRequest?.key !== key) {
+      this.thumbnailRequest = {
+        revision: ++this.thumbnailRevision,
+        key,
+        ids: visibleIDs,
+        pages: visible.map((page) => structuredClone(page)),
+      };
+    }
+    if (!this.thumbnailPump) {
+      const pump = this.pumpThumbnails();
+      this.thumbnailPump = pump;
+      void pump.finally(() => {
+        if (this.thumbnailPump === pump) this.thumbnailPump = undefined;
+      });
+    }
+    await this.thumbnailPump;
+  }
+  private async pumpThumbnails(): Promise<void> {
+    let attemptedRevision = -1;
+    let attempted = new Set<string>();
+    while (!this.destroyed) {
+      const request = this.thumbnailRequest;
+      if (!request) return;
+      if (request.revision !== attemptedRevision) {
+        attemptedRevision = request.revision;
+        attempted = new Set<string>();
+      }
+      const page = request.pages.find(
+        (candidate) => !this.thumbs()[candidate.id] && !attempted.has(candidate.id),
+      );
+      if (!page) {
+        if (this.thumbnailRequest === request) return;
+        continue;
+      }
+      attempted.add(page.id);
+      let canvas: HTMLCanvasElement | undefined;
       try {
-        const canvas = await this.sourceCanvas(p, 140);
-        if (!this.destroyed && revision === this.thumbnailRevision)
-          this.thumbs.update((t) => ({ ...t, [p.id]: canvas.toDataURL('image/jpeg', 0.8) }));
-        canvas.width = canvas.height = 1;
+        canvas = await this.thumbnailCanvas(page);
+        const latest = this.thumbnailRequest;
+        if (this.destroyed || latest?.revision !== request.revision || !latest.ids.has(page.id))
+          continue;
+        const blob = await this.canvasBlob(canvas, 'image/jpeg', 0.8);
+        const current = this.thumbnailRequest;
+        if (this.destroyed || current?.revision !== request.revision || !current.ids.has(page.id))
+          continue;
+        const url = URL.createObjectURL(blob);
+        this.thumbs.update((thumbs) => ({ ...thumbs, [page.id]: url }));
       } catch (e) {
-        if (!this.destroyed && revision === this.thumbnailRevision) this.error.set(errorMessage(e));
-        return;
+        if (!this.destroyed && this.thumbnailRequest?.revision === request.revision)
+          this.error.set(errorMessage(e));
+      } finally {
+        if (canvas) canvas.width = canvas.height = 1;
       }
     }
   }
-  async runWorker(payload: object): Promise<ArrayBuffer | Suggestion | PageEdit[]> {
-    this.worker?.terminate();
-    this.workerReject?.(new Error('Processing cancelled.'));
-    this.workerReject = undefined;
-    const worker = new Worker('/intake/processing-worker.js');
-    this.worker = worker;
-    this.syncCancellable();
-    return new Promise((resolve, reject) => {
-      this.workerReject = reject;
-      worker.onerror = () => {
-        if (this.worker !== worker) return;
-        this.worker = undefined;
-        this.workerReject = undefined;
-        this.syncCancellable();
-        worker.terminate();
-        reject(Error('Page processing could not start. Please reload.'));
-      };
-      worker.onmessage = ({ data }) => {
-        if (this.worker !== worker) return;
-        if (!('progress' in data || 'bytes' in data || 'result' in data || 'error' in data)) return;
-        if (data.progress) {
-          this.progress.set(data.progress);
-          return;
+  thumbnailRailScrolled(event: Event): void {
+    void this.renderThumbnails(event.currentTarget as HTMLElement);
+  }
+  private thumbnailIDs(d: ImportDraft, container?: HTMLElement): Set<string> {
+    const ids = new Set<string>();
+    if (this.step() === 'source') return ids;
+    const selected = d.manifest.pages[this.selected()];
+    if (selected) ids.add(selected.id);
+    if (this.step() === 'details') {
+      for (const page of d.manifest.pages.slice(0, 3)) ids.add(page.id);
+      return ids;
+    }
+    if (container) {
+      const root = container.getBoundingClientRect();
+      if (root.width > 0 && root.height > 0) {
+        for (const element of container.querySelectorAll<HTMLElement>('[data-thumbnail-id]')) {
+          const bounds = element.getBoundingClientRect();
+          if (
+            bounds.right >= root.left - 140 &&
+            bounds.left <= root.right + 140 &&
+            bounds.bottom >= root.top - 140 &&
+            bounds.top <= root.bottom + 140
+          )
+            ids.add(element.dataset['thumbnailId']!);
         }
-        worker.terminate();
-        if (this.worker === worker) {
-          this.worker = undefined;
-          this.workerReject = undefined;
-          this.syncCancellable();
-        }
-        this.progress.set('');
-        if (data.error) reject(Error(data.error));
-        else resolve(data.bytes ?? data.result);
+        return ids;
+      }
+    }
+    const first = Math.max(0, this.selected() - 3);
+    for (const page of d.manifest.pages.slice(first, first + 7)) ids.add(page.id);
+    return ids;
+  }
+  private async canvasBlob(
+    canvas: HTMLCanvasElement,
+    type = 'image/png',
+    quality?: number,
+  ): Promise<Blob> {
+    return new Promise((resolve, reject) =>
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(Error('Page image could not be created.'))),
+        type,
+        quality,
+      ),
+    );
+  }
+  private async thumbnailCanvas(page: PageEdit): Promise<HTMLCanvasElement> {
+    const source = this.draft()?.sources.find((item) => item.id === page.sourceId);
+    if (!source?.mime.startsWith('image/') || this.page?.id !== page.id)
+      return this.sourceCanvas(page, 140);
+    const raster = await this.selectedDisplayRaster(page, source);
+    const bitmap = await createImageBitmap(raster.blob);
+    const scale = Math.min(1, 140 / bitmap.width);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    try {
+      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    } finally {
+      bitmap.close();
+    }
+    return canvas;
+  }
+  private async selectedDisplayRaster(page: PageEdit, source: ImportAsset): Promise<DisplayRaster> {
+    const key = `${source.checksum}:${page.page}`;
+    if (this.displayRaster?.key === key) return this.displayRaster;
+    if (this.displayRasterLoad?.key === key) return this.displayRasterLoad.promise;
+    this.revokeDisplayRaster();
+    const controller = new AbortController();
+    const promise = measureAsync('noted.intake.source-decode', async () => {
+      const d = this.draft()!;
+      const response = await fetch(`/api/imports/${d.id}/sources/${source.id}`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) throw Error('Photo could not be loaded.');
+      const bitmap = await createImageBitmap(await response.blob());
+      const scale = Math.min(1, 1050 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      try {
+        const context = canvas.getContext('2d')!;
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      } finally {
+        bitmap.close();
+      }
+      const blob = await this.canvasBlob(canvas);
+      const result = {
+        key,
+        blob,
+        url: URL.createObjectURL(blob),
+        width: canvas.width,
+        height: canvas.height,
       };
-      worker.postMessage(payload);
+      canvas.width = canvas.height = 1;
+      return result;
     });
+    this.displayRasterLoad = { key, promise, controller };
+    try {
+      const raster = await promise;
+      if (this.destroyed || this.source !== source || this.page?.page !== page.page) {
+        URL.revokeObjectURL(raster.url);
+        throw new ProcessingStoppedError('superseded');
+      }
+      this.displayRaster = raster;
+      return raster;
+    } finally {
+      if (this.displayRasterLoad?.promise === promise) this.displayRasterLoad = undefined;
+    }
+  }
+  private async runWorker(
+    payload: Record<string, unknown>,
+    foreground = false,
+    transfer: Transferable[] = [],
+  ): Promise<ProcessingResponse> {
+    this.foregroundWorker = foreground;
+    this.syncCancellable();
+    try {
+      return await this.workerClient.run(payload, {
+        transfer,
+        onProgress: foreground ? (progress) => this.progress.set(progress) : undefined,
+      });
+    } finally {
+      if (foreground) {
+        this.foregroundWorker = false;
+        this.syncCancellable();
+      }
+    }
   }
   async renderPreview() {
     clearTimeout(this.previewTimer);
@@ -578,42 +791,189 @@ export class PrepareComponent implements OnDestroy {
           !page.paperCleanupStrength &&
           !page.fitEdges &&
           !page.margins?.some(Boolean));
+      const source = this.source;
+      if (source?.mime.startsWith('image/')) {
+        const raster = await this.selectedDisplayRaster(page, source);
+        if (revision !== this.previewRevision || this.destroyed) return;
+        if (plain) {
+          this.revokePreviewURL();
+          this.edgeAspect.set(raster.width / raster.height);
+          this.preview.set(raster.url);
+          this.scheduleBackgroundPrepare(page, source, revision);
+        } else if (this.supportsRasterPreview(page)) {
+          const response = await measureAsync('noted.intake.preview', () =>
+            this.runWorker({ kind: 'preview', raster: raster.blob, edit: page, maxEdge: 1050 }),
+          );
+          if (revision !== this.previewRevision || this.destroyed || !response.blob) return;
+          this.revokePreviewURL();
+          this.objectURL = URL.createObjectURL(response.blob);
+          this.edgeAspect.set((response.width || 1) / (response.height || 1));
+          this.preview.set(this.objectURL);
+          this.scheduleBackgroundPrepare(page, source, revision);
+        } else {
+          await this.renderAuthoritativePreview(page, revision);
+          if (revision === this.previewRevision && !this.destroyed)
+            this.scheduleBackgroundPrepare(page, source, revision);
+        }
+        return;
+      }
       let canvas: HTMLCanvasElement;
       if (plain) {
         canvas = await this.sourceCanvas(page, 1050);
       } else {
-        const d = this.draft()!;
-        const bytes = (await this.runWorker({
-          kind: 'build',
-          draftId: d.id,
-          sources: d.sources,
-          manifest: { version: 1, pages: [page] },
-        })) as ArrayBuffer;
-        if (revision !== this.previewRevision || this.destroyed) return;
-        const task = getDocument({ data: new Uint8Array(bytes), wasmUrl: '/pdfjs/wasm/' });
-        this.previewTask = task;
-        try {
-          const pdf = await task.promise,
-            p = await pdf.getPage(1),
-            base = p.getViewport({ scale: 1 }),
-            v = p.getViewport({ scale: Math.min(2, 1050 / base.width) });
-          canvas = document.createElement('canvas');
-          canvas.width = Math.ceil(v.width);
-          canvas.height = Math.ceil(v.height);
-          await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport: v }).promise;
-        } finally {
-          if (this.previewTask === task) this.previewTask = undefined;
-          await task.destroy();
-        }
+        await this.renderAuthoritativePreview(page, revision);
+        return;
       }
       if (revision === this.previewRevision && !this.destroyed) {
         this.edgeAspect.set(canvas.width / canvas.height);
+        this.revokePreviewURL();
         this.preview.set(canvas.toDataURL('image/png'));
       }
       canvas.width = canvas.height = 1;
     } catch (e) {
-      if (revision === this.previewRevision) this.error.set(errorMessage(e));
+      if (revision === this.previewRevision && !isProcessingStopped(e))
+        this.error.set(errorMessage(e));
     }
+  }
+  private supportsRasterPreview(page: PageEdit): boolean {
+    const crop = page.crop;
+    const corners = page.corners;
+    if (crop?.length && corners?.length) return false;
+    if (crop && (crop.length !== 4 || crop.some((value) => !Number.isFinite(value)))) return false;
+    if (
+      corners &&
+      (corners.length !== 4 ||
+        corners.some(
+          (point) => point.length !== 2 || point.some((value) => !Number.isFinite(value)),
+        ))
+    )
+      return false;
+    return ![page.outputWidth, page.outputHeight].some(
+      (value) => value !== undefined && (!Number.isFinite(value) || value <= 0),
+    );
+  }
+  private async renderAuthoritativePreview(page: PageEdit, revision: number): Promise<void> {
+    const d = this.draft()!;
+    const response = await measureAsync('noted.intake.preview', () =>
+      this.runWorker({
+        kind: 'build',
+        draftId: d.id,
+        sources: d.sources,
+        manifest: { version: 1, pages: [page] },
+      }),
+    );
+    if (revision !== this.previewRevision || this.destroyed || !response.bytes) return;
+    const task = getDocument({
+      data: new Uint8Array(response.bytes),
+      wasmUrl: '/pdfjs/wasm/',
+    });
+    this.previewTask = task;
+    let canvas: HTMLCanvasElement | undefined;
+    try {
+      const pdf = await task.promise,
+        p = await pdf.getPage(1),
+        base = p.getViewport({ scale: 1 }),
+        v = p.getViewport({ scale: Math.min(2, 1050 / base.width) });
+      canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(v.width);
+      canvas.height = Math.ceil(v.height);
+      await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport: v }).promise;
+      if (revision === this.previewRevision && !this.destroyed) {
+        this.edgeAspect.set(canvas.width / canvas.height);
+        this.revokePreviewURL();
+        this.preview.set(canvas.toDataURL('image/png'));
+      }
+    } finally {
+      if (this.previewTask === task) this.previewTask = undefined;
+      await task.destroy();
+      if (canvas) canvas.width = canvas.height = 1;
+    }
+  }
+  private scheduleBackgroundPrepare(page: PageEdit, source: ImportAsset, revision: number): void {
+    clearTimeout(this.backgroundTimer);
+    const key = preparedPhotoKey(source, page);
+    if (this.preparedPages.has(key)) return;
+    const remainingIdleDelay = Math.max(0, 750 - (performance.now() - this.lastEditOrSelectionAt));
+    this.backgroundTimer = setTimeout(() => {
+      void this.prepareInBackground(page, source, key, revision);
+    }, remainingIdleDelay);
+  }
+  private async prepareInBackground(
+    page: PageEdit,
+    source: ImportAsset,
+    key: string,
+    revision: number,
+  ): Promise<void> {
+    if (
+      this.destroyed ||
+      this.busy() ||
+      this.previewRevision !== revision ||
+      this.page?.id !== page.id ||
+      this.source?.checksum !== source.checksum ||
+      !this.page ||
+      this.currentPreparedKey(this.page) !== key
+    )
+      return;
+    try {
+      const d = this.draft()!;
+      const response = await measureAsync('noted.intake.background-prepare', () =>
+        this.runWorker({
+          kind: 'build',
+          draftId: d.id,
+          sources: d.sources,
+          manifest: { version: 1, pages: [page] },
+        }),
+      );
+      if (
+        response.bytes &&
+        !this.destroyed &&
+        this.previewRevision === revision &&
+        this.page?.id === page.id &&
+        this.currentPreparedKey(this.page) === key
+      )
+        this.preparedPages.set(key, response.bytes);
+    } catch (error) {
+      // Background preparation is opportunistic. Save will process a cache miss.
+      if (!isProcessingStopped(error)) console.warn('Background page preparation failed.', error);
+    }
+  }
+  private currentPreparedKey(page: PageEdit): string | undefined {
+    const d = this.draft();
+    const source = d?.sources.find((item) => item.id === page.sourceId);
+    return source?.mime.startsWith('image/') ? preparedPhotoKey(source, page) : undefined;
+  }
+  private reconcilePreparedKeys(): void {
+    const current = new Map<string, string>();
+    for (const page of this.draft()?.manifest.pages ?? []) {
+      const key = this.currentPreparedKey(page);
+      if (!key) continue;
+      current.set(page.id, key);
+    }
+    const referenced = new Set(current.values());
+    for (const key of this.preparedKeysByPage.values())
+      if (!referenced.has(key)) this.preparedPages.delete(key);
+    this.preparedKeysByPage = current;
+  }
+  setStep(step: 'source' | 'pages' | 'details'): void {
+    this.step.set(step);
+    void this.renderThumbnails();
+    setTimeout(() => void this.renderThumbnails());
+  }
+  private revokePreviewURL(): void {
+    if (!this.objectURL) return;
+    URL.revokeObjectURL(this.objectURL);
+    this.objectURL = '';
+  }
+  private revokeDisplayRaster(): void {
+    this.displayRasterLoad?.controller.abort();
+    this.displayRasterLoad = undefined;
+    if (!this.displayRaster) return;
+    URL.revokeObjectURL(this.displayRaster.url);
+    this.displayRaster = undefined;
+  }
+  private revokeThumbnails(): void {
+    for (const url of Object.values(this.thumbs())) URL.revokeObjectURL(url);
+    this.thumbs.set({});
   }
   setCompare(value: boolean) {
     if (this.busy()) return;
@@ -823,7 +1183,7 @@ export class PrepareComponent implements OnDestroy {
     try {
       this.applyIMSLP();
       await this.persist();
-      this.step.set(this.step() === 'source' ? 'pages' : 'details');
+      this.setStep(this.step() === 'source' ? 'pages' : 'details');
     } catch (e) {
       this.error.set(errorMessage(e));
     }
@@ -839,23 +1199,49 @@ export class PrepareComponent implements OnDestroy {
       this.applyIMSLP();
       await this.persist();
       const current = this.draft()!;
-      const bytes = (await this.runWorker({
-        kind: 'build',
-        draftId: current.id,
-        sources: current.sources,
-        manifest: current.manifest,
-      })) as ArrayBuffer;
+      const prepared: { key: string; bytes: ArrayBuffer }[] = [];
+      const preparedKeys = current.manifest.pages.map((page) => {
+        const source = current.sources.find((item) => item.id === page.sourceId);
+        return source?.mime.startsWith('image/') ? preparedPhotoKey(source, page) : '';
+      });
+      for (const key of new Set(preparedKeys.filter(Boolean))) {
+        const bytes = this.preparedPages.take(key);
+        if (bytes) prepared.push({ key, bytes });
+      }
+      const transfer = prepared.map((item) => item.bytes);
+      const response = await measureAsync('noted.intake.final-assembly', () =>
+        this.runWorker(
+          {
+            kind: 'build',
+            draftId: current.id,
+            sources: current.sources,
+            manifest: current.manifest,
+            prepared,
+            preparedKeys,
+          },
+          true,
+          transfer,
+        ),
+      );
+      const bytes = response.bytes;
+      if (!bytes) throw Error('Prepared PDF was not returned.');
       if (bytes.byteLength > current.maxFileBytes)
         throw Error(
           'Prepared PDF exceeds the file limit. Remove pages or use smaller images; your draft is retained.',
         );
-      const piece = await firstValueFrom(
-        this.api.finalizeImport(current, new Blob([bytes], { type: 'application/pdf' })),
+      const piece = await measureAsync('noted.intake.finalize', () =>
+        firstValueFrom(
+          this.api.finalizeImport(current, new Blob([bytes], { type: 'application/pdf' })),
+        ),
       );
       this.dirty = false;
       await this.router.navigate(['/reader', piece.id]);
     } catch (e) {
-      this.error.set(errorMessage(e));
+      this.error.set(
+        isProcessingStopped(e) && e.reason === 'cancelled'
+          ? 'Processing cancelled. Your draft and originals are retained.'
+          : errorMessage(e),
+      );
     } finally {
       this.busy.set(false);
       this.progress.set('');
@@ -870,10 +1256,8 @@ export class PrepareComponent implements OnDestroy {
       this.progress.set('Finishing the current upload; remaining files cancelled.');
       return;
     }
-    this.workerReject?.(new Error('Processing cancelled. Your draft is retained.'));
-    this.workerReject = undefined;
-    this.worker?.terminate();
-    this.worker = undefined;
+    this.workerClient.cancel();
+    this.foregroundWorker = false;
     this.uploadGeneration++;
     this.syncCancellable();
     this.busy.set(false);
@@ -882,6 +1266,8 @@ export class PrepareComponent implements OnDestroy {
   }
 
   private syncCancellable(): void {
-    this.cancellable.set((this.uploading && !this.skipRemainingUploads) || this.worker != null);
+    this.cancellable.set(
+      (this.uploading && !this.skipRemainingUploads) || (this.busy() && this.foregroundWorker),
+    );
   }
 }

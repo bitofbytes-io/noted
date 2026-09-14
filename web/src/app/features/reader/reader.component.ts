@@ -118,6 +118,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   }
 
   private async load(): Promise<void> {
+    const timing = 'noted.reader.load';
+    performance.mark(`${timing}:start`);
     this.loading.set(true);
     this.error.set('');
     try {
@@ -146,6 +148,11 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       this.wakeLock.stop();
       this.error.set(errorMessage(error));
       this.loading.set(false);
+    } finally {
+      performance.mark(`${timing}:end`);
+      performance.measure(timing, `${timing}:start`, `${timing}:end`);
+      performance.clearMarks(`${timing}:start`);
+      performance.clearMarks(`${timing}:end`);
     }
   }
 
