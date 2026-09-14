@@ -628,7 +628,12 @@ export class PrepareComponent implements OnDestroy {
         const url = URL.createObjectURL(blob);
         this.thumbs.update((thumbs) => ({ ...thumbs, [page.id]: url }));
       } catch (e) {
-        if (!this.destroyed && this.thumbnailRequest?.revision === request.revision)
+        if (
+          !this.destroyed &&
+          !isProcessingStopped(e) &&
+          !(e instanceof DOMException && e.name === 'AbortError') &&
+          this.thumbnailRequest?.revision === request.revision
+        )
           this.error.set(errorMessage(e));
       } finally {
         if (canvas) canvas.width = canvas.height = 1;

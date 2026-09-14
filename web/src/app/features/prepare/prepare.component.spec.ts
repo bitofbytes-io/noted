@@ -4,7 +4,12 @@ import { Observable, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
 import { ImportAsset, ImportDraft, PageEdit, Piece } from '../../core/models';
-import { PreparedPageCache, ProcessingWorkerClient, preparedPhotoKey } from './prepare-processing';
+import {
+  PreparedPageCache,
+  ProcessingStoppedError,
+  ProcessingWorkerClient,
+  preparedPhotoKey,
+} from './prepare-processing';
 import { PrepareComponent } from './prepare.component';
 
 describe('PrepareComponent', () => {
@@ -451,6 +456,39 @@ describe('PrepareComponent', () => {
     expect(maximumActive).toBe(1);
     expect(createURL).toHaveBeenCalledOnce();
     expect(component.thumbs()).toEqual({ 'page-3': 'blob:latest' });
+  });
+
+  it.each([
+    new ProcessingStoppedError('superseded'),
+    new DOMException('The operation was aborted.', 'AbortError'),
+  ])('does not report expected thumbnail cancellation errors', async (error) => {
+    const component = fixture.componentInstance;
+    const photo: ImportAsset = {
+      id: 'photo',
+      filename: 'page.jpg',
+      mime: 'image/jpeg',
+      size: 100,
+      checksum: 'photo-checksum',
+      pageCount: 1,
+      width: 1000,
+      height: 1400,
+    };
+    component.draft.set({
+      ...structuredClone(draft),
+      sources: [photo],
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: photo.id, page: 0 }] },
+    });
+    component.step.set('pages');
+    vi.spyOn(
+      component as unknown as {
+        thumbnailCanvas: (...args: unknown[]) => Promise<HTMLCanvasElement>;
+      },
+      'thumbnailCanvas',
+    ).mockRejectedValue(error);
+
+    await component.renderThumbnails(undefined);
+
+    expect(component.error()).toBe('');
   });
 
   it('aligns mixed cached and uncached pages for final assembly', async () => {

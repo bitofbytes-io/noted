@@ -10,5 +10,6 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 npm install --prefix "$preview_tmp" --no-save --ignore-scripts playwright@1.61.1 >/dev/null
+"$preview_tmp/node_modules/.bin/playwright" install chromium >/dev/null
 cp scripts/verify-photo-preview.mjs "$preview_tmp/verify-photo-preview.mjs"
 NOTED_REPOSITORY_ROOT="$(pwd)" node "$preview_tmp/verify-photo-preview.mjs"
