@@ -90,6 +90,103 @@ describe('PrepareComponent', () => {
     expect(component.busy()).toBe(false);
   });
 
+  async function openEdgeEditor() {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: 'pdf', page: 0 }] },
+    });
+    component.step.set('pages');
+    component.preview.set('data:image/png;base64,');
+    vi.spyOn(component, 'renderPreview').mockResolvedValue();
+    fixture.detectChanges();
+    const surface = component.surface!.nativeElement;
+    surface.scrollIntoView = vi.fn();
+    const selection = document.getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(fixture.nativeElement.querySelector('h1'));
+    selection.addRange(range);
+    expect(selection.isCollapsed).toBe(false);
+    await component.beginEdges();
+    fixture.detectChanges();
+    return { component, surface, selection };
+  }
+
+  it('suppresses native preview interactions only while editing edges and clears selection', async () => {
+    const { component, surface, selection } = await openEdgeEditor();
+    expect(selection.isCollapsed).toBe(true);
+    expect(fixture.nativeElement.querySelector('main').classList.contains('editing-edges')).toBe(
+      true,
+    );
+    for (const type of ['contextmenu', 'dragstart']) {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      surface.querySelector('img')!.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    component.cancelEdges();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('main').classList.contains('editing-edges')).toBe(
+      false,
+    );
+    const event = new Event('contextmenu', { bubbles: true, cancelable: true });
+    surface.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'cancel', 'apply', 'destroy'])(
+    'confines a corner drag to its pointer and removes handlers after %s',
+    async (ending) => {
+      const { component, surface, selection } = await openEdgeEditor();
+      vi.spyOn(surface.querySelector('img')!, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 100,
+      } as DOMRect);
+      const corner = surface.querySelector<HTMLButtonElement>('.corner')!;
+      corner.setPointerCapture = vi.fn();
+      corner.hasPointerCapture = vi.fn(() => true);
+      corner.releasePointerCapture = vi.fn();
+      const pointer = (type: string, pointerId = 1, x = 20) => {
+        const event = new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: x,
+          clientY: x,
+          button: 0,
+        });
+        Object.defineProperties(event, {
+          pointerId: { value: pointerId },
+          isPrimary: { value: pointerId === 1 },
+        });
+        corner.dispatchEvent(event);
+        return event;
+      };
+      const range = document.createRange();
+      range.selectNodeContents(fixture.nativeElement.querySelector('h1'));
+      selection.addRange(range);
+      expect(pointer('pointerdown').defaultPrevented).toBe(true);
+      expect(selection.isCollapsed).toBe(true);
+      pointer('pointermove', 2);
+      pointer('pointerup', 2);
+      expect(component.edgePoints[0]).toEqual([0, 0]);
+      expect(pointer('pointermove').defaultPrevented).toBe(true);
+      expect(component.edgePoints[0]).toEqual([0.2, 0.2]);
+
+      if (ending === 'cancel') component.cancelEdges();
+      else if (ending === 'apply') {
+        vi.spyOn(component, 'changed').mockImplementation(() => {});
+        component.applyEdges();
+      } else if (ending === 'destroy') fixture.destroy();
+      else pointer(ending);
+      const edges = structuredClone(component.edgePoints);
+      expect(pointer('pointermove', 1, 30).defaultPrevented).toBe(false);
+      expect(component.edgePoints).toEqual(edges);
+      expect(corner.releasePointerCapture).toHaveBeenCalledWith(1);
+    },
+  );
+
   it('keeps a prepared photo through reorder and invalidates it after an edit', () => {
     const component = fixture.componentInstance;
     const photo: ImportAsset = {
