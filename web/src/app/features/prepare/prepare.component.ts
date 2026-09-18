@@ -987,6 +987,7 @@ export class PrepareComponent implements OnDestroy {
   }
   async beginEdges() {
     if (this.busy() || !this.page) return;
+    document.getSelection()?.removeAllRanges();
     this.endGesture();
     this.edgeCompare = this.compare();
     this.zoom.set(1);
@@ -1086,20 +1087,36 @@ export class PrepareComponent implements OnDestroy {
     this.pendingEdges.set(points);
   }
   dragCorner(event: PointerEvent, index: number) {
-    if (this.busy() || !this.edgeReady() || !this.surface) return;
+    if (
+      this.busy() ||
+      !this.editingEdges ||
+      !this.edgeReady() ||
+      this.edgeResetRequired() ||
+      !this.surface ||
+      !event.isPrimary ||
+      event.button !== 0
+    )
+      return;
     event.preventDefault();
+    event.stopPropagation();
+    document.getSelection()?.removeAllRanges();
     this.dragCleanup?.();
     const target = event.currentTarget as HTMLElement;
     const rect = this.surface.nativeElement.querySelector('img')!.getBoundingClientRect();
     target.setPointerCapture(event.pointerId);
-    const move = (e: PointerEvent) =>
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== event.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
       this.setEdge(
         index,
         (e.clientX - rect.left) / rect.width,
         (e.clientY - rect.top) / rect.height,
         e.shiftKey,
       );
-    const cleanup = () => {
+    };
+    const cleanup = (e?: PointerEvent) => {
+      if (e && e.pointerId !== event.pointerId) return;
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', cleanup);
       target.removeEventListener('pointercancel', cleanup);

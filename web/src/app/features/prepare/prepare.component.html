@@ -1,4 +1,4 @@
-<main class="prepare" [class.wide]="step() === 'pages'">
+<main class="prepare" [class.wide]="step() === 'pages'" [class.editing-edges]="editingEdges">
   <header class="masthead">
     <a
       href="/"
@@ -333,6 +333,8 @@
               <div
                 #surface
                 class="page-surface"
+                (contextmenu)="editingEdges ? $event.preventDefault() : undefined"
+                (dragstart)="editingEdges ? $event.preventDefault() : undefined"
                 [style.width]="
                   editingEdges
                     ? 'min(' + zoom() * 100 + '%, ' + edgeAspect() * zoom() * 50 + 'vh)'

@@ -12,6 +12,19 @@
   width: min(100%, 1500px);
 }
 
+// Safari can select surrounding content during a long press on a corner.
+.prepare.editing-edges,
+.prepare.editing-edges * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.editing-edges .page-surface,
+.editing-edges .page-surface * {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
 .wordmark[aria-disabled='true'] {
   pointer-events: none;
 }
