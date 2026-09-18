@@ -4,7 +4,9 @@
 ivory paper, green binder spine and ink N. The opaque square artwork runs to
 all four edges; iPadOS supplies the Home Screen corner mask. Do not add an
 outer border, transparent padding or baked-in rounded corners. The N stays
-inside the central area so the operating-system mask cannot clip it.
+inside the central area so the operating-system mask cannot clip it. Its polygon
+is the outline of the original `M28 44V20l20 24V20` N with a 6-unit stroke,
+square caps and miter joins, preserving the original thick diagonal.
 
 To regenerate the exports from the repository root with Python 3 and the
 **development-only** Pillow package available:
