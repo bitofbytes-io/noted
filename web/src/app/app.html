@@ -1,14 +1,14 @@
 @if (loadingSession()) {
   <main class="auth-gate" aria-live="polite">
     <section class="auth-card">
-      <img class="auth-mark" src="noted-favicon-v2.svg" alt="" width="40" height="40" />
+      <img class="auth-mark" src="noted-favicon-v3.svg" alt="" width="40" height="40" />
       <p>Opening Noted…</p>
     </section>
   </main>
 } @else if (apiOffline()) {
   <main class="auth-gate">
     <section class="auth-card" role="alert">
-      <img class="auth-mark" src="noted-favicon-v2.svg" alt="" width="40" height="40" />
+      <img class="auth-mark" src="noted-favicon-v3.svg" alt="" width="40" height="40" />
       <h1>Noted cannot reach its API.</h1>
       <p>Check that the service is running, then try again.</p>
       <button class="btn-primary" type="button" (click)="reload()">Try again</button>
@@ -18,7 +18,7 @@
   <main class="auth-gate">
     <section class="auth-card">
       <div class="auth-wordmark">
-        <img class="auth-mark" src="noted-favicon-v2.svg" alt="" width="40" height="40" />
+        <img class="auth-mark" src="noted-favicon-v3.svg" alt="" width="40" height="40" />
         <span>Noted</span>
       </div>
       <h1>Your scores, ready when you are.</h1>
