@@ -83,6 +83,11 @@ that:
 
 ## API
 
+- `GET/POST /api/imports/`
+- `GET/PATCH/DELETE /api/imports/{draftID}/`
+- `POST /api/imports/{draftID}/sources`
+- `GET/HEAD /api/imports/{draftID}/sources/{assetID}`
+- `POST /api/imports/{draftID}/finalize`
 - `GET/POST /api/pieces/`
 - `GET/PATCH/DELETE /api/pieces/{id}/`
 - `POST/GET/HEAD /api/pieces/{id}/pdf`
