@@ -11,7 +11,7 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { EditManifest, ImportAsset, ImportDraft, PageEdit } from '../../core/models';
+import { EditManifest, ImportAsset, ImportDraft, PageEdit, PieceInput } from '../../core/models';
 import { measureAsync } from '../../core/performance';
 import {
   PreparedPageCache,
@@ -70,6 +70,7 @@ export class PrepareComponent implements OnDestroy {
   readonly step = signal<'source' | 'pages' | 'details'>('source');
   readonly error = signal('');
   readonly busy = signal(false);
+  readonly finalizing = signal(false);
   readonly progress = signal('');
   /** True only while cancel can stop remaining uploads or the processing worker. */
   readonly cancellable = signal(false);
@@ -149,7 +150,7 @@ export class PrepareComponent implements OnDestroy {
     return Math.round((((this.page?.margins?.[index] || 0) * 25.4) / 72) * 10) / 10;
   }
   changeMargin(index: number, mm: number) {
-    if (!this.page || !Number.isFinite(mm) || this.editingEdges) return;
+    if (!this.page || !Number.isFinite(mm) || this.busy() || this.editingEdges) return;
     this.startGesture();
     const margins = [...(this.page.margins || [0, 0, 0, 0])];
     margins[index] = (Math.max(0, Math.min(50, mm)) * 72) / 25.4;
@@ -255,7 +256,7 @@ export class PrepareComponent implements OnDestroy {
     }
   }
   mark() {
-    if (this.discarding) return;
+    if (this.discarding || this.finalizing()) return;
     this.dirty = true;
     this.saved.set('Unsaved changes');
     clearTimeout(this.saveTimer);
@@ -263,6 +264,13 @@ export class PrepareComponent implements OnDestroy {
       () => void this.persist().catch((e) => this.error.set(errorMessage(e))),
       500,
     );
+  }
+  updateMetadata<K extends keyof PieceInput>(key: K, value: PieceInput[K]): void {
+    if (this.finalizing()) return;
+    this.draft.update((current) =>
+      current ? { ...current, metadata: { ...current.metadata, [key]: value } } : null,
+    );
+    this.mark();
   }
   async persist(): Promise<void> {
     clearTimeout(this.saveTimer);
@@ -308,7 +316,7 @@ export class PrepareComponent implements OnDestroy {
     this.gesture = false;
   }
   change(key: 'angle' | 'rotation', value: number, input?: HTMLInputElement) {
-    if (!this.page || !Number.isFinite(value) || this.editingEdges) return;
+    if (!this.page || !Number.isFinite(value) || this.busy() || this.editingEdges) return;
     const requested = value;
     if (key === 'angle') value = Math.max(-10, Math.min(10, value));
     // ngModel may already hold the same clamped model value after another
@@ -326,7 +334,7 @@ export class PrepareComponent implements OnDestroy {
     this.changed();
   }
   rotate() {
-    if (!this.page || this.editingEdges) return;
+    if (!this.page || this.busy() || this.editingEdges) return;
     this.remember();
     this.page.rotation = ((this.page.rotation || 0) + 90) % 360;
     this.changed();
@@ -366,6 +374,7 @@ export class PrepareComponent implements OnDestroy {
     this.previewTimer = setTimeout(() => void this.renderPreview(), 250);
   }
   undo() {
+    if (this.busy()) return;
     this.endGesture();
     const m = this.history.pop();
     if (m) {
@@ -378,7 +387,7 @@ export class PrepareComponent implements OnDestroy {
     }
   }
   resetPage() {
-    if (!this.page) return;
+    if (!this.page || this.busy()) return;
     this.remember();
     const { id, sourceId, page } = this.page;
     this.draft()!.manifest.pages[this.selected()] = { id, sourceId, page };
@@ -387,7 +396,7 @@ export class PrepareComponent implements OnDestroy {
   }
   resetAll() {
     const d = this.draft();
-    if (!d) return;
+    if (!d || this.busy()) return;
     this.remember();
     d.manifest = {
       version: 1,
@@ -415,7 +424,7 @@ export class PrepareComponent implements OnDestroy {
   move(delta: number) {
     const pages = this.draft()?.manifest.pages,
       index = this.selected();
-    if (!pages || index + delta < 0 || index + delta >= pages.length) return;
+    if (this.busy() || !pages || index + delta < 0 || index + delta >= pages.length) return;
     this.remember();
     [pages[index], pages[index + delta]] = [pages[index + delta], pages[index]];
     this.selected.set(index + delta);
@@ -423,13 +432,14 @@ export class PrepareComponent implements OnDestroy {
   }
   remove() {
     const d = this.draft();
-    if (!d || !this.page) return;
+    if (!d || !this.page || this.busy()) return;
     this.remember();
     d.manifest.pages.splice(this.selected(), 1);
     this.selected.set(Math.max(0, Math.min(this.selected(), d.manifest.pages.length - 1)));
     this.changed();
   }
   toggle(id: string) {
+    if (this.busy()) return;
     const set = new Set(this.selectedIDs());
     if (set.has(id)) set.delete(id);
     else set.add(id);
@@ -438,7 +448,7 @@ export class PrepareComponent implements OnDestroy {
   keepSelected() {
     const d = this.draft(),
       ids = this.selectedIDs();
-    if (!d || !ids.size) return;
+    if (!d || !ids.size || this.busy()) return;
     this.remember();
     d.manifest.pages = d.manifest.pages.filter((p) => ids.has(p.id));
     this.selected.set(0);
@@ -1027,7 +1037,7 @@ export class PrepareComponent implements OnDestroy {
     void this.renderPreview();
   }
   applyEdges() {
-    if (!this.page || !this.edgeReady() || this.edgeResetRequired()) return;
+    if (this.busy() || !this.page || !this.edgeReady() || this.edgeResetRequired()) return;
     this.remember();
     const p = this.page,
       points = structuredClone(this.edgePoints);
@@ -1145,7 +1155,7 @@ export class PrepareComponent implements OnDestroy {
   }
   useRange() {
     const d = this.draft();
-    if (!d) return;
+    if (!d || this.busy()) return;
     const source = d.sources.find((a) => a.id === this.rangeSourceId);
     if (!source) return;
     try {
@@ -1211,16 +1221,22 @@ export class PrepareComponent implements OnDestroy {
     }
   }
   async save() {
-    this.invalidatePreview();
     const d = this.draft();
-    if (!d) return;
+    if (!d || this.busy() || this.finalizing()) return;
+    try {
+      this.applyIMSLP();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+      return;
+    }
+    this.finalizing.set(true);
+    this.invalidatePreview();
     this.busy.set(true);
     this.error.set('');
     this.progress.set('Preparing score');
     try {
-      this.applyIMSLP();
       await this.persist();
-      const current = this.draft()!;
+      const current = structuredClone(this.draft()!);
       const prepared: { key: string; bytes: ArrayBuffer }[] = [];
       const preparedKeys = current.manifest.pages.map((page) => {
         const source = current.sources.find((item) => item.id === page.sourceId);
@@ -1265,6 +1281,7 @@ export class PrepareComponent implements OnDestroy {
           : errorMessage(e),
       );
     } finally {
+      this.finalizing.set(false);
       this.busy.set(false);
       this.progress.set('');
     }
@@ -1282,6 +1299,7 @@ export class PrepareComponent implements OnDestroy {
     this.foregroundWorker = false;
     this.uploadGeneration++;
     this.syncCancellable();
+    if (this.finalizing()) return;
     this.busy.set(false);
     this.progress.set('');
     this.error.set('Processing cancelled. Your draft and originals are retained.');

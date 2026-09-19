@@ -101,7 +101,7 @@ func TestIntegrationImports(t *testing.T) {
 	if !bytes.Equal(actual, pdf) {
 		t.Fatal("no-op changed PDF bytes")
 	}
-	state := ReaderState{Mode: "scroll", LastPage: 2, Zoom: 1.5, ScrollPosition: 10, ScrollSpeed: 44, ScrollPaused: true}
+	state := ReaderState{PDFChecksumSHA256: piece.PDF.ChecksumSHA256, Mode: "scroll", LastPage: 2, Zoom: 1.5, ScrollPosition: 10, ScrollSpeed: 8, ScrollPaused: true}
 	if _, err = s.PutReaderState(ctx, owner.ID, piece.ID, state); err != nil {
 		t.Fatal(err)
 	}

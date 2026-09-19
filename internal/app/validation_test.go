@@ -6,6 +6,7 @@ import (
 )
 
 func TestValidation(t *testing.T) {
+	checksum := strings.Repeat("a", 64)
 	validated, err := validatePiece(PieceInput{
 		Title: "  Prelude ", SourceURL: "https://example.test/score",
 		ListeningURL: "  https://www.youtube.com/watch?v=recording  ",
@@ -37,10 +38,18 @@ func TestValidation(t *testing.T) {
 	}); err == nil || err.Error() != "listening URL must be at most 2000 characters" {
 		t.Fatalf("oversized listening URL validation error = %v", err)
 	}
-	if err := ValidateReaderState(ReaderState{Mode: "scroll", LastPage: 1, Zoom: 1, ScrollSpeed: 32}); err != nil {
+	if err := ValidateReaderState(ReaderState{PDFChecksumSHA256: checksum, Mode: "scroll", LastPage: 1, Zoom: 1, ScrollSpeed: 5}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateReaderState(ReaderState{Mode: "page", LastPage: 0, Zoom: 1, ScrollSpeed: 32}); err == nil {
+	if err := ValidateReaderState(ReaderState{PDFChecksumSHA256: checksum, Mode: "page", LastPage: 0, Zoom: 1, ScrollSpeed: 5}); err == nil {
 		t.Fatal("expected invalid page to fail")
+	}
+	for _, speed := range []float64{0.9, 10.1} {
+		if err := ValidateReaderState(ReaderState{PDFChecksumSHA256: checksum, Mode: "scroll", LastPage: 1, Zoom: 1, ScrollSpeed: speed}); err == nil {
+			t.Fatalf("expected scroll speed %v to fail", speed)
+		}
+	}
+	if err := ValidateReaderState(ReaderState{PDFChecksumSHA256: "not-a-checksum", Mode: "page", LastPage: 1, Zoom: 1, ScrollSpeed: 5}); err == nil {
+		t.Fatal("expected invalid PDF checksum to fail")
 	}
 }

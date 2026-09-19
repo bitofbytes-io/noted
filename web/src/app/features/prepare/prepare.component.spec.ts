@@ -643,6 +643,58 @@ describe('PrepareComponent', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/reader', 'piece-one']);
   });
 
+  it('locks metadata after flushing the latest revision for finalization', async () => {
+    const component = fixture.componentInstance;
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const source: ImportAsset = {
+      id: 'pdf',
+      filename: 'score.pdf',
+      mime: 'application/pdf',
+      size: 100,
+      checksum: 'pdf-checksum',
+      pageCount: 1,
+      width: 612,
+      height: 792,
+    };
+    component.draft.set({
+      ...structuredClone(draft),
+      sources: [source],
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: source.id, page: 0 }] },
+    });
+    component.step.set('details');
+    api.updateImport.mockImplementationOnce((value: ImportDraft) =>
+      of({ ...value, revision: 2, updatedAt: '2026-09-19T12:00:00Z' }),
+    );
+    component.updateMetadata('title', 'Latest persisted title');
+
+    let finishBuild!: (response: { bytes: ArrayBuffer }) => void;
+    const client = Reflect.get(component, 'workerClient') as ProcessingWorkerClient;
+    const run = vi
+      .spyOn(client, 'run')
+      .mockReturnValue(new Promise((resolve) => (finishBuild = resolve)));
+
+    const saving = component.save();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    fixture.detectChanges();
+
+    const title = fixture.nativeElement.querySelector('.details-form input') as HTMLInputElement;
+    expect(title.disabled).toBe(true);
+    component.updateMetadata('composer', 'Blocked edit');
+    expect(component.draft()?.metadata.composer).toBe('');
+    expect(api.updateImport).toHaveBeenCalledOnce();
+
+    finishBuild({ bytes: new ArrayBuffer(10) });
+    await saving;
+
+    expect(api.finalizeImport).toHaveBeenCalledOnce();
+    const finalizedDraft = api.finalizeImport.mock.calls[0][0] as ImportDraft;
+    expect(finalizedDraft.revision).toBe(2);
+    expect(finalizedDraft.metadata.title).toBe('Latest persisted title');
+    expect(finalizedDraft.metadata.composer).toBe('');
+    expect(component.finalizing()).toBe(false);
+  });
+
   it('retains the draft when finalization fails', async () => {
     const component = fixture.componentInstance;
     const router = TestBed.inject(Router);
@@ -671,6 +723,47 @@ describe('PrepareComponent', () => {
     expect(component.error()).toBe('Finalization failed.');
     expect(component.draft()?.id).toBe(draft.id);
     expect(component.busy()).toBe(false);
+    expect(component.finalizing()).toBe(false);
     expect(navigate).not.toHaveBeenCalledWith(['/reader', expect.anything()]);
+  });
+
+  it('keeps draft controls locked until cancelled final processing unwinds', async () => {
+    const component = fixture.componentInstance;
+    const source: ImportAsset = {
+      id: 'pdf',
+      filename: 'score.pdf',
+      mime: 'application/pdf',
+      size: 100,
+      checksum: 'pdf-checksum',
+      pageCount: 1,
+      width: 612,
+      height: 792,
+    };
+    component.draft.set({
+      ...structuredClone(draft),
+      sources: [source],
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: source.id, page: 0 }] },
+    });
+    let rejectBuild!: (reason: Error) => void;
+    const client = Reflect.get(component, 'workerClient') as ProcessingWorkerClient;
+    vi.spyOn(client, 'run').mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectBuild = reject;
+      }),
+    );
+    vi.spyOn(client, 'cancel').mockImplementation(() =>
+      rejectBuild(new ProcessingStoppedError('cancelled')),
+    );
+
+    const saving = component.save();
+    await vi.waitFor(() => expect(component.cancellable()).toBe(true));
+    component.cancel();
+
+    expect(component.busy()).toBe(true);
+    expect(component.finalizing()).toBe(true);
+    await saving;
+    expect(component.busy()).toBe(false);
+    expect(component.finalizing()).toBe(false);
+    expect(component.error()).toBe('Processing cancelled. Your draft and originals are retained.');
   });
 });

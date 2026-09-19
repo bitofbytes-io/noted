@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,7 +162,8 @@ func TestIntegrationUserOwnership(t *testing.T) {
 		t.Fatalf("cross-user GetReaderState error = %v", err)
 	}
 	if _, err := service.PutReaderState(ctx, userB.ID, pieceA.ID, app.ReaderState{
-		Mode: "page", LastPage: 1, Zoom: 1, ScrollSpeed: 32, ScrollPaused: true,
+		PDFChecksumSHA256: strings.Repeat("a", 64), Mode: "page", LastPage: 1,
+		Zoom: 1, ScrollSpeed: 5, ScrollPaused: true,
 	}); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("cross-user PutReaderState error = %v", err)
 	}

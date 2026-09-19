@@ -22,12 +22,31 @@ import {
   LucideX,
 } from '@lucide/angular';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { firstValueFrom } from 'rxjs';
+import {
+  Subject,
+  Subscription,
+  catchError,
+  defer,
+  finalize,
+  firstValueFrom,
+  map,
+  of,
+  switchMap,
+  tap,
+} from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { Piece, PieceInput, Session, ImportDraft } from '../../core/models';
 import { listeningUrlError, titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
+
+interface PieceLoadRequest {
+  query: string;
+  favoritesOnly: boolean;
+  complete: () => void;
+}
+
+type PieceLoadResult = { pieces: Piece[] } | { error: unknown };
 
 @Component({
   selector: 'app-library',
@@ -67,8 +86,29 @@ export class LibraryComponent implements OnDestroy {
   protected selectedFile: File | null = null;
   protected selectedPageCount = 0;
   private searchTimer?: number;
+  private readonly pieceLoadRequests = new Subject<PieceLoadRequest>();
+  private readonly pieceLoadSubscription: Subscription;
 
   constructor() {
+    this.pieceLoadSubscription = this.pieceLoadRequests
+      .pipe(
+        tap(() => {
+          this.loading.set(true);
+          this.error.set('');
+        }),
+        switchMap((request) =>
+          defer(() => this.api.pieces(request.query, request.favoritesOnly)).pipe(
+            map((pieces): PieceLoadResult => ({ pieces })),
+            catchError((error: unknown) => of<PieceLoadResult>({ error })),
+            finalize(request.complete),
+          ),
+        ),
+      )
+      .subscribe((result) => {
+        if ('pieces' in result) this.pieces.set(result.pieces);
+        else this.error.set(errorMessage(result.error));
+        this.loading.set(false);
+      });
     afterNextRender(() => {
       if (this.route.snapshot.queryParamMap.get('details') === 'new') {
         this.openCreate();
@@ -102,6 +142,8 @@ export class LibraryComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.searchTimer) window.clearTimeout(this.searchTimer);
+    this.pieceLoadSubscription.unsubscribe();
+    this.pieceLoadRequests.complete();
   }
 
   onSearch(): void {
@@ -109,16 +151,14 @@ export class LibraryComponent implements OnDestroy {
     this.searchTimer = window.setTimeout(() => void this.load(), 250);
   }
 
-  async load(): Promise<void> {
-    this.loading.set(true);
-    this.error.set('');
-    try {
-      this.pieces.set(await firstValueFrom(this.api.pieces(this.query, this.favoritesOnly)));
-    } catch (error) {
-      this.error.set(errorMessage(error));
-    } finally {
-      this.loading.set(false);
-    }
+  load(): Promise<void> {
+    return new Promise((complete) => {
+      this.pieceLoadRequests.next({
+        query: this.query,
+        favoritesOnly: this.favoritesOnly,
+        complete,
+      });
+    });
   }
 
   async loadDrafts(): Promise<void> {

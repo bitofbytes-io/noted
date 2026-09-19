@@ -21,6 +21,7 @@ import (
 
 const testPieceID = "4f607127-fb97-4b22-90f5-1b9bec77b739"
 const testUserID = "db53bb2a-b720-407a-8941-cd4459f69e79"
+const testAllowedOrigin = "https://noted.example.test"
 
 type fakeBackend struct {
 	listQuery    string
@@ -39,6 +40,8 @@ type fakeBackend struct {
 	pdfError     error
 	pdfUserID    string
 	pdfPieceID   string
+	readerState  app.ReaderState
+	readerError  error
 }
 
 func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool) ([]app.Piece, error) {
@@ -86,15 +89,19 @@ func (fake *fakeBackend) PDFSource(
 	return app.PDFSource{OriginalFilename: filename, UploadedAt: time.Unix(1, 0)}, reader, nil
 }
 func (*fakeBackend) GetReaderState(context.Context, string, string) (app.ReaderState, error) {
-	return app.ReaderState{PieceID: testPieceID, Mode: "page", LastPage: 1, Zoom: 1, ScrollSpeed: 32}, nil
+	return app.ReaderState{PieceID: testPieceID, PDFChecksumSHA256: strings.Repeat("a", 64), Mode: "page", LastPage: 1, Zoom: 1, ScrollSpeed: 5}, nil
 }
-func (*fakeBackend) PutReaderState(_ context.Context, _, _ string, state app.ReaderState) (app.ReaderState, error) {
-	return state, nil
+func (fake *fakeBackend) PutReaderState(_ context.Context, _, _ string, state app.ReaderState) (app.ReaderState, error) {
+	fake.readerState = state
+	return state, fake.readerError
 }
 
-type fakeAuthenticator struct{}
+type fakeAuthenticator struct {
+	ensureDevelopmentUserCalls int
+}
 
-func (*fakeAuthenticator) EnsureDevelopmentUser(context.Context, string) (app.User, error) {
+func (fake *fakeAuthenticator) EnsureDevelopmentUser(context.Context, string) (app.User, error) {
+	fake.ensureDevelopmentUserCalls++
 	return app.User{ID: testUserID, Email: "learner@noted.local", DisplayName: "Learner"}, nil
 }
 func (*fakeAuthenticator) NewLoginState(context.Context, string) (string, error) {
@@ -117,13 +124,136 @@ func (*fakeAuthenticator) DeleteSession(context.Context, string) error { return 
 func testRouter(backend Backend, maxUploadBytes int64) http.Handler {
 	return NewRouter(backend, &fakeAuthenticator{}, config.Config{
 		AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
-		MaxUploadBytes: maxUploadBytes,
+		MaxUploadBytes: maxUploadBytes, AllowedOrigin: testAllowedOrigin,
 	})
 }
 
 type seekReadCloser struct{ *bytes.Reader }
 
 func (*seekReadCloser) Close() error { return nil }
+
+func TestCORSRejectsStateChangingRequestsFromMismatchedOriginBeforeAuthentication(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "post", method: http.MethodPost, path: "/api/pieces/", body: `{"title":"Prelude"}`},
+		{name: "patch", method: http.MethodPatch, path: "/api/pieces/" + testPieceID + "/", body: `{"title":"Prelude"}`},
+		{name: "put", method: http.MethodPut, path: "/api/pieces/" + testPieceID + "/reader-state", body: `{}`},
+		{name: "delete", method: http.MethodDelete, path: "/api/pieces/" + testPieceID + "/"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeBackend{}
+			authenticator := &fakeAuthenticator{}
+			router := NewRouter(fake, authenticator, config.Config{
+				AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
+				MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
+			})
+			request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+			request.Header.Set("Origin", "https://untrusted.example.test")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			router.ServeHTTP(response, request)
+
+			if response.Code != http.StatusForbidden ||
+				response.Body.String() != "{\"error\":\"request origin is not allowed\"}\n" {
+				t.Fatalf("unexpected rejection: %d %q", response.Code, response.Body.String())
+			}
+			if authenticator.ensureDevelopmentUserCalls != 0 {
+				t.Fatalf("authentication calls = %d, want 0", authenticator.ensureDevelopmentUserCalls)
+			}
+			if fake.createUserID != "" || fake.patchUserID != "" {
+				t.Fatalf("backend mutation was invoked: create user=%q patch user=%q", fake.createUserID, fake.patchUserID)
+			}
+			if response.Header().Get("Access-Control-Allow-Origin") != "" {
+				t.Fatalf("untrusted origin was allowed: %q", response.Header().Get("Access-Control-Allow-Origin"))
+			}
+		})
+	}
+}
+
+func TestCORSRejectsMultipartMutationFromMismatchedOrigin(t *testing.T) {
+	fake := &fakeBackend{}
+	authenticator := &fakeAuthenticator{}
+	router := NewRouter(fake, authenticator, config.Config{
+		AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
+		MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
+	})
+	body := &bytes.Buffer{}
+	form := multipart.NewWriter(body)
+	_ = form.WriteField("pageCount", "1")
+	file, _ := form.CreateFormFile("file", "score.pdf")
+	_, _ = io.WriteString(file, "%PDF-safe")
+	_ = form.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/pieces/"+testPieceID+"/pdf", body)
+	request.Header.Set("Origin", "https://untrusted.example.test")
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: %s", response.Code, response.Body.String())
+	}
+	if authenticator.ensureDevelopmentUserCalls != 0 || fake.uploadBody != "" {
+		t.Fatalf("rejected upload reached authentication or backend: auth=%d upload=%q",
+			authenticator.ensureDevelopmentUserCalls, fake.uploadBody)
+	}
+}
+
+func TestCORSAllowsConfiguredOriginAndPreflight(t *testing.T) {
+	fake := &fakeBackend{}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/pieces/",
+		strings.NewReader(`{"title":"Prelude"}`),
+	)
+	request.Header.Set("Origin", testAllowedOrigin)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated || fake.createUserID != testUserID {
+		t.Fatalf("configured origin request failed: %d %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != testAllowedOrigin ||
+		response.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("missing CORS permission headers: %v", response.Header())
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/pieces/", nil)
+	preflight.Header.Set("Origin", testAllowedOrigin)
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	preflightResponse := httptest.NewRecorder()
+	testRouter(&fakeBackend{}, 1024).ServeHTTP(preflightResponse, preflight)
+
+	if preflightResponse.Code != http.StatusNoContent ||
+		preflightResponse.Header().Get("Access-Control-Allow-Origin") != testAllowedOrigin ||
+		!strings.Contains(preflightResponse.Header().Get("Access-Control-Allow-Methods"), http.MethodPost) {
+		t.Fatalf("configured-origin preflight failed: %d %v", preflightResponse.Code, preflightResponse.Header())
+	}
+}
+
+func TestCORSDoesNotAuthorizeMismatchedOriginPreflight(t *testing.T) {
+	request := httptest.NewRequest(http.MethodOptions, "/api/pieces/", nil)
+	request.Header.Set("Origin", "https://untrusted.example.test")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	response := httptest.NewRecorder()
+	testRouter(&fakeBackend{}, 1024).ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != "" ||
+		response.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatalf("untrusted preflight was authorized: %v", response.Header())
+	}
+}
 
 func TestListPassesSearchAndFavoriteFilters(t *testing.T) {
 	fake := &fakeBackend{}
@@ -133,6 +263,27 @@ func TestListPassesSearchAndFavoriteFilters(t *testing.T) {
 	if response.Code != http.StatusOK || fake.listQuery != "bach" ||
 		fake.listUserID != testUserID || fake.listFavorite == nil || !*fake.listFavorite {
 		t.Fatalf("filters not passed: status=%d query=%q favorite=%v", response.Code, fake.listQuery, fake.listFavorite)
+	}
+}
+
+func TestReaderStateChecksumConflictReturns409(t *testing.T) {
+	fake := &fakeBackend{readerError: app.ErrPDFChanged}
+	checksum := strings.Repeat("a", 64)
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/pieces/"+testPieceID+"/reader-state",
+		strings.NewReader(`{"pieceId":"`+testPieceID+`","pdfChecksumSha256":"`+checksum+`","mode":"page","lastPage":2,"scrollPosition":0,"zoom":1,"scrollSpeed":5,"scrollPaused":true}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict ||
+		!strings.Contains(response.Body.String(), "score PDF changed") {
+		t.Fatalf("expected PDF conflict, got %d %s", response.Code, response.Body.String())
+	}
+	if fake.readerState.PDFChecksumSHA256 != checksum || fake.readerState.LastPage != 2 {
+		t.Fatalf("reader state checksum was not passed to the backend: %+v", fake.readerState)
 	}
 }
 

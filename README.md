@@ -44,7 +44,9 @@ keys beneath `.local/noted-assets`; both `.env` and `.local/` are ignored.
 Local development defaults to `AUTH_MODE=development` and resolves
 `DEV_USER_EMAIL` to a seeded learner. Production requires `AUTH_MODE=google`,
 `AUTH_GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_CLIENT_SECRET`,
-`AUTH_GOOGLE_REDIRECT_URL`, `AUTH_GOOGLE_ALLOWED_EMAILS`, and `FRONTEND_URL`.
+`AUTH_GOOGLE_REDIRECT_URL`, `AUTH_GOOGLE_ALLOWED_EMAILS`, `ALLOWED_ORIGIN`, and
+`FRONTEND_URL`. Both browser URLs must be explicit HTTPS, non-local URLs;
+`ALLOWED_ORIGIN` contains only the frontend scheme and host.
 Client credentials support the corresponding `_FILE` variables. Browser
 sessions are opaque, database-backed, fixed at sign-in, and default to a
 90-day lifetime. Set `SESSION_TTL=12h` to roll back to the former 12-hour
