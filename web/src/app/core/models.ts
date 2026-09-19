@@ -47,6 +47,7 @@ export type ReaderMode = 'page' | 'scroll';
 
 export interface ReaderState {
   pieceId: string;
+  pdfChecksumSha256: string;
   mode: ReaderMode;
   lastPage: number;
   scrollPosition: number;

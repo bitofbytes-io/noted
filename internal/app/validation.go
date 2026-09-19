@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
@@ -45,6 +46,10 @@ func validateOptionalURL(label, value string) error {
 }
 
 func ValidateReaderState(state ReaderState) error {
+	checksum, err := hex.DecodeString(state.PDFChecksumSHA256)
+	if err != nil || len(checksum) != 32 {
+		return fmt.Errorf("PDF checksum must be a SHA-256 checksum")
+	}
 	if state.Mode != "page" && state.Mode != "scroll" {
 		return fmt.Errorf("mode must be page or scroll")
 	}
@@ -57,8 +62,8 @@ func ValidateReaderState(state ReaderState) error {
 	if state.Zoom < 0.5 || state.Zoom > 2.5 {
 		return fmt.Errorf("zoom must be between 0.5 and 2.5")
 	}
-	if state.ScrollSpeed < 5 || state.ScrollSpeed > 120 {
-		return fmt.Errorf("scroll speed must be between 5 and 120")
+	if state.ScrollSpeed < 1 || state.ScrollSpeed > 10 {
+		return fmt.Errorf("scroll speed must be between 1 and 10")
 	}
 	return nil
 }

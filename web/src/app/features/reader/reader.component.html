@@ -45,6 +45,7 @@
   } @else if (error()) {
     <section class="reader-message error-message" role="alert">
       <p>{{ error() }}</p>
+      <button type="button" (click)="reload()">Reload score</button>
       <button type="button" (click)="back()">Return to library</button>
     </section>
   } @else if (mode() === 'page') {
@@ -158,8 +159,8 @@
         <span>Speed</span>
         <input
           type="range"
-          min="5"
-          max="120"
+          min="1"
+          max="10"
           step="1"
           [value]="speed()"
           (input)="changeSpeed($event)"

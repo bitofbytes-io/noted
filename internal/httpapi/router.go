@@ -286,12 +286,17 @@ func (h *Handler) putReaderState(writer http.ResponseWriter, request *http.Reque
 func (h *Handler) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		origin := request.Header.Get("Origin")
-		if origin != "" && origin == h.allowedOrigin {
-			writer.Header().Set("Access-Control-Allow-Origin", origin)
-			writer.Header().Set("Access-Control-Allow-Credentials", "true")
-			writer.Header().Set("Vary", "Origin")
-			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			writer.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,POST,PATCH,PUT,DELETE,OPTIONS")
+		if origin != "" {
+			writer.Header().Add("Vary", "Origin")
+			if origin == h.allowedOrigin {
+				writer.Header().Set("Access-Control-Allow-Origin", origin)
+				writer.Header().Set("Access-Control-Allow-Credentials", "true")
+				writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				writer.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,POST,PATCH,PUT,DELETE,OPTIONS")
+			} else if isStateChangingMethod(request.Method) {
+				writeError(writer, http.StatusForbidden, "request origin is not allowed")
+				return
+			}
 		}
 		if request.Method == http.MethodOptions {
 			writer.WriteHeader(http.StatusNoContent)
@@ -299,6 +304,15 @@ func (h *Handler) cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(writer, request)
 	})
+}
+
+func isStateChangingMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return false
+	default:
+		return true
+	}
 }
 
 func pieceID(writer http.ResponseWriter, request *http.Request) (string, bool) {
@@ -370,7 +384,7 @@ func decodeJSON(request *http.Request, destination any) error {
 
 func handleError(writer http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged):
+	case errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged), errors.Is(err, app.ErrPDFChanged):
 		writeError(writer, http.StatusConflict, err.Error())
 	case errors.Is(err, app.ErrImportLimit):
 		writeError(writer, http.StatusRequestEntityTooLarge, "Import limit reached: max 20 drafts, 200 MiB per draft, and configured per-file limit")

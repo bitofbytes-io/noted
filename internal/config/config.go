@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -42,20 +43,30 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	allowedOrigin := value("ALLOWED_ORIGIN", "")
+	appEnv := value("APP_ENV", "development")
+	allowedOrigin := strings.TrimSpace(os.Getenv("ALLOWED_ORIGIN"))
 	if allowedOrigin == "" {
-		allowedOrigin = value("ALLOWED_ORIGINS", "http://localhost:4200")
+		allowedOrigin = strings.TrimSpace(os.Getenv("ALLOWED_ORIGINS"))
+	}
+	frontendURL := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
+	if appEnv != "production" {
+		if allowedOrigin == "" {
+			allowedOrigin = "http://localhost:4200"
+		}
+		if frontendURL == "" {
+			frontendURL = "http://localhost:4200"
+		}
 	}
 	cfg := Config{
 		Port:           value("PORT", "8080"),
-		AppEnv:         value("APP_ENV", "development"),
+		AppEnv:         appEnv,
 		DatabaseURL:    databaseURL,
 		AssetRoot:      value("ASSET_ROOT", ".local/noted-assets"),
 		MaxUploadBytes: 50 << 20,
 		AllowedOrigin:  allowedOrigin,
 		AuthMode:       value("AUTH_MODE", "development"),
 		DevUserEmail:   normalizeEmail(value("DEV_USER_EMAIL", "learner@noted.local")),
-		FrontendURL:    value("FRONTEND_URL", "http://localhost:4200"),
+		FrontendURL:    frontendURL,
 		GoogleClientID: googleClientID,
 		GoogleSecret:   googleSecret,
 		GoogleRedirect: strings.TrimSpace(os.Getenv("AUTH_GOOGLE_REDIRECT_URL")),
@@ -107,7 +118,7 @@ func (c Config) Validate() error {
 		if c.DevUserEmail == "" || !strings.Contains(c.DevUserEmail, "@") {
 			return errors.New("DEV_USER_EMAIL must be a valid email address")
 		}
-		return nil
+		return c.validateBrowserURLs()
 	}
 	if c.AuthMode != "google" {
 		return fmt.Errorf("unsupported AUTH_MODE %q", c.AuthMode)
@@ -119,7 +130,7 @@ func (c Config) Validate() error {
 	if err := validateAbsoluteURL("AUTH_GOOGLE_REDIRECT_URL", c.GoogleRedirect, c.AppEnv == "production"); err != nil {
 		return err
 	}
-	if err := validateAbsoluteURL("FRONTEND_URL", c.FrontendURL, c.AppEnv == "production"); err != nil {
+	if err := c.validateBrowserURLs(); err != nil {
 		return err
 	}
 	for _, email := range c.AllowedEmails {
@@ -128,6 +139,20 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) validateBrowserURLs() error {
+	production := c.AppEnv == "production"
+	if production && strings.TrimSpace(c.AllowedOrigin) == "" {
+		return errors.New("ALLOWED_ORIGIN must be configured in production")
+	}
+	if err := validateOrigin("ALLOWED_ORIGIN", c.AllowedOrigin, production); err != nil {
+		return err
+	}
+	if production && strings.TrimSpace(c.FrontendURL) == "" {
+		return errors.New("FRONTEND_URL must be configured in production")
+	}
+	return validateAbsoluteURL("FRONTEND_URL", c.FrontendURL, production)
 }
 
 func getEnvOrFile(name string) (string, error) {
@@ -189,8 +214,34 @@ func validateAbsoluteURL(name, value string, requireHTTPS bool) error {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("%s must be an absolute URL", name)
 	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use HTTP or HTTPS", name)
+	}
 	if requireHTTPS && parsed.Scheme != "https" {
 		return fmt.Errorf("%s must use HTTPS in production", name)
 	}
+	if requireHTTPS && isLocalHostname(parsed.Hostname()) {
+		return fmt.Errorf("%s must not use a local address in production", name)
+	}
 	return nil
+}
+
+func validateOrigin(name, value string, requireHTTPS bool) error {
+	if err := validateAbsoluteURL(name, value, requireHTTPS); err != nil {
+		return err
+	}
+	parsed, _ := url.Parse(value)
+	if parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("%s must contain only scheme and host", name)
+	}
+	return nil
+}
+
+func isLocalHostname(hostname string) bool {
+	hostname = strings.ToLower(strings.TrimSuffix(hostname, "."))
+	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(hostname)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }

@@ -63,12 +63,13 @@ func Migrate(ctx context.Context, conn *pgx.Conn, files fs.FS) error {
 }
 
 func resetLegacySchema(ctx context.Context, conn *pgx.Conn, files fs.FS) (bool, error) {
-	var legacy, binder bool
+	var legacy, binder, migrationTable bool
 	if err := conn.QueryRow(ctx, `
 		SELECT
 			to_regclass('public.works') IS NOT NULL,
-			to_regclass('public.pieces') IS NOT NULL
-	`).Scan(&legacy, &binder); err != nil {
+			to_regclass('public.pieces') IS NOT NULL,
+			to_regclass('public.schema_migrations') IS NOT NULL
+	`).Scan(&legacy, &binder, &migrationTable); err != nil {
 		return false, fmt.Errorf("inspect schema generation: %w", err)
 	}
 	if !legacy {
@@ -76,6 +77,62 @@ func resetLegacySchema(ctx context.Context, conn *pgx.Conn, files fs.FS) (bool, 
 	}
 	if binder {
 		return false, fmt.Errorf("legacy and binder schemas both exist; refusing automatic reset")
+	}
+	if !migrationTable {
+		return false, fmt.Errorf("works table does not match a recognized Noted legacy schema; refusing automatic reset")
+	}
+	var recognized bool
+	if err := conn.QueryRow(ctx, `
+		WITH required_columns(table_name, column_name) AS (VALUES
+			('users', 'week_starts_on'),
+			('composers', 'canonical_name'),
+			('works', 'composer_id'),
+			('works', 'created_by_user_id'),
+			('works', 'catalog_number'),
+			('movements', 'sequence_number'),
+			('editions', 'rights_note'),
+			('score_assets', 'asset_type'),
+			('score_assets', 'rights_note'),
+			('score_assets', 'sha256'),
+			('learner_works', 'last_score_asset_id'),
+			('learner_works', 'personal_difficulty'),
+			('tags', 'normalized_name'),
+			('learner_work_tags', 'learner_work_id'),
+			('learner_work_tags', 'tag_id'),
+			('practice_sessions', 'entry_method'),
+			('practice_sessions', 'duration_seconds')
+		)
+		SELECT
+			EXISTS (
+				SELECT 1 FROM schema_migrations WHERE version = '000001_initial'
+			) AND NOT EXISTS (
+				SELECT 1 FROM schema_migrations
+				WHERE version NOT IN (
+					'000001_initial',
+					'000002_catalogless_work_uniqueness',
+					'000003_library_management_and_recognition',
+					'000004_production_auth',
+					'000005_recognition_job_leases',
+					'000006_musicxml_playback_validation',
+					'000007_metronome_preferences',
+					'000008_recognition_project_artifacts',
+					'000009_recognition_quality_report',
+					'000010_decoupled_practice_playback'
+				)
+			) AND NOT EXISTS (
+				SELECT 1 FROM required_columns required
+				WHERE NOT EXISTS (
+					SELECT 1 FROM information_schema.columns columns
+					WHERE columns.table_schema = 'public'
+						AND columns.table_name = required.table_name
+						AND columns.column_name = required.column_name
+				)
+			)
+	`).Scan(&recognized); err != nil {
+		return false, fmt.Errorf("inspect legacy Noted schema fingerprint: %w", err)
+	}
+	if !recognized {
+		return false, fmt.Errorf("works table does not match a recognized Noted legacy schema; refusing automatic reset")
 	}
 
 	entries, err := migrationEntries(files)
@@ -88,35 +145,37 @@ func resetLegacySchema(ctx context.Context, conn *pgx.Conn, files fs.FS) (bool, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	rows, err := tx.Query(ctx, `
-		SELECT tablename
-		FROM pg_catalog.pg_tables
-		WHERE schemaname = 'public'
-		ORDER BY tablename
-	`)
-	if err != nil {
-		return false, fmt.Errorf("list legacy tables: %w", err)
+	// These are the complete set of tables created by the pre-binder Noted
+	// migrations (000001_initial through 000010_decoupled_practice_playback).
+	// Keep this allowlist explicit: this reset must never treat unrelated public
+	// tables as disposable. Dropping the tables together resolves their internal
+	// foreign keys without CASCADE, while external dependencies fail safely.
+	legacyTables := []string{
+		"schema_migrations",
+		"users",
+		"composers",
+		"works",
+		"movements",
+		"editions",
+		"score_assets",
+		"learner_works",
+		"tags",
+		"learner_work_tags",
+		"practice_sessions",
+		"recognition_jobs",
+		"development_seed_state",
+		"user_sessions",
+		"oauth_login_states",
+		"media_links",
+		"measure_anchors",
+		"measure_maps",
 	}
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			rows.Close()
-			return false, fmt.Errorf("scan legacy table: %w", err)
-		}
-		tables = append(tables, table)
+	identifiers := make([]string, len(legacyTables))
+	for i, table := range legacyTables {
+		identifiers[i] = pgx.Identifier{"public", table}.Sanitize()
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, fmt.Errorf("list legacy tables: %w", err)
-	}
-	rows.Close()
-
-	for _, table := range tables {
-		identifier := pgx.Identifier{"public", table}.Sanitize()
-		if _, err := tx.Exec(ctx, "DROP TABLE "+identifier+" CASCADE"); err != nil {
-			return false, fmt.Errorf("drop legacy table %s: %w", identifier, err)
-		}
+	if _, err := tx.Exec(ctx, "DROP TABLE IF EXISTS "+strings.Join(identifiers, ", ")); err != nil {
+		return false, fmt.Errorf("drop legacy Noted tables: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		CREATE TABLE schema_migrations (

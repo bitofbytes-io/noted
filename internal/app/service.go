@@ -18,6 +18,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrPDFChanged = errors.New("score PDF changed; reload before saving reader state")
 
 type PDFSource struct {
 	OriginalFilename string
@@ -252,8 +253,8 @@ func (s *Service) UploadPDF(
 	if !exists {
 		return Piece{}, ErrNotFound
 	}
-	var oldKey string
-	err = tx.QueryRow(ctx, `SELECT storage_key FROM piece_pdfs WHERE piece_id=$1`, id).Scan(&oldKey)
+	var oldKey, oldChecksum string
+	err = tx.QueryRow(ctx, `SELECT storage_key,checksum_sha256 FROM piece_pdfs WHERE piece_id=$1`, id).Scan(&oldKey, &oldChecksum)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Piece{}, err
 	}
@@ -277,6 +278,11 @@ func (s *Service) UploadPDF(
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM piece_sources WHERE piece_id=$1`, id); err != nil {
 		return Piece{}, err
+	}
+	if oldChecksum != object.Checksum {
+		if _, err = tx.Exec(ctx, `UPDATE reader_states SET last_page=1,scroll_position=0,zoom=1,scroll_paused=true,updated_at=now() WHERE piece_id=$1`, id); err != nil {
+			return Piece{}, err
+		}
 	}
 	if err = collectOrphans(ctx, tx); err != nil {
 		return Piece{}, err
@@ -320,26 +326,29 @@ func (s *Service) PDFSource(
 func (s *Service) GetReaderState(ctx context.Context, userID, id string) (ReaderState, error) {
 	var state ReaderState
 	err := s.pool.QueryRow(ctx, `
-		SELECT r.piece_id, r.mode, r.last_page, r.scroll_position, r.zoom, r.scroll_speed,
+		SELECT r.piece_id, f.checksum_sha256, r.mode, r.last_page, r.scroll_position, r.zoom, r.scroll_speed,
 			r.scroll_paused, r.updated_at
 		FROM reader_states r
 		JOIN pieces p ON p.id=r.piece_id
+		JOIN piece_pdfs f ON f.piece_id=r.piece_id
 		WHERE r.piece_id=$1 AND p.user_id=$2`, id, userID,
-	).Scan(&state.PieceID, &state.Mode, &state.LastPage, &state.ScrollPosition,
+	).Scan(&state.PieceID, &state.PDFChecksumSHA256, &state.Mode, &state.LastPage, &state.ScrollPosition,
 		&state.Zoom, &state.ScrollSpeed, &state.ScrollPaused, &state.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		var exists bool
+		var checksum string
 		if scanErr := s.pool.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1 AND user_id=$2)`,
-			id, userID).Scan(&exists); scanErr != nil {
+			SELECT f.checksum_sha256 FROM pieces p
+			JOIN piece_pdfs f ON f.piece_id=p.id
+			WHERE p.id=$1 AND p.user_id=$2`,
+			id, userID).Scan(&checksum); scanErr != nil {
+			if errors.Is(scanErr, pgx.ErrNoRows) {
+				return ReaderState{}, ErrNotFound
+			}
 			return ReaderState{}, scanErr
 		}
-		if !exists {
-			return ReaderState{}, ErrNotFound
-		}
 		return ReaderState{
-			PieceID: id, Mode: "page", LastPage: 1, Zoom: 1,
-			ScrollSpeed: 32, ScrollPaused: true,
+			PieceID: id, PDFChecksumSHA256: checksum, Mode: "page", LastPage: 1, Zoom: 1,
+			ScrollSpeed: 5, ScrollPaused: true,
 		}, nil
 	}
 	return state, err
@@ -354,16 +363,30 @@ func (s *Service) PutReaderState(
 	if err := ValidateReaderState(state); err != nil {
 		return ReaderState{}, err
 	}
-	var owned bool
-	if err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1 AND user_id=$2)`,
-		id, userID).Scan(&owned); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
 		return ReaderState{}, err
 	}
-	if !owned {
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, id); err != nil {
+		return ReaderState{}, err
+	}
+	var checksum string
+	err = tx.QueryRow(ctx, `
+		SELECT f.checksum_sha256 FROM pieces p
+		JOIN piece_pdfs f ON f.piece_id=p.id
+		WHERE p.id=$1 AND p.user_id=$2
+		FOR UPDATE OF p,f`, id, userID).Scan(&checksum)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ReaderState{}, ErrNotFound
 	}
-	err := s.pool.QueryRow(ctx, `
+	if err != nil {
+		return ReaderState{}, err
+	}
+	if checksum != state.PDFChecksumSHA256 {
+		return ReaderState{}, ErrPDFChanged
+	}
+	err = tx.QueryRow(ctx, `
 		INSERT INTO reader_states
 			(piece_id, mode, last_page, scroll_position, zoom, scroll_speed, scroll_paused)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -383,8 +406,13 @@ func (s *Service) PutReaderState(
 		if errors.As(err, &databaseError) && databaseError.Code == "23503" {
 			return ReaderState{}, ErrNotFound
 		}
+		return ReaderState{}, err
 	}
-	return state, err
+	state.PDFChecksumSHA256 = checksum
+	if err = tx.Commit(ctx); err != nil {
+		return ReaderState{}, err
+	}
+	return state, nil
 }
 
 type rowScanner interface {

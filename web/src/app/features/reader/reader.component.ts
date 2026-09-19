@@ -12,6 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
   LucideArrowLeft,
@@ -69,7 +70,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   protected readonly mode = signal<ReaderMode>('page');
   protected readonly currentPage = signal(1);
   protected readonly zoom = signal(1);
-  protected readonly speed = signal(32);
+  protected readonly speed = signal(5);
   protected readonly paused = signal(true);
   protected readonly controlsVisible = signal(true);
   protected readonly controlsBubbleVisible = signal(false);
@@ -84,11 +85,22 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private autoScrollRemainder = 0;
   private hideTimer?: number;
   private saveTimer?: number;
+  private saveCheckpointTimer?: number;
   private pointerStart?: { x: number; y: number };
   private pointerMovementBaseline?: ReaderPointerMove;
   private swiped = false;
+  private renderedPage?: { pageNumber: number; key: number };
   private renderedWidths = new Map<number, number>();
+  private pageRenderInFlight = false;
+  private pageRenderPending = false;
+  private renderGeneration = 0;
+  private nextScrollRenderRequest = 0;
+  private scrollRenderRequests = new Map<number, number>();
   private destroyed = false;
+  private readerStateSaveBlocked = false;
+  private readerStateSaveInFlight = false;
+  private pendingReaderState?: ReaderState;
+  private loadedPDFChecksum = '';
   private pieceId = '';
 
   async ngAfterViewInit(): Promise<void> {
@@ -97,6 +109,9 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.canvases.changes.subscribe(() => this.scheduleRender());
     this.scrollPages.changes.subscribe(() => this.scheduleRender());
     this.resizeObserver = new ResizeObserver(() => {
+      this.renderGeneration++;
+      this.scrollRenderRequests.clear();
+      this.renderedPage = undefined;
       this.renderedWidths.clear();
       this.scheduleRender();
     });
@@ -115,6 +130,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     if (this.autoScrollFrame) cancelAnimationFrame(this.autoScrollFrame);
     if (this.hideTimer) window.clearTimeout(this.hideTimer);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.saveCheckpointTimer) window.clearTimeout(this.saveCheckpointTimer);
     void this.pdf.dispose();
   }
 
@@ -122,16 +138,27 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     await measureAsync('noted.reader.load', async () => {
       this.loading.set(true);
       this.error.set('');
+      this.readerStateSaveBlocked = false;
+      this.pendingReaderState = undefined;
+      this.loadedPDFChecksum = '';
+      this.renderGeneration++;
+      this.scrollRenderRequests.clear();
+      this.renderedPage = undefined;
+      this.renderedWidths.clear();
       try {
         const [piece, state] = await Promise.all([
           firstValueFrom(this.api.piece(this.pieceId)),
           firstValueFrom(this.api.readerState(this.pieceId)),
         ]);
         if (!piece.pdf) throw new Error('This piece does not have a PDF yet.');
+        if (state.pdfChecksumSha256 !== piece.pdf.checksumSha256) {
+          throw new Error('The score changed while it was opening. Reload the reader.');
+        }
         this.piece.set(piece);
+        this.loadedPDFChecksum = piece.pdf.checksumSha256;
         this.mode.set(state.mode);
         this.zoom.set(clamp(state.zoom, 0.5, 2.5));
-        this.speed.set(clamp(state.scrollSpeed, 5, 120));
+        this.speed.set(clamp(state.scrollSpeed, 1, 10));
         this.paused.set(state.scrollPaused);
         const metrics = await this.pdf.load(piece.pdf.contentUrl);
         this.metrics.set(metrics);
@@ -156,17 +183,25 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     void this.router.navigate(['/']);
   }
 
+  reload(): void {
+    this.wakeLock.start();
+    void this.load().then(() => this.scheduleHide());
+  }
+
   setMode(mode: ReaderMode): void {
     if (mode === this.mode()) return;
     if (this.mode() === 'scroll') this.updateCurrentPage();
     this.mode.set(mode);
+    this.renderGeneration++;
+    this.scrollRenderRequests.clear();
+    this.renderedPage = undefined;
     this.renderedWidths.clear();
     setTimeout(() => {
       if (mode === 'scroll') this.scrollToPage(this.currentPage(), false);
       this.scheduleRender();
       this.syncAutoScroll();
+      this.saveNow();
     });
-    this.queueSave();
   }
 
   turnPage(delta: number): void {
@@ -174,7 +209,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     const next = clamp(this.currentPage() + delta, 1, this.metrics().length);
     if (next === this.currentPage()) return;
     this.currentPage.set(next);
-    this.renderedWidths.clear();
+    this.clearVisiblePage();
     this.scheduleRender();
     this.queueSave();
   }
@@ -183,6 +218,9 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     const next = clamp(Math.round((this.zoom() + delta) * 10) / 10, 0.5, 2.5);
     if (next === this.zoom()) return;
     this.zoom.set(next);
+    this.renderGeneration++;
+    this.scrollRenderRequests.clear();
+    this.renderedPage = undefined;
     this.renderedWidths.clear();
     this.scheduleRender();
     this.queueSave();
@@ -197,7 +235,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     if (this.mode() !== 'scroll') return;
     this.paused.update((paused) => !paused);
     this.syncAutoScroll();
-    this.queueSave();
+    this.saveNow();
   }
 
   onStageScroll(): void {
@@ -281,6 +319,11 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  @HostListener('document:visibilitychange')
+  onVisibilityChange(): void {
+    if (document.visibilityState === 'hidden') this.saveNow();
+  }
+
   showControls(event?: Event): void {
     event?.preventDefault();
     event?.stopPropagation();
@@ -325,14 +368,60 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private async renderVisible(): Promise<void> {
     if (!this.canvases?.length) return;
     if (this.mode() === 'page') {
+      if (this.pageRenderInFlight) {
+        this.pageRenderPending = true;
+        return;
+      }
       const canvas = this.canvases.first.nativeElement;
       const stage = this.stage.nativeElement;
       const width = Math.max(240, (stage.clientWidth - 24) * this.zoom());
       const height = Math.max(240, (stage.clientHeight - 24) * this.zoom());
       const key = Math.round(Math.min(width, height));
-      if (this.renderedWidths.get(this.currentPage()) === key) return;
-      await this.pdf.renderPage(canvas, this.currentPage(), width, height);
-      this.renderedWidths.set(this.currentPage(), key);
+      const pageNumber = this.currentPage();
+      const generation = this.renderGeneration;
+      if (this.renderedPage?.pageNumber === pageNumber && this.renderedPage.key === key) return;
+      const renderCanvas = document.createElement('canvas');
+      this.pageRenderInFlight = true;
+      this.pageRenderPending = false;
+      this.clearVisiblePage();
+      try {
+        await this.pdf.renderPage(renderCanvas, pageNumber, width, height);
+        const currentWidth = Math.max(240, (stage.clientWidth - 24) * this.zoom());
+        const currentHeight = Math.max(240, (stage.clientHeight - 24) * this.zoom());
+        const currentKey = Math.round(Math.min(currentWidth, currentHeight));
+        if (
+          this.renderGeneration === generation &&
+          this.mode() === 'page' &&
+          this.currentPage() === pageNumber &&
+          currentKey === key &&
+          this.canvases.first?.nativeElement === canvas
+        ) {
+          canvas.width = renderCanvas.width;
+          canvas.height = renderCanvas.height;
+          canvas.style.width = renderCanvas.style.width;
+          canvas.style.height = renderCanvas.style.height;
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Canvas rendering is unavailable.');
+          context.drawImage(renderCanvas, 0, 0);
+          this.renderedPage = { pageNumber, key };
+        }
+      } finally {
+        this.pageRenderInFlight = false;
+        const requestChanged =
+          this.renderGeneration !== generation ||
+          this.mode() !== 'page' ||
+          this.currentPage() !== pageNumber ||
+          Math.round(
+            Math.min(
+              Math.max(240, (stage.clientWidth - 24) * this.zoom()),
+              Math.max(240, (stage.clientHeight - 24) * this.zoom()),
+            ),
+          ) !== key;
+        if (this.pageRenderPending || requestChanged) {
+          this.pageRenderPending = false;
+          this.scheduleRender();
+        }
+      }
       return;
     }
     const stageRect = this.stage.nativeElement.getBoundingClientRect();
@@ -341,20 +430,77 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     const pending: Promise<void>[] = [];
     pages.forEach((page, index) => {
       const rect = page.nativeElement.getBoundingClientRect();
+      const canvas = canvases[index]?.nativeElement;
+      if (!canvas) return;
       const nearby =
         rect.bottom >= stageRect.top - stageRect.height &&
         rect.top <= stageRect.bottom + stageRect.height;
-      if (!nearby) return;
       const pageNumber = index + 1;
+      if (!nearby) {
+        const retained =
+          rect.bottom >= stageRect.top - stageRect.height * 2 &&
+          rect.top <= stageRect.bottom + stageRect.height * 2;
+        if (!retained) {
+          if (canvas.width || canvas.height) {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+          this.renderedWidths.delete(pageNumber);
+          this.scrollRenderRequests.delete(pageNumber);
+        }
+        return;
+      }
       const width = Math.round(page.nativeElement.clientWidth);
       if (this.renderedWidths.get(pageNumber) === width) return;
+      const generation = this.renderGeneration;
+      const request = ++this.nextScrollRenderRequest;
+      this.scrollRenderRequests.set(pageNumber, request);
       pending.push(
-        this.pdf.renderPage(canvases[index].nativeElement, pageNumber, width).then(() => {
-          this.renderedWidths.set(pageNumber, width);
+        this.pdf.renderPage(canvas, pageNumber, width).then(() => {
+          const currentStageRect = this.stage.nativeElement.getBoundingClientRect();
+          const currentRect = page.nativeElement.getBoundingClientRect();
+          const retained =
+            currentRect.bottom >= currentStageRect.top - currentStageRect.height * 2 &&
+            currentRect.top <= currentStageRect.bottom + currentStageRect.height * 2;
+          const activeRequest = this.scrollRenderRequests.get(pageNumber);
+          const requestIsCurrent = activeRequest === request;
+          const pageIsCurrent = this.scrollPages.get(index)?.nativeElement === page.nativeElement;
+          const currentCanvas = this.canvases.get(index)?.nativeElement;
+          const canvasIsCurrent = currentCanvas === canvas;
+          if (
+            this.renderGeneration === generation &&
+            this.mode() === 'scroll' &&
+            requestIsCurrent &&
+            pageIsCurrent &&
+            canvasIsCurrent &&
+            Math.round(page.nativeElement.clientWidth) === width &&
+            retained
+          ) {
+            this.renderedWidths.set(pageNumber, width);
+          } else {
+            const newerRequestOwnsCanvas =
+              canvasIsCurrent && activeRequest !== undefined && activeRequest !== request;
+            if (!newerRequestOwnsCanvas) {
+              canvas.width = 0;
+              canvas.height = 0;
+            }
+            if (requestIsCurrent) {
+              this.renderedWidths.delete(pageNumber);
+              this.scrollRenderRequests.delete(pageNumber);
+            }
+          }
         }),
       );
     });
     await Promise.all(pending);
+  }
+
+  private clearVisiblePage(): void {
+    this.renderedPage = undefined;
+    const canvas = this.mode() === 'page' ? this.canvases?.first?.nativeElement : undefined;
+    if (!canvas || (!canvas.width && !canvas.height)) return;
+    canvas.width = 0;
+    canvas.height = 0;
   }
 
   private updateCurrentPage(): void {
@@ -398,7 +544,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         const reachedEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
         if (reachedEnd) {
           this.paused.set(true);
-          this.queueSave();
+          this.saveNow();
           return;
         }
       }
@@ -425,16 +571,28 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   }
 
   private queueSave(): void {
+    if (this.readerStateSaveBlocked) return;
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => this.saveNow(), 650);
+    this.saveCheckpointTimer ??= window.setTimeout(() => this.saveNow(), 10_000);
   }
 
   private saveNow(): void {
-    if (!this.pieceId || this.loading() || this.error()) return;
+    if (
+      !this.pieceId ||
+      !this.loadedPDFChecksum ||
+      this.loading() ||
+      this.error() ||
+      this.readerStateSaveBlocked
+    )
+      return;
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
+    if (this.saveCheckpointTimer) window.clearTimeout(this.saveCheckpointTimer);
+    this.saveCheckpointTimer = undefined;
     const state: ReaderState = {
       pieceId: this.pieceId,
+      pdfChecksumSha256: this.loadedPDFChecksum,
       mode: this.mode(),
       lastPage: this.currentPage(),
       scrollPosition: this.mode() === 'scroll' ? this.stage.nativeElement.scrollTop : 0,
@@ -442,8 +600,43 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       scrollSpeed: this.speed(),
       scrollPaused: this.paused(),
     };
+    this.pendingReaderState = state;
+    this.flushReaderStateSave();
+  }
+
+  private flushReaderStateSave(): void {
+    if (this.readerStateSaveInFlight || this.readerStateSaveBlocked || !this.pendingReaderState)
+      return;
+
+    const state = this.pendingReaderState;
+    this.pendingReaderState = undefined;
+    this.readerStateSaveInFlight = true;
+    let finished = false;
+    const finish = (): void => {
+      if (finished) return;
+      finished = true;
+      this.readerStateSaveInFlight = false;
+      this.flushReaderStateSave();
+    };
+
     this.api.saveReaderState(this.pieceId, state).subscribe({
-      error: (error: unknown) => console.warn('Reader state could not be saved', error),
+      error: (error: unknown) => {
+        if (
+          error instanceof HttpErrorResponse &&
+          error.status === 409 &&
+          this.loadedPDFChecksum === state.pdfChecksumSha256
+        ) {
+          this.readerStateSaveBlocked = true;
+          this.pendingReaderState = undefined;
+          this.paused.set(true);
+          this.syncAutoScroll();
+          this.error.set('This score changed while it was open. Reload it before continuing.');
+        } else {
+          console.warn('Reader state could not be saved', error);
+        }
+        finish();
+      },
+      complete: finish,
     });
   }
 }
