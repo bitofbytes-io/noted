@@ -50,12 +50,13 @@ type PiecePatch struct {
 }
 
 type ReaderState struct {
-	PieceID        string    `json:"pieceId"`
-	Mode           string    `json:"mode"`
-	LastPage       int       `json:"lastPage"`
-	ScrollPosition float64   `json:"scrollPosition"`
-	Zoom           float64   `json:"zoom"`
-	ScrollSpeed    float64   `json:"scrollSpeed"`
-	ScrollPaused   bool      `json:"scrollPaused"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	PieceID           string    `json:"pieceId"`
+	PDFChecksumSHA256 string    `json:"pdfChecksumSha256"`
+	Mode              string    `json:"mode"`
+	LastPage          int       `json:"lastPage"`
+	ScrollPosition    float64   `json:"scrollPosition"`
+	Zoom              float64   `json:"zoom"`
+	ScrollSpeed       float64   `json:"scrollSpeed"`
+	ScrollPaused      bool      `json:"scrollPaused"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }

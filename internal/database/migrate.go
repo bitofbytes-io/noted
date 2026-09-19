@@ -88,35 +88,37 @@ func resetLegacySchema(ctx context.Context, conn *pgx.Conn, files fs.FS) (bool, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	rows, err := tx.Query(ctx, `
-		SELECT tablename
-		FROM pg_catalog.pg_tables
-		WHERE schemaname = 'public'
-		ORDER BY tablename
-	`)
-	if err != nil {
-		return false, fmt.Errorf("list legacy tables: %w", err)
+	// These are the complete set of tables created by the pre-binder Noted
+	// migrations (000001_initial through 000010_decoupled_practice_playback).
+	// Keep this allowlist explicit: this reset must never treat unrelated public
+	// tables as disposable. Dropping the tables together resolves their internal
+	// foreign keys without CASCADE, while external dependencies fail safely.
+	legacyTables := []string{
+		"schema_migrations",
+		"users",
+		"composers",
+		"works",
+		"movements",
+		"editions",
+		"score_assets",
+		"learner_works",
+		"tags",
+		"learner_work_tags",
+		"practice_sessions",
+		"recognition_jobs",
+		"development_seed_state",
+		"user_sessions",
+		"oauth_login_states",
+		"media_links",
+		"measure_anchors",
+		"measure_maps",
 	}
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			rows.Close()
-			return false, fmt.Errorf("scan legacy table: %w", err)
-		}
-		tables = append(tables, table)
+	identifiers := make([]string, len(legacyTables))
+	for i, table := range legacyTables {
+		identifiers[i] = pgx.Identifier{"public", table}.Sanitize()
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, fmt.Errorf("list legacy tables: %w", err)
-	}
-	rows.Close()
-
-	for _, table := range tables {
-		identifier := pgx.Identifier{"public", table}.Sanitize()
-		if _, err := tx.Exec(ctx, "DROP TABLE "+identifier+" CASCADE"); err != nil {
-			return false, fmt.Errorf("drop legacy table %s: %w", identifier, err)
-		}
+	if _, err := tx.Exec(ctx, "DROP TABLE IF EXISTS "+strings.Join(identifiers, ", ")); err != nil {
+		return false, fmt.Errorf("drop legacy Noted tables: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		CREATE TABLE schema_migrations (
