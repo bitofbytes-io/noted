@@ -24,9 +24,129 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 
+# A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
-CREATE TABLE works (id uuid PRIMARY KEY);
+CREATE TABLE works (id uuid PRIMARY KEY, marker text NOT NULL);
+INSERT INTO works (id, marker)
+VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 'works-only');
+SQL
+
+if DATABASE_URL="$database_url" go run ./cmd/migrate >/dev/null 2>&1; then
+  echo "migration unexpectedly reset a works-only schema" >&2
+  exit 1
+fi
+works_marker=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT marker FROM works WHERE id='4f607127-fb97-4b22-90f5-1b9bec77b739'"
+)
+if [ "$works_marker" != "works-only" ]; then
+  echo "works-only schema changed during refused migration" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" -c "DROP TABLE works" >/dev/null
+
+# Even a legacy migration name plus a partial table set must be refused intact.
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
+CREATE TABLE users (week_starts_on integer);
+CREATE TABLE composers (canonical_name text);
+CREATE TABLE works (
+  id uuid PRIMARY KEY,
+  composer_id uuid,
+  created_by_user_id uuid,
+  catalog_number text,
+  marker text NOT NULL
+);
+INSERT INTO works (id, marker)
+VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 'partial');
+INSERT INTO schema_migrations (version) VALUES ('000001_initial');
+SQL
+
+if DATABASE_URL="$database_url" go run ./cmd/migrate >/dev/null 2>&1; then
+  echo "migration unexpectedly reset a partial legacy schema" >&2
+  exit 1
+fi
+partial_marker=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT marker FROM works WHERE id='4f607127-fb97-4b22-90f5-1b9bec77b739'"
+)
+if [ "$partial_marker" != "partial" ]; then
+  echo "partial legacy schema changed during refused migration" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "DROP TABLE works, composers, users; DELETE FROM schema_migrations" >/dev/null
+
+# A lookalike using all of the old table names still needs Noted-specific columns.
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
+CREATE TABLE users (id integer);
+CREATE TABLE composers (id integer);
+CREATE TABLE works (id integer PRIMARY KEY, marker text NOT NULL);
+CREATE TABLE movements (id integer);
+CREATE TABLE editions (id integer);
+CREATE TABLE score_assets (id integer);
+CREATE TABLE learner_works (id integer);
+CREATE TABLE tags (id integer);
+CREATE TABLE learner_work_tags (id integer);
+CREATE TABLE practice_sessions (id integer);
+INSERT INTO works (id, marker) VALUES (1, 'lookalike');
+INSERT INTO schema_migrations (version) VALUES ('000001_initial');
+SQL
+
+if DATABASE_URL="$database_url" go run ./cmd/migrate >/dev/null 2>&1; then
+  echo "migration unexpectedly reset a lookalike schema" >&2
+  exit 1
+fi
+lookalike_marker=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT marker FROM works WHERE id=1"
+)
+if [ "$lookalike_marker" != "lookalike" ]; then
+  echo "lookalike schema changed during refused migration" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "DROP TABLE works, composers, movements, editions, score_assets, learner_works, tags, learner_work_tags, practice_sessions, users; DELETE FROM schema_migrations" >/dev/null
+
+# This is the minimum unambiguous fingerprint present after the historical
+# 000001_initial Noted migration. The reset may proceed only for this shape.
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
+CREATE TABLE users (week_starts_on integer);
+CREATE TABLE composers (canonical_name text);
+CREATE TABLE works (
+  composer_id uuid,
+  created_by_user_id uuid,
+  catalog_number text
+);
+CREATE TABLE movements (sequence_number integer);
+CREATE TABLE editions (rights_note text);
+CREATE TABLE score_assets (
+  asset_type text,
+  rights_note text,
+  sha256 text
+);
+CREATE TABLE learner_works (
+  last_score_asset_id uuid,
+  personal_difficulty text
+);
+CREATE TABLE tags (normalized_name text);
+CREATE TABLE learner_work_tags (
+  learner_work_id uuid,
+  tag_id uuid
+);
+CREATE TABLE practice_sessions (
+  entry_method text,
+  duration_seconds integer
+);
 CREATE TABLE unrelated_application_data (
   id integer PRIMARY KEY,
   value text NOT NULL

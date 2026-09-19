@@ -5,7 +5,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
-import { ReaderState } from '../../core/models';
+import { Piece, ReaderState } from '../../core/models';
 import { ReaderComponent } from './reader.component';
 import { pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 
@@ -147,6 +147,115 @@ describe('ReaderComponent', () => {
       expect(canvas.width).toBe(100);
       expect(drawImage.mock.calls.map((call) => call[0].dataset['page'])).toEqual(['1', '1']);
       component.ngOnDestroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not cache a scroll render from the document superseded by reload', async () => {
+    vi.useFakeTimers();
+    try {
+      const checksum = 'a'.repeat(64);
+      const api = {
+        piece: vi.fn(() =>
+          of({
+            id: 'piece',
+            title: 'Reloaded score',
+            composer: '',
+            favorite: false,
+            sourceUrl: '',
+            listeningUrl: '',
+            notes: '',
+            createdAt: '',
+            updatedAt: '',
+            pdf: {
+              originalFilename: 'score.pdf',
+              sizeBytes: 100,
+              checksumSha256: checksum,
+              pageCount: 1,
+              uploadedAt: '',
+              contentUrl: '/api/pieces/piece/pdf',
+            },
+          } satisfies Piece),
+        ),
+        readerState: vi.fn(() =>
+          of({
+            pieceId: 'piece',
+            pdfChecksumSha256: checksum,
+            mode: 'scroll',
+            lastPage: 1,
+            scrollPosition: 0,
+            zoom: 1,
+            scrollSpeed: 5,
+            scrollPaused: true,
+          } satisfies ReaderState),
+        ),
+        saveReaderState: vi.fn((_id: string, _state: ReaderState) => of({})),
+      };
+      const component = createReaderComponent(api);
+      const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
+      Reflect.set(component, 'stage', {
+        nativeElement: {
+          clientWidth: 200,
+          clientHeight: 100,
+          scrollHeight: 100,
+          scrollTop: 0,
+          getBoundingClientRect: () => stageRect,
+        },
+      });
+      Reflect.set(component, 'pieceId', 'piece');
+      Reflect.get(component, 'loading').set(false);
+      Reflect.get(component, 'mode').set('scroll');
+
+      const scrollPage = () =>
+        new ElementRef({
+          clientWidth: 200,
+          getBoundingClientRect: () => ({ top: 0, bottom: 100 }) as DOMRect,
+        } as HTMLElement);
+      const oldPages = new QueryList<ElementRef<HTMLElement>>();
+      oldPages.reset([scrollPage()]);
+      const oldCanvas = document.createElement('canvas');
+      const oldCanvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+      oldCanvases.reset([new ElementRef(oldCanvas)]);
+      Reflect.set(component, 'scrollPages', oldPages);
+      Reflect.set(component, 'canvases', oldCanvases);
+
+      let finishOldRender!: () => void;
+      const pdf = Reflect.get(component, 'pdf');
+      const renderPage = vi
+        .spyOn(pdf, 'renderPage')
+        .mockReturnValueOnce(new Promise<void>((resolve) => (finishOldRender = resolve)))
+        .mockResolvedValue(undefined);
+      vi.spyOn(pdf, 'load').mockResolvedValue([{ page: 1, ratio: 0.75 }]);
+      const renderVisible = Reflect.get(component, 'renderVisible').bind(
+        component,
+      ) as () => Promise<void>;
+      const load = Reflect.get(component, 'load').bind(component) as () => Promise<void>;
+
+      const oldRender = renderVisible();
+      await load();
+      finishOldRender();
+
+      const newPages = new QueryList<ElementRef<HTMLElement>>();
+      newPages.reset([scrollPage()]);
+      const newCanvas = document.createElement('canvas');
+      const newCanvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+      newCanvases.reset([new ElementRef(newCanvas)]);
+      Reflect.set(component, 'scrollPages', newPages);
+      Reflect.set(component, 'canvases', newCanvases);
+      await oldRender;
+
+      const renderedWidths = Reflect.get(component, 'renderedWidths') as Map<number, number>;
+      expect(renderedWidths.has(1)).toBe(false);
+
+      await renderVisible();
+
+      expect(renderPage).toHaveBeenCalledTimes(2);
+      expect(renderPage.mock.calls[1][0]).toBe(newCanvas);
+      expect(renderedWidths.get(1)).toBe(200);
+      Reflect.get(component, 'loading').set(true);
+      component.ngOnDestroy();
+      vi.clearAllTimers();
     } finally {
       vi.useRealTimers();
     }
