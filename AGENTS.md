@@ -56,3 +56,19 @@ tests cannot replace them.
 
 Score-intake changes additionally require the integration suite and migration
 verification. Unit tests do not replace physical iPhone/iPad checks.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The repository uses the five default triage labels. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+The repository uses a single-context domain-doc layout. See
+`docs/agents/domain.md`.
