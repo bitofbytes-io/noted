@@ -189,12 +189,6 @@
         border: 1px solid var(--line);
       }
 
-      .decision.accepted {
-        border-color: var(--green);
-        background: var(--green-soft);
-        color: var(--green);
-      }
-
       .decision.refused {
         border-color: var(--danger);
         color: var(--danger);
@@ -263,6 +257,12 @@
         height: 100%;
         background: transparent;
         pointer-events: none;
+      }
+
+      #guideCanvas.editing {
+        pointer-events: auto;
+        cursor: grab;
+        touch-action: none;
       }
 
       #cornerCanvas {
@@ -355,6 +355,7 @@
               Try the remap
             </button>
             <button id="toggleGuides" type="button">Hide guides</button>
+            <button id="editGuides" type="button">Adjust guide points</button>
             <label class="file-button" for="fileInput"
               >Choose another JPEG</label
             >
@@ -431,9 +432,9 @@
         <h2>Manual guide mode</h2>
         <p>
           For an unprepared JPEG, click five or more points from left to right
-          along one staff line, then finish the guide. Repeat on at least three
-          systems. The line may be interrupted by notes, but the clicked points
-          should follow the same printed staff line.
+          along one printed staff line, then finish the guide. Repeat on at
+          least three systems. To fix a prepared guide, choose Adjust guide
+          points and drag its dots onto that same staff line.
         </p>
         <div class="controls">
           <button id="startGuide" type="button">Start staff guide</button>
@@ -580,7 +581,7 @@
               );
             }
           }
-          return { imageData: output, sourceToPage };
+          return { imageData: output, sourceToPage, pageToSource };
         }
 
         function transformGuides(
@@ -832,9 +833,12 @@
         image: null,
         corners: [],
         captureGuides: [],
+        pageToSource: null,
         guides: [],
         activeGuide: null,
         guidesVisible: true,
+        editingGuides: false,
+        draggedGuidePoint: null,
         draggedCorner: null,
       };
 
@@ -853,6 +857,9 @@
         setText("timeState", "Not run");
         setText("reasonState", message);
         document.querySelector("#refusal").classList.remove("visible");
+        if (sourceCanvas.width && sourceCanvas.height) {
+          outputContext.drawImage(sourceCanvas, 0, 0);
+        }
       }
 
       function sizePageCanvases(width, height) {
@@ -909,6 +916,7 @@
           captureCanvas.height,
         );
         const cropped = pageCrop.apply(capture, state.corners);
+        state.pageToSource = cropped.pageToSource;
         sizePageCanvases(cropped.imageData.width, cropped.imageData.height);
         sourceContext.putImageData(cropped.imageData, 0, 0);
         outputContext.putImageData(cropped.imageData, 0, 0);
@@ -926,7 +934,7 @@
         );
         drawGuides();
         resetDecision(
-          "The adjusted view appears only after the safety checks pass.",
+          "Check that every colored guide follows a printed staff line before trying the remap.",
         );
         updateGuideState();
       }
@@ -954,19 +962,37 @@
           guideContext.fillStyle = guideContext.strokeStyle;
           guideContext.lineWidth = Math.max(2, guideCanvas.width / 500);
           guideContext.beginPath();
-          guide.forEach(([x, y], pointIndex) => {
-            const px = x * guideCanvas.width;
-            const py = y * guideCanvas.height;
-            if (pointIndex) guideContext.lineTo(px, py);
-            else guideContext.moveTo(px, py);
-          });
+          const points = [...guide].sort((a, b) => a[0] - b[0]);
+          const samples = Math.max(2, Math.round(guideCanvas.width / 5));
+          for (let sample = 0; sample <= samples; sample++) {
+            const x =
+              points[0][0] +
+              ((points.at(-1)[0] - points[0][0]) * sample) / samples;
+            const y =
+              guide.length >= 3
+                ? curvedPageRemap.curveY(guide, x)
+                : points.length === 2
+                  ? points[0][1] +
+                    ((points[1][1] - points[0][1]) * sample) / samples
+                  : points[0][1];
+            if (sample)
+              guideContext.lineTo(
+                x * guideCanvas.width,
+                y * guideCanvas.height,
+              );
+            else
+              guideContext.moveTo(
+                x * guideCanvas.width,
+                y * guideCanvas.height,
+              );
+          }
           guideContext.stroke();
           for (const [x, y] of guide) {
             guideContext.beginPath();
             guideContext.arc(
               x * guideCanvas.width,
               y * guideCanvas.height,
-              Math.max(4, guideCanvas.width / 180),
+              Math.max(state.editingGuides ? 7 : 4, guideCanvas.width / 180),
               0,
               Math.PI * 2,
             );
@@ -988,6 +1014,18 @@
             : "No guide in progress.",
         );
         drawGuides();
+      }
+
+      function rememberGuideEdits() {
+        if (!state.pageToSource) return;
+        state.captureGuides = pageCrop.transformGuides(
+          state.guides,
+          state.pageToSource,
+          sourceCanvas.width,
+          sourceCanvas.height,
+          captureCanvas.width,
+          captureCanvas.height,
+        );
       }
 
       function loadImage(url, sourceLabel) {
@@ -1040,6 +1078,11 @@
         state.captureGuides = structuredClone(reviewCase.guides || []);
         state.guides = [];
         state.activeGuide = null;
+        state.editingGuides = false;
+        state.draggedGuidePoint = null;
+        guideCanvas.classList.remove("editing");
+        document.querySelector("#editGuides").textContent =
+          "Adjust guide points";
         setText("caseTitle", reviewCase.label);
         setText("caseDescription", reviewCase.description);
         renderCaseTabs();
@@ -1104,12 +1147,12 @@
         outputContext.putImageData(output, 0, 0);
         const elapsed = performance.now() - start;
         const decision = document.querySelector("#decisionState");
-        decision.textContent = "Review required";
-        decision.className = "decision accepted";
+        decision.textContent = "Comparison ready";
+        decision.className = "decision";
         setText("timeState", `${Math.round(elapsed)} ms on this computer`);
         setText(
           "reasonState",
-          `${analysis.reason} Human review still decides whether every musical and pencil mark survived.`,
+          "The coordinate map stays within its geometric limits. Those checks do not prove the guides follow staff lines or that the output is useful. Compare every printed mark and pencil note yourself.",
         );
       }
 
@@ -1118,9 +1161,27 @@
         .querySelector("#toggleGuides")
         .addEventListener("click", (event) => {
           state.guidesVisible = !state.guidesVisible;
+          if (!state.guidesVisible) {
+            state.editingGuides = false;
+            guideCanvas.classList.remove("editing");
+            document.querySelector("#editGuides").textContent =
+              "Adjust guide points";
+          }
           event.currentTarget.textContent = state.guidesVisible
             ? "Hide guides"
             : "Show guides";
+          drawGuides();
+        });
+      document
+        .querySelector("#editGuides")
+        .addEventListener("click", (event) => {
+          state.editingGuides = !state.editingGuides;
+          guideCanvas.classList.toggle("editing", state.editingGuides);
+          state.guidesVisible = true;
+          document.querySelector("#toggleGuides").textContent = "Hide guides";
+          event.currentTarget.textContent = state.editingGuides
+            ? "Finish adjusting guides"
+            : "Adjust guide points";
           drawGuides();
         });
       document
@@ -1133,6 +1194,10 @@
           state.captureGuides = [];
           state.guides = [];
           state.activeGuide = null;
+          state.editingGuides = false;
+          guideCanvas.classList.remove("editing");
+          document.querySelector("#editGuides").textContent =
+            "Adjust guide points";
           renderCaseTabs();
           setText("caseTitle", "Manual private sample");
           setText(
@@ -1163,24 +1228,83 @@
           return;
         }
         state.guides.push(state.activeGuide);
+        rememberGuideEdits();
         state.activeGuide = null;
         resetDecision();
         updateGuideState();
       });
       document.querySelector("#clearGuides").addEventListener("click", () => {
         state.guides = [];
+        state.captureGuides = [];
         state.activeGuide = null;
         resetDecision();
         updateGuideState();
       });
       sourceCanvas.parentElement.addEventListener("click", (event) => {
-        if (!state.activeGuide) return;
+        if (!state.activeGuide || state.editingGuides) return;
         const rect = sourceCanvas.getBoundingClientRect();
         state.activeGuide.push([
           Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
           Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
         ]);
         updateGuideState();
+      });
+
+      function guidePoint(event) {
+        const rect = guideCanvas.getBoundingClientRect();
+        return [
+          Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+          Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+        ];
+      }
+
+      guideCanvas.addEventListener("pointerdown", (event) => {
+        if (!state.editingGuides) return;
+        const point = guidePoint(event);
+        let nearest = null;
+        let distance = Infinity;
+        state.guides.forEach((guide, guideIndex) =>
+          guide.forEach((guidePoint, pointIndex) => {
+            const dx = (guidePoint[0] - point[0]) * guideCanvas.clientWidth;
+            const dy = (guidePoint[1] - point[1]) * guideCanvas.clientHeight;
+            const candidate = Math.hypot(dx, dy);
+            if (candidate < distance) {
+              nearest = [guideIndex, pointIndex];
+              distance = candidate;
+            }
+          }),
+        );
+        if (distance > 22) return;
+        state.draggedGuidePoint = nearest;
+        guideCanvas.setPointerCapture(event.pointerId);
+      });
+
+      guideCanvas.addEventListener("pointermove", (event) => {
+        if (!state.draggedGuidePoint) return;
+        const [guideIndex, pointIndex] = state.draggedGuidePoint;
+        const point = guidePoint(event);
+        const guide = state.guides[guideIndex];
+        const previous = guide[pointIndex - 1]?.[0] ?? 0;
+        const next = guide[pointIndex + 1]?.[0] ?? 1;
+        guide[pointIndex] = [
+          Math.max(previous + 0.002, Math.min(next - 0.002, point[0])),
+          point[1],
+        ];
+        drawGuides();
+      });
+
+      guideCanvas.addEventListener("pointerup", () => {
+        if (!state.draggedGuidePoint) return;
+        state.draggedGuidePoint = null;
+        rememberGuideEdits();
+        resetDecision(
+          "Guide points changed. Check their alignment, then try the remap again.",
+        );
+      });
+
+      guideCanvas.addEventListener("pointercancel", () => {
+        state.draggedGuidePoint = null;
+        drawGuides();
       });
 
       function capturePoint(event) {
@@ -1234,7 +1358,7 @@
         const bundle = new URLSearchParams(location.search).get("bundle");
         if (!bundle) return;
         try {
-          const response = await fetch(bundle);
+          const response = await fetch(bundle, { cache: "no-store" });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
           state.cases = data.cases || [];
