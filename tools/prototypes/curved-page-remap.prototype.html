@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Curved-page remap prototype</title>
+    <style>
+      :root {
+        --paper: #f6f1e7;
+        --raised: #fcfaf4;
+        --ink: #1a1a1a;
+        --muted: #6e6759;
+        --line: #b9b09e;
+        --green: #1e4d3b;
+        --green-soft: #e7ede6;
+        --danger: #a63a2e;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        color: var(--ink);
+        background: var(--paper);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button:focus-visible,
+      input:focus-visible {
+        outline: 3px solid rgb(30 77 59 / 25%);
+        outline-offset: 2px;
+      }
+
+      main {
+        width: min(1500px, 100%);
+        margin: 0 auto;
+        padding: 32px clamp(18px, 4vw, 52px) 80px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 820px;
+        margin-bottom: 10px;
+        font-size: clamp(30px, 5vw, 52px);
+        line-height: 1.05;
+      }
+
+      header p {
+        max-width: 780px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .prototype-mark {
+        align-self: start;
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .case-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 24px 0;
+      }
+
+      button,
+      .file-button {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 15px;
+        border: 1px solid var(--ink);
+        border-radius: 0;
+        background: transparent;
+        color: var(--ink);
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:hover,
+      .file-button:hover {
+        background: var(--green-soft);
+      }
+
+      button.primary {
+        border-color: var(--green);
+        border-radius: 999px;
+        background: var(--green);
+        color: white;
+      }
+
+      button.primary:hover {
+        background: #163b2d;
+      }
+
+      .case-tabs button.active {
+        border-color: var(--green);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      input[type="file"] {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+      }
+
+      .top-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+        gap: 28px;
+        align-items: start;
+        margin-bottom: 28px;
+      }
+
+      .case-copy,
+      .state {
+        padding: 20px;
+        border: 1px solid var(--line);
+        background: var(--raised);
+      }
+
+      .case-copy p:last-child {
+        margin-bottom: 0;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .state dl {
+        display: grid;
+        grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr);
+        gap: 8px 14px;
+        margin: 0;
+      }
+
+      .state dt {
+        color: var(--muted);
+      }
+
+      .state dd {
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .decision {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 2px 9px;
+        border: 1px solid var(--line);
+      }
+
+      .decision.accepted {
+        border-color: var(--green);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .decision.refused {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+
+      .reason {
+        margin: 16px 0 0;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+      }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+
+      figure {
+        min-width: 0;
+        margin: 0;
+      }
+
+      figcaption {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      figcaption strong {
+        font-size: 18px;
+      }
+
+      figcaption span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .canvas-wrap {
+        position: relative;
+        min-height: 360px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        background: #d8d3c8;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: white;
+      }
+
+      #guideCanvas {
+        position: absolute;
+        inset: 0;
+        height: 100%;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      .refusal {
+        position: absolute;
+        inset: 0;
+        display: none;
+        place-items: center;
+        padding: 24px;
+        background: rgb(246 241 231 / 90%);
+        text-align: center;
+      }
+
+      .refusal.visible {
+        display: grid;
+      }
+
+      .refusal strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--danger);
+        font-size: 20px;
+      }
+
+      .manual {
+        margin-top: 30px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+      }
+
+      .manual p {
+        max-width: 850px;
+        color: var(--muted);
+      }
+
+      .manual-status {
+        min-height: 24px;
+        margin-top: 12px;
+        color: var(--green);
+        font-weight: 600;
+      }
+
+      @media (max-width: 900px) {
+        header,
+        .top-grid,
+        .comparison {
+          grid-template-columns: 1fr;
+        }
+
+        .prototype-mark {
+          justify-self: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Can a staff-guided remap flatten this page safely?</h1>
+          <p>
+            This prototype moves source pixels only. It does not brighten,
+            sharpen, erase, redraw, inpaint, or generate notation. A page is
+            refused when the staff guides disagree or the map would stretch the
+            source too far.
+          </p>
+        </div>
+        <span class="prototype-mark">Throwaway prototype</span>
+      </header>
+
+      <nav class="case-tabs" id="caseTabs" aria-label="Review cases"></nav>
+
+      <section class="top-grid">
+        <div class="case-copy">
+          <h2 id="caseTitle">Choose a private sample</h2>
+          <p id="caseDescription">
+            Load the private review bundle, or choose a JPEG and add staff
+            guides manually.
+          </p>
+          <div class="controls">
+            <button class="primary" id="runButton" type="button">
+              Try the remap
+            </button>
+            <button id="toggleGuides" type="button">Hide guides</button>
+            <label class="file-button" for="fileInput"
+              >Choose another JPEG</label
+            >
+            <input id="fileInput" type="file" accept="image/jpeg,image/png" />
+          </div>
+        </div>
+
+        <aside class="state" aria-live="polite">
+          <h2>Prototype state</h2>
+          <dl>
+            <dt>Source</dt>
+            <dd id="sourceState">None</dd>
+            <dt>Staff guides</dt>
+            <dd id="guideState">0</dd>
+            <dt>Decision</dt>
+            <dd><span class="decision" id="decisionState">Not run</span></dd>
+            <dt>Largest movement</dt>
+            <dd id="movementState">Not measured</dd>
+            <dt>Local vertical scale</dt>
+            <dd id="scaleState">Not measured</dd>
+            <dt>Processing time</dt>
+            <dd id="timeState">Not run</dd>
+          </dl>
+          <p class="reason" id="reasonState">
+            The adjusted view appears only after the safety checks pass.
+          </p>
+        </aside>
+      </section>
+
+      <section class="comparison" aria-label="Original and adjusted comparison">
+        <figure>
+          <figcaption>
+            <strong>Original</strong>
+            <span>Immutable source pixels</span>
+          </figcaption>
+          <div class="canvas-wrap">
+            <canvas id="sourceCanvas"></canvas>
+            <canvas id="guideCanvas"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>
+            <strong>Adjusted</strong>
+            <span>Coordinate remap only</span>
+          </figcaption>
+          <div class="canvas-wrap">
+            <canvas id="outputCanvas"></canvas>
+            <div class="refusal" id="refusal">
+              <div>
+                <strong>Keep the original</strong>
+                <span id="refusalReason"
+                  >This page did not pass the safety checks.</span
+                >
+              </div>
+            </div>
+          </div>
+        </figure>
+      </section>
+
+      <section class="manual">
+        <h2>Manual guide mode</h2>
+        <p>
+          For an unprepared JPEG, click five or more points from left to right
+          along one staff line, then finish the guide. Repeat on at least three
+          systems. The line may be interrupted by notes, but the clicked points
+          should follow the same printed staff line.
+        </p>
+        <div class="controls">
+          <button id="startGuide" type="button">Start staff guide</button>
+          <button id="undoPoint" type="button">Undo point</button>
+          <button id="finishGuide" type="button">Finish guide</button>
+          <button id="clearGuides" type="button">Clear guides</button>
+        </div>
+        <p class="manual-status" id="manualStatus">No guide in progress.</p>
+      </section>
+    </main>
+
+    <script>
+      // Pure remap module. The page below calls this module but it does not touch the DOM.
+      const curvedPageRemap = (() => {
+        const clamp = (value, low, high) =>
+          Math.max(low, Math.min(high, value));
+
+        function sortedPoints(guide) {
+          return [...guide].sort((a, b) => a[0] - b[0]);
+        }
+
+        function curveY(guide, x) {
+          const points = sortedPoints(guide);
+          if (x <= points[0][0]) return points[0][1];
+          if (x >= points.at(-1)[0]) return points.at(-1)[1];
+          let index = 0;
+          while (index + 1 < points.length && x > points[index + 1][0]) index++;
+          const p0 = points[Math.max(0, index - 1)];
+          const p1 = points[index];
+          const p2 = points[index + 1];
+          const p3 = points[Math.min(points.length - 1, index + 2)];
+          const span = p2[0] - p1[0];
+          const t = span ? (x - p1[0]) / span : 0;
+          const m1 = ((p2[1] - p0[1]) / Math.max(0.0001, p2[0] - p0[0])) * span;
+          const m2 = ((p3[1] - p1[1]) / Math.max(0.0001, p3[0] - p1[0])) * span;
+          const t2 = t * t;
+          const t3 = t2 * t;
+          return (
+            (2 * t3 - 3 * t2 + 1) * p1[1] +
+            (t3 - 2 * t2 + t) * m1 +
+            (-2 * t3 + 3 * t2) * p2[1] +
+            (t3 - t2) * m2
+          );
+        }
+
+        function baselineY(guide, x) {
+          const points = sortedPoints(guide);
+          const first = points[0];
+          const last = points.at(-1);
+          const t = clamp(
+            (x - first[0]) / Math.max(0.0001, last[0] - first[0]),
+            0,
+            1,
+          );
+          return first[1] + (last[1] - first[1]) * t;
+        }
+
+        function guideDelta(guide, x) {
+          return curveY(guide, x) - baselineY(guide, x);
+        }
+
+        function displacementAt(guides, x, y) {
+          const rows = guides
+            .map((guide) => ({
+              y: baselineY(guide, x),
+              delta: guideDelta(guide, x),
+            }))
+            .sort((a, b) => a.y - b.y);
+          if (y <= rows[0].y) return rows[0].delta;
+          if (y >= rows.at(-1).y) return rows.at(-1).delta;
+          let index = 0;
+          while (index + 1 < rows.length && y > rows[index + 1].y) index++;
+          const a = rows[index];
+          const b = rows[index + 1];
+          const t = (y - a.y) / Math.max(0.0001, b.y - a.y);
+          return a.delta + (b.delta - a.delta) * t;
+        }
+
+        function inspect(guides, width, height) {
+          if (guides.length < 3) {
+            return {
+              accepted: false,
+              reason: "Add at least three staff guides across the page.",
+            };
+          }
+          for (const guide of guides) {
+            if (guide.length < 5) {
+              return {
+                accepted: false,
+                reason: "Each staff guide needs at least five points.",
+              };
+            }
+            const points = sortedPoints(guide);
+            if ((points.at(-1)[0] - points[0][0]) * width < width * 0.62) {
+              return {
+                accepted: false,
+                reason: "A staff guide does not cover enough page width.",
+              };
+            }
+          }
+
+          let maxMovement = 0;
+          let minScale = Infinity;
+          let maxScale = -Infinity;
+          let profileError = 0;
+          let samples = 0;
+          const xSamples = 80;
+          for (let xi = 0; xi <= xSamples; xi++) {
+            const x = xi / xSamples;
+            const rows = guides
+              .map((guide) => ({
+                y: baselineY(guide, x),
+                delta: guideDelta(guide, x),
+              }))
+              .sort((a, b) => a.y - b.y);
+            for (const row of rows)
+              maxMovement = Math.max(maxMovement, Math.abs(row.delta));
+            for (let index = 0; index < rows.length - 1; index++) {
+              const a = rows[index];
+              const b = rows[index + 1];
+              if (b.y <= a.y) {
+                return {
+                  accepted: false,
+                  reason: "The staff guides cross each other.",
+                };
+              }
+              const scale = 1 + (b.delta - a.delta) / (b.y - a.y);
+              minScale = Math.min(minScale, scale);
+              maxScale = Math.max(maxScale, scale);
+            }
+            const mean =
+              rows.reduce((sum, row) => sum + row.delta, 0) / rows.length;
+            for (const row of rows) {
+              profileError += (row.delta - mean) ** 2;
+              samples++;
+            }
+          }
+
+          const movementPixels = maxMovement * height;
+          const disagreementPixels =
+            Math.sqrt(profileError / Math.max(1, samples)) * height;
+          const result = {
+            accepted: true,
+            reason: "The guides agree and the coordinate map stays monotonic.",
+            movementPixels,
+            disagreementPixels,
+            minScale,
+            maxScale,
+          };
+          if (movementPixels < 2) {
+            return {
+              ...result,
+              accepted: false,
+              reason: "The page is already too flat to remap.",
+            };
+          }
+          if (movementPixels > height * 0.055) {
+            return {
+              ...result,
+              accepted: false,
+              reason: "The requested movement is too large.",
+            };
+          }
+          if (disagreementPixels > height * 0.012) {
+            return {
+              ...result,
+              accepted: false,
+              reason: "The staff guides disagree about the page shape.",
+            };
+          }
+          if (minScale < 0.78 || maxScale > 1.22) {
+            return {
+              ...result,
+              accepted: false,
+              reason: "The map would stretch part of the page too far.",
+            };
+          }
+          return result;
+        }
+
+        function apply(source, guides) {
+          const output = new ImageData(source.width, source.height);
+          const src = source.data;
+          const dst = output.data;
+          const width = source.width;
+          const height = source.height;
+          for (let y = 0; y < height; y++) {
+            const yn = y / Math.max(1, height - 1);
+            for (let x = 0; x < width; x++) {
+              const xn = x / Math.max(1, width - 1);
+              const sourceY = y + displacementAt(guides, xn, yn) * height;
+              const y0 = Math.floor(sourceY);
+              const y1 = y0 + 1;
+              const t = sourceY - y0;
+              const outIndex = (y * width + x) * 4;
+              if (y0 < 0 || y1 >= height) {
+                dst[outIndex] = 255;
+                dst[outIndex + 1] = 255;
+                dst[outIndex + 2] = 255;
+                dst[outIndex + 3] = 255;
+                continue;
+              }
+              const aIndex = (y0 * width + x) * 4;
+              const bIndex = (y1 * width + x) * 4;
+              for (let channel = 0; channel < 4; channel++) {
+                dst[outIndex + channel] = Math.round(
+                  src[aIndex + channel] * (1 - t) + src[bIndex + channel] * t,
+                );
+              }
+            }
+          }
+          return output;
+        }
+
+        return { apply, baselineY, curveY, inspect };
+      })();
+
+      const sourceCanvas = document.querySelector("#sourceCanvas");
+      const sourceContext = sourceCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+      const guideCanvas = document.querySelector("#guideCanvas");
+      const guideContext = guideCanvas.getContext("2d");
+      const outputCanvas = document.querySelector("#outputCanvas");
+      const outputContext = outputCanvas.getContext("2d");
+      const state = {
+        cases: [],
+        current: null,
+        image: null,
+        guides: [],
+        activeGuide: null,
+        guidesVisible: true,
+      };
+
+      function setText(id, value) {
+        document.querySelector(`#${id}`).textContent = value;
+      }
+
+      function resetDecision(
+        message = "The adjusted view appears only after the safety checks pass.",
+      ) {
+        const decision = document.querySelector("#decisionState");
+        decision.textContent = "Not run";
+        decision.className = "decision";
+        setText("movementState", "Not measured");
+        setText("scaleState", "Not measured");
+        setText("timeState", "Not run");
+        setText("reasonState", message);
+        document.querySelector("#refusal").classList.remove("visible");
+      }
+
+      function sizeCanvases(width, height) {
+        for (const canvas of [sourceCanvas, guideCanvas, outputCanvas]) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+      }
+
+      function drawSource() {
+        if (!state.image) return;
+        sizeCanvases(state.image.naturalWidth, state.image.naturalHeight);
+        sourceContext.drawImage(state.image, 0, 0);
+        outputContext.drawImage(state.image, 0, 0);
+        drawGuides();
+      }
+
+      function drawGuides() {
+        guideContext.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+        if (!state.guidesVisible) return;
+        const guides = state.activeGuide
+          ? [...state.guides, state.activeGuide]
+          : state.guides;
+        guides.forEach((guide, guideIndex) => {
+          if (!guide.length) return;
+          guideContext.strokeStyle = guideIndex % 2 ? "#a63a2e" : "#1e4d3b";
+          guideContext.fillStyle = guideContext.strokeStyle;
+          guideContext.lineWidth = Math.max(2, guideCanvas.width / 500);
+          guideContext.beginPath();
+          guide.forEach(([x, y], pointIndex) => {
+            const px = x * guideCanvas.width;
+            const py = y * guideCanvas.height;
+            if (pointIndex) guideContext.lineTo(px, py);
+            else guideContext.moveTo(px, py);
+          });
+          guideContext.stroke();
+          for (const [x, y] of guide) {
+            guideContext.beginPath();
+            guideContext.arc(
+              x * guideCanvas.width,
+              y * guideCanvas.height,
+              Math.max(4, guideCanvas.width / 180),
+              0,
+              Math.PI * 2,
+            );
+            guideContext.fill();
+          }
+        });
+      }
+
+      function updateGuideState() {
+        const active = state.activeGuide?.length || 0;
+        setText(
+          "guideState",
+          `${state.guides.length} finished${active ? `, ${active} points active` : ""}`,
+        );
+        setText(
+          "manualStatus",
+          state.activeGuide
+            ? `Guide in progress with ${active} point${active === 1 ? "" : "s"}.`
+            : "No guide in progress.",
+        );
+        drawGuides();
+      }
+
+      function loadImage(url, sourceLabel) {
+        const image = new Image();
+        image.onload = () => {
+          state.image = image;
+          setText(
+            "sourceState",
+            `${sourceLabel}, ${image.naturalWidth}×${image.naturalHeight}`,
+          );
+          drawSource();
+          resetDecision();
+          updateGuideState();
+        };
+        image.onerror = () => {
+          setText("sourceState", "Could not load private source");
+          setText(
+            "reasonState",
+            "Serve the repository root locally so the private sample URL resolves.",
+          );
+        };
+        image.src = url;
+      }
+
+      function renderCaseTabs() {
+        const tabs = document.querySelector("#caseTabs");
+        tabs.replaceChildren();
+        for (const reviewCase of state.cases) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = reviewCase.label;
+          button.classList.toggle(
+            "active",
+            state.current?.id === reviewCase.id,
+          );
+          button.addEventListener("click", () => chooseCase(reviewCase));
+          tabs.append(button);
+        }
+      }
+
+      function chooseCase(reviewCase) {
+        state.current = reviewCase;
+        state.guides = structuredClone(reviewCase.guides || []);
+        state.activeGuide = null;
+        setText("caseTitle", reviewCase.label);
+        setText("caseDescription", reviewCase.description);
+        renderCaseTabs();
+        loadImage(reviewCase.image, reviewCase.sourceLabel || reviewCase.label);
+      }
+
+      function refuse(analysis) {
+        const decision = document.querySelector("#decisionState");
+        decision.textContent = "Refused";
+        decision.className = "decision refused";
+        setText("reasonState", analysis.reason);
+        setText("refusalReason", analysis.reason);
+        document.querySelector("#refusal").classList.add("visible");
+      }
+
+      function runRemap() {
+        if (!state.image) return;
+        if (state.activeGuide?.length) {
+          setText(
+            "reasonState",
+            "Finish or discard the active guide before running the remap.",
+          );
+          return;
+        }
+        const analysis = curvedPageRemap.inspect(
+          state.guides,
+          sourceCanvas.width,
+          sourceCanvas.height,
+        );
+        if (analysis.movementPixels !== undefined) {
+          setText("movementState", `${analysis.movementPixels.toFixed(1)} px`);
+          setText(
+            "scaleState",
+            `${analysis.minScale.toFixed(3)} to ${analysis.maxScale.toFixed(3)}`,
+          );
+        }
+        if (!analysis.accepted) {
+          outputContext.drawImage(state.image, 0, 0);
+          setText("timeState", "Refused before remap");
+          refuse(analysis);
+          return;
+        }
+
+        document.querySelector("#refusal").classList.remove("visible");
+        const start = performance.now();
+        const source = sourceContext.getImageData(
+          0,
+          0,
+          sourceCanvas.width,
+          sourceCanvas.height,
+        );
+        const output = curvedPageRemap.apply(source, state.guides);
+        outputContext.putImageData(output, 0, 0);
+        const elapsed = performance.now() - start;
+        const decision = document.querySelector("#decisionState");
+        decision.textContent = "Review required";
+        decision.className = "decision accepted";
+        setText("timeState", `${Math.round(elapsed)} ms on this computer`);
+        setText(
+          "reasonState",
+          `${analysis.reason} Human review still decides whether every musical and pencil mark survived.`,
+        );
+      }
+
+      document.querySelector("#runButton").addEventListener("click", runRemap);
+      document
+        .querySelector("#toggleGuides")
+        .addEventListener("click", (event) => {
+          state.guidesVisible = !state.guidesVisible;
+          event.currentTarget.textContent = state.guidesVisible
+            ? "Hide guides"
+            : "Show guides";
+          drawGuides();
+        });
+      document
+        .querySelector("#fileInput")
+        .addEventListener("change", (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          state.current = null;
+          state.guides = [];
+          state.activeGuide = null;
+          renderCaseTabs();
+          setText("caseTitle", "Manual private sample");
+          setText(
+            "caseDescription",
+            "Add at least three staff guides, then try the remap.",
+          );
+          loadImage(URL.createObjectURL(file), file.name);
+        });
+      document.querySelector("#startGuide").addEventListener("click", () => {
+        if (!state.image || state.activeGuide) return;
+        state.activeGuide = [];
+        resetDecision(
+          "Click five or more points from left to right along the same staff line.",
+        );
+        updateGuideState();
+      });
+      document.querySelector("#undoPoint").addEventListener("click", () => {
+        state.activeGuide?.pop();
+        updateGuideState();
+      });
+      document.querySelector("#finishGuide").addEventListener("click", () => {
+        if (!state.activeGuide) return;
+        if (state.activeGuide.length < 5) {
+          setText(
+            "manualStatus",
+            "Add at least five points before finishing this guide.",
+          );
+          return;
+        }
+        state.guides.push(state.activeGuide);
+        state.activeGuide = null;
+        resetDecision();
+        updateGuideState();
+      });
+      document.querySelector("#clearGuides").addEventListener("click", () => {
+        state.guides = [];
+        state.activeGuide = null;
+        resetDecision();
+        updateGuideState();
+      });
+      sourceCanvas.parentElement.addEventListener("click", (event) => {
+        if (!state.activeGuide) return;
+        const rect = sourceCanvas.getBoundingClientRect();
+        state.activeGuide.push([
+          Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+          Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+        ]);
+        updateGuideState();
+      });
+
+      async function loadBundle() {
+        const bundle = new URLSearchParams(location.search).get("bundle");
+        if (!bundle) return;
+        try {
+          const response = await fetch(bundle);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          state.cases = data.cases || [];
+          if (state.cases.length) chooseCase(state.cases[0]);
+        } catch (error) {
+          setText(
+            "reasonState",
+            `Could not load the private review bundle: ${error.message}`,
+          );
+        }
+      }
+
+      loadBundle();
+    </script>
+  </body>
+</html>
