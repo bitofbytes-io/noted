@@ -213,6 +213,11 @@
         gap: 24px;
       }
 
+      .capture-review {
+        width: min(560px, 100%);
+        margin: 0 auto 30px;
+      }
+
       figure {
         min-width: 0;
         margin: 0;
@@ -258,6 +263,15 @@
         height: 100%;
         background: transparent;
         pointer-events: none;
+      }
+
+      #cornerCanvas {
+        position: absolute;
+        inset: 0;
+        height: 100%;
+        background: transparent;
+        cursor: crosshair;
+        touch-action: none;
       }
 
       .refusal {
@@ -318,10 +332,10 @@
         <div>
           <h1>Can a staff-guided remap flatten this page safely?</h1>
           <p>
-            This prototype moves source pixels only. It does not brighten,
-            sharpen, erase, redraw, inpaint, or generate notation. A page is
-            refused when the staff guides disagree or the map would stretch the
-            source too far.
+            First, place the four-corner outline around the score page. The
+            prototype removes the surrounding capture, then moves source pixels
+            only to test the curved-page correction. It does not brighten,
+            sharpen, erase, redraw, inpaint, or generate notation.
           </p>
         </div>
         <span class="prototype-mark">Throwaway prototype</span>
@@ -353,6 +367,8 @@
           <dl>
             <dt>Source</dt>
             <dd id="sourceState">None</dd>
+            <dt>Page crop</dt>
+            <dd id="cropState">Not set</dd>
             <dt>Staff guides</dt>
             <dd id="guideState">0</dd>
             <dt>Decision</dt>
@@ -370,11 +386,22 @@
         </aside>
       </section>
 
+      <figure class="capture-review">
+        <figcaption>
+          <strong>Page outline</strong>
+          <span>Drag a corner to change the crop</span>
+        </figcaption>
+        <div class="canvas-wrap">
+          <canvas id="captureCanvas"></canvas>
+          <canvas id="cornerCanvas"></canvas>
+        </div>
+      </figure>
+
       <section class="comparison" aria-label="Original and adjusted comparison">
         <figure>
           <figcaption>
-            <strong>Original</strong>
-            <span>Immutable source pixels</span>
+            <strong>Cropped original</strong>
+            <span>Four-corner page crop only</span>
           </figcaption>
           <div class="canvas-wrap">
             <canvas id="sourceCanvas"></canvas>
@@ -420,6 +447,167 @@
 
     <script>
       // Pure remap module. The page below calls this module but it does not touch the DOM.
+      const pageCrop = (() => {
+        const clamp = (value, low, high) =>
+          Math.max(low, Math.min(high, value));
+
+        function distance(a, b) {
+          return Math.hypot(b[0] - a[0], b[1] - a[1]);
+        }
+
+        function solve(matrix, vector) {
+          const rows = matrix.map((row, index) => [...row, vector[index]]);
+          for (let column = 0; column < vector.length; column++) {
+            let pivot = column;
+            for (let row = column + 1; row < rows.length; row++) {
+              if (Math.abs(rows[row][column]) > Math.abs(rows[pivot][column])) {
+                pivot = row;
+              }
+            }
+            [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
+            const divisor = rows[column][column];
+            if (Math.abs(divisor) < 1e-9)
+              throw new Error("Invalid page outline");
+            for (let item = column; item <= vector.length; item++) {
+              rows[column][item] /= divisor;
+            }
+            for (let row = 0; row < rows.length; row++) {
+              if (row === column) continue;
+              const factor = rows[row][column];
+              for (let item = column; item <= vector.length; item++) {
+                rows[row][item] -= factor * rows[column][item];
+              }
+            }
+          }
+          return rows.map((row) => row.at(-1));
+        }
+
+        function homography(from, to) {
+          const matrix = [];
+          const vector = [];
+          for (let index = 0; index < 4; index++) {
+            const [x, y] = from[index];
+            const [u, v] = to[index];
+            matrix.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+            vector.push(u);
+            matrix.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+            vector.push(v);
+          }
+          const values = solve(matrix, vector);
+          return [
+            [values[0], values[1], values[2]],
+            [values[3], values[4], values[5]],
+            [values[6], values[7], 1],
+          ];
+        }
+
+        function project(matrix, point) {
+          const [x, y] = point;
+          const scale = matrix[2][0] * x + matrix[2][1] * y + matrix[2][2];
+          return [
+            (matrix[0][0] * x + matrix[0][1] * y + matrix[0][2]) / scale,
+            (matrix[1][0] * x + matrix[1][1] * y + matrix[1][2]) / scale,
+          ];
+        }
+
+        function sample(source, x, y, output, outputIndex) {
+          const x0 = clamp(Math.floor(x), 0, source.width - 1);
+          const y0 = clamp(Math.floor(y), 0, source.height - 1);
+          const x1 = clamp(x0 + 1, 0, source.width - 1);
+          const y1 = clamp(y0 + 1, 0, source.height - 1);
+          const tx = clamp(x - x0, 0, 1);
+          const ty = clamp(y - y0, 0, 1);
+          const indices = [
+            (y0 * source.width + x0) * 4,
+            (y0 * source.width + x1) * 4,
+            (y1 * source.width + x0) * 4,
+            (y1 * source.width + x1) * 4,
+          ];
+          for (let channel = 0; channel < 4; channel++) {
+            const top =
+              source.data[indices[0] + channel] * (1 - tx) +
+              source.data[indices[1] + channel] * tx;
+            const bottom =
+              source.data[indices[2] + channel] * (1 - tx) +
+              source.data[indices[3] + channel] * tx;
+            output[outputIndex + channel] = Math.round(
+              top * (1 - ty) + bottom * ty,
+            );
+          }
+        }
+
+        function apply(source, normalizedCorners) {
+          const corners = normalizedCorners.map(([x, y]) => [
+            x * (source.width - 1),
+            y * (source.height - 1),
+          ]);
+          const width = Math.max(
+            2,
+            Math.round(
+              Math.max(
+                distance(corners[0], corners[1]),
+                distance(corners[3], corners[2]),
+              ),
+            ),
+          );
+          const height = Math.max(
+            2,
+            Math.round(
+              Math.max(
+                distance(corners[0], corners[3]),
+                distance(corners[1], corners[2]),
+              ),
+            ),
+          );
+          const pageCorners = [
+            [0, 0],
+            [width - 1, 0],
+            [width - 1, height - 1],
+            [0, height - 1],
+          ];
+          const pageToSource = homography(pageCorners, corners);
+          const sourceToPage = homography(corners, pageCorners);
+          const output = new ImageData(width, height);
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              const [sourceX, sourceY] = project(pageToSource, [x, y]);
+              sample(
+                source,
+                sourceX,
+                sourceY,
+                output.data,
+                (y * width + x) * 4,
+              );
+            }
+          }
+          return { imageData: output, sourceToPage };
+        }
+
+        function transformGuides(
+          guides,
+          matrix,
+          sourceWidth,
+          sourceHeight,
+          pageWidth,
+          pageHeight,
+        ) {
+          return guides.map((guide) =>
+            guide.map(([x, y]) => {
+              const [pageX, pageY] = project(matrix, [
+                x * (sourceWidth - 1),
+                y * (sourceHeight - 1),
+              ]);
+              return [
+                pageX / Math.max(1, pageWidth - 1),
+                pageY / Math.max(1, pageHeight - 1),
+              ];
+            }),
+          );
+        }
+
+        return { apply, transformGuides };
+      })();
+
       const curvedPageRemap = (() => {
         const clamp = (value, low, high) =>
           Math.max(low, Math.min(high, value));
@@ -624,6 +812,12 @@
         return { apply, baselineY, curveY, inspect };
       })();
 
+      const captureCanvas = document.querySelector("#captureCanvas");
+      const captureContext = captureCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+      const cornerCanvas = document.querySelector("#cornerCanvas");
+      const cornerContext = cornerCanvas.getContext("2d");
       const sourceCanvas = document.querySelector("#sourceCanvas");
       const sourceContext = sourceCanvas.getContext("2d", {
         willReadFrequently: true,
@@ -636,9 +830,12 @@
         cases: [],
         current: null,
         image: null,
+        corners: [],
+        captureGuides: [],
         guides: [],
         activeGuide: null,
         guidesVisible: true,
+        draggedCorner: null,
       };
 
       function setText(id, value) {
@@ -658,19 +855,91 @@
         document.querySelector("#refusal").classList.remove("visible");
       }
 
-      function sizeCanvases(width, height) {
+      function sizePageCanvases(width, height) {
         for (const canvas of [sourceCanvas, guideCanvas, outputCanvas]) {
           canvas.width = width;
           canvas.height = height;
         }
       }
 
-      function drawSource() {
-        if (!state.image) return;
-        sizeCanvases(state.image.naturalWidth, state.image.naturalHeight);
-        sourceContext.drawImage(state.image, 0, 0);
-        outputContext.drawImage(state.image, 0, 0);
+      function sizeCaptureCanvases(width, height) {
+        for (const canvas of [captureCanvas, cornerCanvas]) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+      }
+
+      function drawCorners() {
+        cornerContext.clearRect(0, 0, cornerCanvas.width, cornerCanvas.height);
+        if (state.corners.length !== 4) return;
+        const points = state.corners.map(([x, y]) => [
+          x * cornerCanvas.width,
+          y * cornerCanvas.height,
+        ]);
+        cornerContext.strokeStyle = "#1e4d3b";
+        cornerContext.fillStyle = "#f6f1e7";
+        cornerContext.lineWidth = Math.max(5, cornerCanvas.width / 140);
+        cornerContext.beginPath();
+        points.forEach(([x, y], index) => {
+          if (index) cornerContext.lineTo(x, y);
+          else cornerContext.moveTo(x, y);
+        });
+        cornerContext.closePath();
+        cornerContext.stroke();
+        for (const [x, y] of points) {
+          cornerContext.beginPath();
+          cornerContext.arc(
+            x,
+            y,
+            Math.max(10, cornerCanvas.width / 55),
+            0,
+            Math.PI * 2,
+          );
+          cornerContext.fill();
+          cornerContext.stroke();
+        }
+      }
+
+      function applyPageCrop() {
+        if (!state.image || state.corners.length !== 4) return;
+        const capture = captureContext.getImageData(
+          0,
+          0,
+          captureCanvas.width,
+          captureCanvas.height,
+        );
+        const cropped = pageCrop.apply(capture, state.corners);
+        sizePageCanvases(cropped.imageData.width, cropped.imageData.height);
+        sourceContext.putImageData(cropped.imageData, 0, 0);
+        outputContext.putImageData(cropped.imageData, 0, 0);
+        state.guides = pageCrop.transformGuides(
+          state.captureGuides,
+          cropped.sourceToPage,
+          capture.width,
+          capture.height,
+          cropped.imageData.width,
+          cropped.imageData.height,
+        );
+        setText(
+          "cropState",
+          `4 corners, ${cropped.imageData.width}×${cropped.imageData.height}`,
+        );
         drawGuides();
+        resetDecision(
+          "The adjusted view appears only after the safety checks pass.",
+        );
+        updateGuideState();
+      }
+
+      function drawCapture() {
+        if (!state.image) return;
+        sizeCaptureCanvases(
+          state.image.naturalWidth,
+          state.image.naturalHeight,
+        );
+        captureContext.drawImage(state.image, 0, 0);
+        drawCorners();
+        applyPageCrop();
       }
 
       function drawGuides() {
@@ -729,9 +998,15 @@
             "sourceState",
             `${sourceLabel}, ${image.naturalWidth}×${image.naturalHeight}`,
           );
-          drawSource();
-          resetDecision();
-          updateGuideState();
+          if (state.corners.length !== 4) {
+            state.corners = [
+              [0.02, 0.02],
+              [0.98, 0.02],
+              [0.98, 0.98],
+              [0.02, 0.98],
+            ];
+          }
+          drawCapture();
         };
         image.onerror = () => {
           setText("sourceState", "Could not load private source");
@@ -761,7 +1036,9 @@
 
       function chooseCase(reviewCase) {
         state.current = reviewCase;
-        state.guides = structuredClone(reviewCase.guides || []);
+        state.corners = structuredClone(reviewCase.corners || []);
+        state.captureGuides = structuredClone(reviewCase.guides || []);
+        state.guides = [];
         state.activeGuide = null;
         setText("caseTitle", reviewCase.label);
         setText("caseDescription", reviewCase.description);
@@ -800,7 +1077,16 @@
           );
         }
         if (!analysis.accepted) {
-          outputContext.drawImage(state.image, 0, 0);
+          outputContext.putImageData(
+            sourceContext.getImageData(
+              0,
+              0,
+              sourceCanvas.width,
+              sourceCanvas.height,
+            ),
+            0,
+            0,
+          );
           setText("timeState", "Refused before remap");
           refuse(analysis);
           return;
@@ -843,6 +1129,8 @@
           const file = event.target.files?.[0];
           if (!file) return;
           state.current = null;
+          state.corners = [];
+          state.captureGuides = [];
           state.guides = [];
           state.activeGuide = null;
           renderCaseTabs();
@@ -893,6 +1181,53 @@
           Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
         ]);
         updateGuideState();
+      });
+
+      function capturePoint(event) {
+        const rect = cornerCanvas.getBoundingClientRect();
+        return [
+          Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+          Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+        ];
+      }
+
+      cornerCanvas.addEventListener("pointerdown", (event) => {
+        const point = capturePoint(event);
+        let nearest = 0;
+        let nearestDistance = Infinity;
+        state.corners.forEach((corner, index) => {
+          const distance = Math.hypot(
+            corner[0] - point[0],
+            corner[1] - point[1],
+          );
+          if (distance < nearestDistance) {
+            nearest = index;
+            nearestDistance = distance;
+          }
+        });
+        if (nearestDistance > 0.12) return;
+        state.draggedCorner = nearest;
+        cornerCanvas.setPointerCapture(event.pointerId);
+      });
+
+      cornerCanvas.addEventListener("pointermove", (event) => {
+        if (state.draggedCorner === null) return;
+        state.corners[state.draggedCorner] = capturePoint(event);
+        drawCorners();
+      });
+
+      function finishCornerDrag(event) {
+        if (state.draggedCorner === null) return;
+        state.corners[state.draggedCorner] = capturePoint(event);
+        state.draggedCorner = null;
+        drawCorners();
+        applyPageCrop();
+      }
+
+      cornerCanvas.addEventListener("pointerup", finishCornerDrag);
+      cornerCanvas.addEventListener("pointercancel", () => {
+        state.draggedCorner = null;
+        drawCorners();
       });
 
       async function loadBundle() {
