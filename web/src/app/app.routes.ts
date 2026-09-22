@@ -1,3 +1,4 @@
+import { isDevMode } from '@angular/core';
 import { Routes } from '@angular/router';
 
 export const routes: Routes = [
@@ -18,6 +19,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/prepare/prepare.component').then((m) => m.PrepareComponent),
     title: 'Prepare score · Noted',
+  },
+  {
+    path: 'prototype/imslp-search',
+    canMatch: [() => isDevMode()],
+    loadComponent: () =>
+      import('./features/prepare/imslp-search.prototype').then(
+        (module) => module.ImslpSearchPrototype,
+      ),
+    title: 'IMSLP search prototype · Noted',
   },
   { path: '**', redirectTo: '' },
 ];

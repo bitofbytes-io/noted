@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, isDevMode, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterOutlet } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -14,6 +14,8 @@ import { SessionExpiryEvents } from './core/session-expiry.interceptor';
   styleUrl: './app.scss',
 })
 export class App implements OnInit {
+  protected readonly prototype =
+    isDevMode() && window.location.pathname === '/prototype/imslp-search';
   protected readonly session = signal<Session | null>(null);
   protected readonly loadingSession = signal(true);
   protected readonly apiOffline = signal(false);
@@ -29,6 +31,10 @@ export class App implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    if (this.prototype) {
+      this.loadingSession.set(false);
+      return;
+    }
     try {
       this.session.set(await firstValueFrom(this.api.session()));
     } catch (error) {

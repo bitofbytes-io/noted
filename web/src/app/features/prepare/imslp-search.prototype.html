@@ -1,0 +1,205 @@
+<!-- Three treatments of IMSLP discovery on the existing Source step, switchable via ?variant=. -->
+<main class="prototype-shell">
+  <header class="masthead">
+    <a href="/" class="wordmark">Noted</a>
+    <span class="prototype-mark">Throwaway prototype</span>
+  </header>
+
+  <div class="heading">
+    <div>
+      <h1>Add a score</h1>
+      <p class="subline">A new piece <span class="tabular">0 pages</span></p>
+    </div>
+    <nav class="steps" aria-label="Preparation steps">
+      <span class="active"><b>1</b> Source</span>
+      <span><b>2</b> Pages</span>
+      <span><b>3</b> Details</span>
+    </nav>
+  </div>
+
+  @if (variant() === 'current') {
+    <p class="variant-note">
+      This is the current app. It already preserves the draft, opens IMSLP, and accepts the PDF on
+      return.
+    </p>
+    <section class="source-options" aria-label="Choose a source">
+      <article>
+        <h2>Upload a PDF</h2>
+        <p>
+          A scanner export or a score you have already downloaded. Good PDFs are kept as they are.
+        </p>
+        <button class="btn-secondary">Choose PDF</button>
+      </article>
+      <article>
+        <h2>From your books</h2>
+        <p>Take one photo per page, or choose photos already on your phone.</p>
+        <div class="actions">
+          <button class="btn-secondary">Take a photo</button>
+          <button class="btn-secondary">Choose photos</button>
+        </div>
+      </article>
+      <article>
+        <h2>Bring an edition from IMSLP</h2>
+        <p>Open the work, choose your edition and download its PDF, then add that file here.</p>
+        <label class="field">
+          <span>IMSLP work link</span>
+          <input [(ngModel)]="workLink" type="url" placeholder="https://imslp.org/wiki/…" />
+        </label>
+        <div class="actions">
+          <button class="btn-secondary" [disabled]="!workLink">Open IMSLP ↗</button>
+          <button class="btn-secondary" (click)="choosePdf()">Add downloaded PDF</button>
+        </div>
+        <small>Check the edition and download terms on IMSLP before importing.</small>
+      </article>
+    </section>
+  }
+
+  @if (variant() === 'inline') {
+    <p class="variant-note">
+      Search lives inside the existing IMSLP source card. Nothing else in the Source step moves.
+    </p>
+    <section class="source-options inline" aria-label="Choose a source">
+      <article>
+        <h2>Upload a PDF</h2>
+        <p>
+          A scanner export or a score you have already downloaded. Good PDFs are kept as they are.
+        </p>
+        <button class="btn-secondary">Choose PDF</button>
+      </article>
+      <article>
+        <h2>From your books</h2>
+        <p>Use this when the exact lesson edition or its pencil markings matter.</p>
+        <div class="actions">
+          <button class="btn-secondary">Take a photo</button>
+          <button class="btn-secondary">Choose photos</button>
+        </div>
+      </article>
+      <article class="imslp-card">
+        <h2>Find a score on IMSLP</h2>
+        <p>Search for the work. You will still choose and download the edition on IMSLP.</p>
+        <div class="search-fields">
+          <label class="field">
+            <span>Title</span>
+            <input [(ngModel)]="title" />
+          </label>
+          <label class="field">
+            <span>Composer</span>
+            <input [(ngModel)]="composer" />
+          </label>
+        </div>
+        <button class="btn-secondary" (click)="search()">Search IMSLP</button>
+
+        @if (searched()) {
+          <div class="result-list" aria-label="IMSLP work results">
+            @for (result of results; track result.url) {
+              <button
+                type="button"
+                class="result"
+                [class.selected]="selected()?.url === result.url"
+                (click)="choose(result)"
+              >
+                <span>{{ result.title }}</span>
+                <small>{{ result.composer }}</small>
+                <small>{{ result.catalogue }}</small>
+              </button>
+            }
+          </div>
+        }
+
+        @if (selected(); as work) {
+          <div class="handoff">
+            <p>
+              <strong>{{ work.title }}</strong> will prefill the piece details.
+            </p>
+            <div class="actions">
+              <a class="btn-secondary" [href]="work.url" target="_blank" rel="noreferrer">
+                Open work on IMSLP ↗
+              </a>
+              <button class="btn-secondary" (click)="choosePdf()">Add downloaded PDF</button>
+            </div>
+          </div>
+        }
+
+        <details class="fallback">
+          <summary>Already have an IMSLP work link?</summary>
+          <label class="field">
+            <span>IMSLP work link</span>
+            <input [(ngModel)]="workLink" type="url" placeholder="https://imslp.org/wiki/…" />
+          </label>
+          <button class="btn-secondary" [disabled]="!workLink">Open IMSLP ↗</button>
+        </details>
+      </article>
+    </section>
+  }
+
+  @if (variant() === 'focused') {
+    <p class="variant-note">
+      Choosing IMSLP opens one focused source step. Search results get the full page width.
+    </p>
+    <button class="btn-quiet accent back">Choose a different source</button>
+    <section class="focused-finder">
+      <div class="finder-intro">
+        <h2>Find a score on IMSLP</h2>
+        <p>
+          Find the work here, then choose and download an edition on IMSLP. Use photos instead when
+          you need the exact edition from your lesson book.
+        </p>
+      </div>
+      <div class="wide-search">
+        <label class="field">
+          <span>Piece title or composer</span>
+          <input [(ngModel)]="title" placeholder="Moonlight Sonata or Beethoven" />
+        </label>
+        <button class="btn-primary" (click)="search()">Find works</button>
+      </div>
+
+      @if (searched()) {
+        <div class="focused-results">
+          <p class="result-count">3 IMSLP works</p>
+          @for (result of results; track result.url) {
+            <div class="focused-result" [class.selected]="selected()?.url === result.url">
+              <button type="button" class="result-copy" (click)="choose(result)">
+                <strong>{{ result.title }}</strong>
+                <span>{{ result.composer }}</span>
+                <small>{{ result.catalogue }}</small>
+              </button>
+              <a class="btn-secondary" [href]="result.url" target="_blank" rel="noreferrer">
+                Open on IMSLP ↗
+              </a>
+            </div>
+          }
+        </div>
+      }
+
+      <div class="focused-footer">
+        <details class="fallback">
+          <summary>Can't find it? Paste an IMSLP work link</summary>
+          <label class="field">
+            <span>IMSLP work link</span>
+            <input [(ngModel)]="workLink" type="url" placeholder="https://imslp.org/wiki/…" />
+          </label>
+        </details>
+        <button class="btn-secondary" (click)="choosePdf()">
+          Add a PDF you already downloaded
+        </button>
+      </div>
+    </section>
+  }
+
+  @if (pdfChosen()) {
+    <div class="prototype-toast" role="status">
+      PDF chosen. The existing page-preparation flow continues.
+    </div>
+  }
+
+  <div class="source-foot">
+    <button class="btn-quiet">Add details without a PDF</button>
+    <p>Files up to 50 MiB, drafts up to 200 MiB and 100 prepared pages.</p>
+  </div>
+</main>
+
+<nav class="prototype-switcher" aria-label="Prototype variants">
+  <button type="button" aria-label="Previous variant" (click)="cycle(-1)">←</button>
+  <span>{{ variantCode }} ({{ variantName }})</span>
+  <button type="button" aria-label="Next variant" (click)="cycle(1)">→</button>
+</nav>
