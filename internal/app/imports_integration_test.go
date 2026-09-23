@@ -56,12 +56,97 @@ func TestIntegrationImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	autoTitle, autoComposer := "Prelude", "Example, Ada"
+	d.Metadata.Title, d.Metadata.Composer = autoTitle, autoComposer
+	d.IMSLPAutoFill = IMSLPAutoFill{Title: &autoTitle, Composer: &autoComposer}
+	if _, err = s.UpdateImport(ctx, owner.ID, d.ID, UpdateImport{
+		Revision: d.Revision, Metadata: PieceInput{Title: "Different", Composer: autoComposer},
+		IMSLPAutoFill: d.IMSLPAutoFill, Manifest: d.Manifest,
+	}); err == nil {
+		t.Fatal("stale IMSLP title ownership was accepted")
+	}
+	d, err = s.UpdateImport(ctx, owner.ID, d.ID, UpdateImport{
+		Revision: d.Revision, Metadata: d.Metadata, IMSLPAutoFill: d.IMSLPAutoFill, Manifest: d.Manifest,
+	})
+	if err != nil || d.IMSLPAutoFill.Title == nil || *d.IMSLPAutoFill.Title != autoTitle {
+		t.Fatalf("draft autofill was not persisted: %+v %v", d.IMSLPAutoFill, err)
+	}
+	manualDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualDraft.Metadata.Title = "My printed edition"
+	manualDraft.IMSLPAutoFill = IMSLPAutoFill{TitleEdited: true, ComposerEdited: true}
+	manualDraft, err = s.UpdateImport(ctx, owner.ID, manualDraft.ID, UpdateImport{
+		Revision: manualDraft.Revision, Metadata: manualDraft.Metadata,
+		IMSLPAutoFill: manualDraft.IMSLPAutoFill, Manifest: manualDraft.Manifest,
+	})
+	if err != nil || !manualDraft.IMSLPAutoFill.TitleEdited || !manualDraft.IMSLPAutoFill.ComposerEdited {
+		t.Fatalf("manual metadata ownership was not persisted: %+v %v", manualDraft.IMSLPAutoFill, err)
+	}
+	if err = s.DeleteImport(ctx, owner.ID, manualDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	emptyTitleDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyTitle := ""
+	emptyTitleDraft.Metadata.SourceURL = "https://imslp.org/wiki/(Composer,_Name)"
+	emptyTitleDraft.IMSLPAutoFill.Title = &emptyTitle
+	emptyTitleDraft, err = s.UpdateImport(ctx, owner.ID, emptyTitleDraft.ID, UpdateImport{
+		Revision: emptyTitleDraft.Revision, Metadata: emptyTitleDraft.Metadata,
+		IMSLPAutoFill: emptyTitleDraft.IMSLPAutoFill, Manifest: emptyTitleDraft.Manifest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyTitleDraft, err = s.UploadImportSource(ctx, owner.ID, emptyTitleDraft.ID, "from-book.pdf", emptyTitleDraft.Revision, bytes.NewReader(pdf))
+	if err != nil || emptyTitleDraft.Metadata.Title != "from-book" || emptyTitleDraft.IMSLPAutoFill.Title == nil ||
+		*emptyTitleDraft.IMSLPAutoFill.Title != "from-book" {
+		t.Fatalf("filename fallback lost title ownership: %+v %v", emptyTitleDraft, err)
+	}
+	selectedTitle := "Nocturne"
+	emptyTitleDraft.Metadata.Title = selectedTitle
+	emptyTitleDraft.Metadata.SourceURL = "https://imslp.org/wiki/Nocturne_(Sample,_Bea)"
+	emptyTitleDraft.IMSLPAutoFill.Title = &selectedTitle
+	if _, err = s.UpdateImport(ctx, owner.ID, emptyTitleDraft.ID, UpdateImport{
+		Revision: emptyTitleDraft.Revision, Metadata: emptyTitleDraft.Metadata,
+		IMSLPAutoFill: emptyTitleDraft.IMSLPAutoFill, Manifest: emptyTitleDraft.Manifest,
+	}); err != nil {
+		t.Fatalf("subsequent selected work could not replace filename title: %v", err)
+	}
+	if err = s.DeleteImport(ctx, owner.ID, emptyTitleDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	manualBlankDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualBlankDraft.IMSLPAutoFill.TitleEdited = true
+	manualBlankDraft, err = s.UpdateImport(ctx, owner.ID, manualBlankDraft.ID, UpdateImport{
+		Revision: manualBlankDraft.Revision, Metadata: manualBlankDraft.Metadata,
+		IMSLPAutoFill: manualBlankDraft.IMSLPAutoFill, Manifest: manualBlankDraft.Manifest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualBlankDraft, err = s.UploadImportSource(ctx, owner.ID, manualBlankDraft.ID, "do-not-fill.pdf", manualBlankDraft.Revision, bytes.NewReader(pdf))
+	if err != nil || manualBlankDraft.Metadata.Title != "" || manualBlankDraft.IMSLPAutoFill.Title != nil {
+		t.Fatalf("manual blank title was overwritten by filename: %+v %v", manualBlankDraft, err)
+	}
+	if err = s.DeleteImport(ctx, owner.ID, manualBlankDraft.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = s.GetImport(ctx, other.ID, d.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign draft: %v", err)
 	}
 	d, err = s.UploadImportSource(ctx, owner.ID, d.ID, "score.pdf", d.Revision, bytes.NewReader(pdf))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if d.IMSLPAutoFill.Composer == nil || *d.IMSLPAutoFill.Composer != autoComposer {
+		t.Fatalf("upload lost draft autofill: %+v", d.IMSLPAutoFill)
 	}
 	if len(d.Manifest.Pages) != 2 || d.Sources[0].PageCount != 2 {
 		t.Fatalf("actual count %+v", d)
@@ -87,6 +172,9 @@ func TestIntegrationImports(t *testing.T) {
 	piece, err := s.FinalizeImport(ctx, owner.ID, d.ID, d.Revision, bytes.NewReader(pdf))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if piece.Title != autoTitle || piece.Composer != autoComposer {
+		t.Fatalf("final piece metadata changed: %+v", piece)
 	}
 	retry, err := s.FinalizeImport(ctx, owner.ID, d.ID, d.Revision, bytes.NewReader(nil))
 	if err != nil || retry.ID != piece.ID {

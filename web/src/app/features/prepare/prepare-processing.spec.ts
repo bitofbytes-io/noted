@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ImportAsset, PageEdit } from '../../core/models';
 import { measureAsync } from '../../core/performance';
-import { PreparedPageCache, ProcessingWorkerClient, preparedPhotoKey } from './prepare-processing';
+import {
+  PreparedPageCache,
+  ProcessingWorkerClient,
+  hasPageAdjustments,
+  preparedPhotoKey,
+} from './prepare-processing';
 
 const source: ImportAsset = {
   id: 'source-one',
@@ -28,6 +33,62 @@ class FakeWorker {
     this.onmessage?.({ data } as MessageEvent);
   }
 }
+
+describe('hasPageAdjustments', () => {
+  it('ignores identity and no-op defaults', () => {
+    expect(hasPageAdjustments(page())).toBe(false);
+    expect(
+      hasPageAdjustments(
+        page({
+          id: 'reordered',
+          page: 2,
+          angle: 0,
+          rotation: 360,
+          scale: 1,
+          crop: [0, 0, 1, 1],
+          corners: [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+          ],
+          margins: [0, 0, 0, 0],
+          paperCleanupStrength: 0,
+          fitEdges: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    { crop: [0.02, 0, 1, 1] },
+    {
+      corners: [
+        [0.02, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ],
+    },
+    { angle: 1 },
+    { rotation: 90 },
+    { paperCleanupStrength: 0.2 },
+    { margins: [4, 0, 0, 0] },
+    { scale: 1.2 },
+    { x: 0.1 },
+  ])('marks a meaningful edit %j', (edit) => {
+    expect(hasPageAdjustments(page(edit))).toBe(true);
+    expect(hasPageAdjustments(page())).toBe(false);
+  });
+
+  it('ignores legacy canvas fields when natural edge fitting is active', () => {
+    expect(
+      hasPageAdjustments(
+        page({ fitEdges: true, scale: 2, x: 0.3, outputWidth: 500, outputHeight: 700 }),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe('preparedPhotoKey', () => {
   it('normalizes semantic defaults and excludes ids and order', () => {

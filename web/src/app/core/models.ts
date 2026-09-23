@@ -94,10 +94,27 @@ export interface ImportDraft {
   pieceId: string | null;
   revision: number;
   metadata: PieceInput;
+  imslpAutoFill?: {
+    title?: string;
+    composer?: string;
+    titleEdited?: boolean;
+    composerEdited?: boolean;
+  };
   manifest: EditManifest;
   initialManifest: EditManifest;
   sources: ImportAsset[];
   finalized: boolean;
   updatedAt: string;
   maxFileBytes: number;
+}
+
+export interface IMSLPWork {
+  title: string;
+  composer: string;
+  url: string;
+}
+
+export interface IMSLPSearch {
+  status: 'ready' | 'loading' | 'unavailable';
+  results: IMSLPWork[];
 }

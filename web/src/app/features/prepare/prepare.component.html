@@ -166,36 +166,104 @@
           </div>
           <small>JPEG or PNG, up to 20 megapixels. Export HEIC photos as JPEG first.</small>
         </article>
-        <article class="imslp" [hidden]="sourceMode() !== 'all' && sourceMode() !== 'imslp'">
-          <h2>Bring an edition from IMSLP</h2>
-          <p>
-            Open the work, choose your edition and download its PDF, then add that file here. The
-            work link stays with the piece.
-          </p>
-          <label class="field">
-            <span>IMSLP work link</span>
-            <input
-              type="url"
-              [(ngModel)]="imslp"
-              [disabled]="busy()"
-              placeholder="https://imslp.org/wiki/…"
-            />
-          </label>
-          <div class="actions">
-            <button class="btn-secondary" (click)="openIMSLP()" [disabled]="busy() || !imslp">
-              <span>Open IMSLP</span>
-              <svg lucideExternalLink aria-hidden="true"></svg>
+        @if (sourceMode() === 'all') {
+          <article class="imslp-entry">
+            <h2>Find a score on IMSLP</h2>
+            <p>Explore classical works, then choose and download an edition on IMSLP.</p>
+            <button class="btn-secondary" type="button" (click)="sourceMode.set('imslp')">
+              Find a score on IMSLP
             </button>
-            <button
-              class="btn-secondary"
-              (click)="pdfInput.click()"
-              [disabled]="busy() || editingEdges"
-            >
-              Add downloaded PDF
-            </button>
-          </div>
-          <small>Check the edition and download terms on IMSLP before importing.</small>
-        </article>
+          </article>
+        }
+        @if (sourceMode() === 'imslp') {
+          <article class="imslp">
+            <h2>Find a score on IMSLP</h2>
+            <p>
+              Open the work, choose your edition and download its PDF, then add that file here. The
+              work link stays with the piece.
+            </p>
+            <form class="imslp-search" (ngSubmit)="searchIMSLP()">
+              <label class="field">
+                <span>Search title or composer</span>
+                <input
+                  type="search"
+                  name="imslpQuery"
+                  [(ngModel)]="imslpQuery"
+                  maxlength="100"
+                  placeholder="Piece or composer"
+                />
+              </label>
+              <button
+                class="btn-secondary"
+                type="submit"
+                [disabled]="imslpQuery.trim().length < 2 || imslpStatus() === 'searching'"
+              >
+                Search works
+              </button>
+            </form>
+            @if (imslpStatus() === 'searching') {
+              <p role="status">Searching cached works…</p>
+            } @else if (imslpStatus() === 'loading') {
+              <p role="status">
+                The work list is still loading. You can use a work link or add a downloaded PDF now.
+              </p>
+            } @else if (imslpStatus() === 'unavailable' || imslpStatus() === 'error') {
+              <p role="status">
+                Work search is unavailable right now. You can use a work link or add a downloaded
+                PDF.
+              </p>
+            } @else if (imslpStatus() === 'ready' && !imslpResults().length) {
+              <p role="status">
+                No matching works found. Try another title or composer, or use a work link.
+              </p>
+            }
+            @if (imslpResults().length) {
+              <ul class="imslp-results" aria-label="IMSLP work results">
+                @for (work of imslpResults(); track work.url) {
+                  <li>
+                    <span
+                      ><strong>{{ work.title }}</strong
+                      ><small>{{ work.composer }}</small></span
+                    >
+                    <button
+                      class="btn-secondary"
+                      type="button"
+                      (click)="selectIMSLPWork(work)"
+                      [attr.aria-label]="'Select ' + work.title + ' by ' + work.composer"
+                    >
+                      Select work
+                    </button>
+                  </li>
+                }
+              </ul>
+              <p class="imslp-result-limit">
+                Showing up to 30 works. Try a more specific title or composer to narrow the results.
+              </p>
+            }
+            <label class="field">
+              <span>IMSLP work link</span>
+              <input
+                type="url"
+                [(ngModel)]="imslp"
+                [disabled]="busy()"
+                placeholder="https://imslp.org/wiki/…"
+              />
+            </label>
+            <div class="actions">
+              <button class="btn-secondary" (click)="openIMSLP()" [disabled]="busy() || !imslp">
+                <span>Open IMSLP</span>
+                <svg lucideExternalLink aria-hidden="true"></svg>
+              </button>
+              <button
+                class="btn-secondary"
+                (click)="pdfInput.click()"
+                [disabled]="busy() || editingEdges"
+              >
+                Add downloaded PDF
+              </button>
+            </div>
+          </article>
+        }
       </section>
       <div class="source-foot">
         @if (!d.sources.length) {
@@ -249,7 +317,9 @@
                   type="button"
                   [disabled]="busy() || editingEdges"
                   (click)="choose(i)"
-                  [attr.aria-label]="'Preview page ' + (i + 1)"
+                  [attr.aria-label]="
+                    'Preview page ' + (i + 1) + (hasPageAdjustments(p) ? ', adjusted' : '')
+                  "
                 >
                   @if (thumbs()[p.id]) {
                     <img [src]="thumbs()[p.id]" alt="" />
@@ -257,6 +327,9 @@
                     <span class="placeholder">PDF</span>
                   }
                   <span class="tabular">Page {{ i + 1 }}</span>
+                  @if (hasPageAdjustments(p)) {
+                    <span class="adjusted-marker">Adjusted</span>
+                  }
                 </button>
                 <input
                   type="checkbox"

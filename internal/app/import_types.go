@@ -42,6 +42,7 @@ type ImportDraft struct {
 	Revision        int64         `json:"revision"`
 	BaseRevision    int64         `json:"-"`
 	Metadata        PieceInput    `json:"metadata"`
+	IMSLPAutoFill   IMSLPAutoFill `json:"imslpAutoFill"`
 	Manifest        EditManifest  `json:"manifest"`
 	InitialManifest EditManifest  `json:"initialManifest"`
 	Sources         []ImportAsset `json:"sources"`
@@ -49,12 +50,22 @@ type ImportDraft struct {
 	UpdatedAt       time.Time     `json:"updatedAt"`
 	MaxFileBytes    int64         `json:"maxFileBytes"`
 }
+
+// IMSLPAutoFill belongs only to an open import draft. Owned values may be
+// replaced by a later work choice; manually edited fields must not be.
+type IMSLPAutoFill struct {
+	Title          *string `json:"title,omitempty"`
+	Composer       *string `json:"composer,omitempty"`
+	TitleEdited    bool    `json:"titleEdited,omitempty"`
+	ComposerEdited bool    `json:"composerEdited,omitempty"`
+}
 type CreateImport struct {
 	PieceID   string `json:"pieceId"`
 	SourceURL string `json:"sourceUrl"`
 }
 type UpdateImport struct {
-	Revision int64        `json:"revision"`
-	Metadata PieceInput   `json:"metadata"`
-	Manifest EditManifest `json:"manifest"`
+	Revision      int64         `json:"revision"`
+	Metadata      PieceInput    `json:"metadata"`
+	IMSLPAutoFill IMSLPAutoFill `json:"imslpAutoFill"`
+	Manifest      EditManifest  `json:"manifest"`
 }

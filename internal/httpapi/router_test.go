@@ -42,6 +42,7 @@ type fakeBackend struct {
 	pdfPieceID   string
 	readerState  app.ReaderState
 	readerError  error
+	imslpQuery   string
 }
 
 func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool) ([]app.Piece, error) {
@@ -94,6 +95,28 @@ func (*fakeBackend) GetReaderState(context.Context, string, string) (app.ReaderS
 func (fake *fakeBackend) PutReaderState(_ context.Context, _, _ string, state app.ReaderState) (app.ReaderState, error) {
 	fake.readerState = state
 	return state, fake.readerError
+}
+func (fake *fakeBackend) SearchIMSLP(_ context.Context, query string) (app.IMSLPSearch, error) {
+	fake.imslpQuery = query
+	return app.IMSLPSearch{Status: "ready", Results: []app.IMSLPWork{{Title: "Prelude", Composer: "Example, Ada", URL: "https://imslp.org/wiki/Prelude_(Example,_Ada)"}}}, nil
+}
+
+func TestIMSLPWorkSearchRequiresValidQueryAndReturnsWork(t *testing.T) {
+	fake := &fakeBackend{}
+	router := testRouter(fake, 1024)
+	for _, path := range []string{"/api/imslp/works", "/api/imslp/works?q=x"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusBadRequest || fake.imslpQuery != "" {
+			t.Fatalf("invalid search %s: %d %s", path, response.Code, response.Body.String())
+		}
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/imslp/works?q=Prelude", nil))
+	if response.Code != http.StatusOK || fake.imslpQuery != "Prelude" ||
+		!strings.Contains(response.Body.String(), `"status":"ready"`) {
+		t.Fatalf("work search: %d %s", response.Code, response.Body.String())
+	}
 }
 
 type fakeAuthenticator struct {

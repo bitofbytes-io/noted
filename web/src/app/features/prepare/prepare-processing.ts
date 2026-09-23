@@ -16,6 +16,38 @@ function points(value: number[][] | undefined): number[][] {
   return (value ?? []).map((point) => [finite(point[0]), finite(point[1])]);
 }
 
+/** Whether preparation changes the page image or its output canvas. */
+export function hasPageAdjustments(edit: PageEdit): boolean {
+  const differs = (value: number | undefined, original: number) =>
+    finite(value, original) !== original;
+  const crop = vector(edit.crop, [0, 0, 1, 1]);
+  const corners = points(edit.corners);
+  const fullCorners = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  return (
+    differs(edit.angle, 0) ||
+    ((finite(edit.rotation) % 360) + 360) % 360 !== 0 ||
+    (edit.paperCleanupStrength ?? (edit.paperCleanup ? 1 : 0)) > 0 ||
+    vector(edit.margins, [0, 0, 0, 0]).some((value) => value !== 0) ||
+    crop.some((value, index) => value !== [0, 0, 1, 1][index]) ||
+    (corners.length > 0 &&
+      (corners.length !== 4 ||
+        corners.some((point, index) =>
+          point.some((value, axis) => value !== fullCorners[index][axis]),
+        ))) ||
+    (!edit.fitEdges &&
+      (differs(edit.scale, 1) ||
+        differs(edit.x, 0) ||
+        differs(edit.y, 0) ||
+        differs(edit.outputWidth, 0) ||
+        differs(edit.outputHeight, 0)))
+  );
+}
+
 export function preparedPhotoKey(source: ImportAsset, edit: PageEdit): string {
   const strength = edit.paperCleanupStrength ?? (edit.paperCleanup ? 1 : 0);
   const rotation = ((finite(edit.rotation) % 360) + 360) % 360;

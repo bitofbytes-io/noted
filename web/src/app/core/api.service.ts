@@ -1,11 +1,17 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Piece, PieceInput, ReaderState, Session, ImportDraft } from './models';
+import { Piece, PieceInput, ReaderState, Session, ImportDraft, IMSLPSearch } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
+
+  searchIMSLP(query: string): Observable<IMSLPSearch> {
+    return this.http.get<IMSLPSearch>('/api/imslp/works', {
+      params: new HttpParams().set('q', query.trim()),
+    });
+  }
 
   imports(): Observable<ImportDraft[]> {
     return this.http.get<ImportDraft[]>('/api/imports/');
@@ -20,6 +26,7 @@ export class ApiService {
     return this.http.patch<ImportDraft>(`/api/imports/${d.id}/`, {
       revision: d.revision,
       metadata: d.metadata,
+      imslpAutoFill: d.imslpAutoFill ?? {},
       manifest: d.manifest,
     });
   }
