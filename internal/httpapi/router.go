@@ -61,6 +61,7 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 	router.Delete("/api/session", handler.logout)
 	router.Group(func(router chi.Router) {
 		router.Use(handler.authenticatedUser)
+		router.Get("/api/imslp/works", handler.searchIMSLPWorks)
 		router.Route("/api/imports", func(router chi.Router) {
 			router.Get("/", handler.listImports)
 			router.Post("/", handler.createImport)

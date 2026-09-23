@@ -11,7 +11,14 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { EditManifest, ImportAsset, ImportDraft, PageEdit, PieceInput } from '../../core/models';
+import {
+  EditManifest,
+  ImportAsset,
+  ImportDraft,
+  IMSLPWork,
+  PageEdit,
+  PieceInput,
+} from '../../core/models';
 import { measureAsync } from '../../core/performance';
 import {
   PreparedPageCache,
@@ -19,6 +26,7 @@ import {
   ProcessingStoppedError,
   ProcessingWorkerClient,
   isProcessingStopped,
+  hasPageAdjustments,
   preparedPhotoKey,
 } from './prepare-processing';
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
@@ -56,6 +64,7 @@ interface ThumbnailRequest {
 })
 export class PrepareComponent implements OnDestroy {
   readonly Math = Math;
+  readonly hasPageAdjustments = hasPageAdjustments;
   readonly steps: { id: 'source' | 'pages' | 'details'; label: string }[] = [
     { id: 'source', label: 'Source' },
     { id: 'pages', label: 'Pages' },
@@ -93,6 +102,12 @@ export class PrepareComponent implements OnDestroy {
   readonly selectedIDs = signal<Set<string>>(new Set());
   readonly suggestion = signal<Suggestion | null>(null);
   imslp = '';
+  imslpQuery = '';
+  readonly imslpResults = signal<IMSLPWork[]>([]);
+  readonly imslpStatus = signal<
+    'idle' | 'searching' | 'ready' | 'loading' | 'unavailable' | 'error'
+  >('idle');
+  private imslpRequest = 0;
   readonly sourceMode = signal('all');
   rangeSourceId = '';
   rangeText = '';
@@ -188,6 +203,7 @@ export class PrepareComponent implements OnDestroy {
   }
   ngOnDestroy() {
     this.destroyed = true;
+    this.imslpRequest++;
     this.invalidatePreview();
     this.dragCleanup?.();
     clearTimeout(this.previewTimer);
@@ -268,7 +284,20 @@ export class PrepareComponent implements OnDestroy {
   updateMetadata<K extends keyof PieceInput>(key: K, value: PieceInput[K]): void {
     if (this.finalizing()) return;
     this.draft.update((current) =>
-      current ? { ...current, metadata: { ...current.metadata, [key]: value } } : null,
+      current
+        ? {
+            ...current,
+            metadata: { ...current.metadata, [key]: value },
+            imslpAutoFill:
+              key === 'title' || key === 'composer'
+                ? {
+                    ...current.imslpAutoFill,
+                    [key]: undefined,
+                    [key === 'title' ? 'titleEdited' : 'composerEdited']: true,
+                  }
+                : current.imslpAutoFill,
+          }
+        : null,
     );
     this.mark();
   }
@@ -1194,13 +1223,76 @@ export class PrepareComponent implements OnDestroy {
     )
       throw Error('Use an HTTPS work link from imslp.org/wiki/.');
     const metadata = this.draft()!.metadata;
+    const changedWork = metadata.sourceUrl !== url.href;
     metadata.sourceUrl = url.href;
     const name = decodeURIComponent(url.pathname.slice(6)).replaceAll('_', ' ');
-    if (!metadata.title) metadata.title = name.replace(/\s*\([^)]*\)$/, '');
+    if (changedWork || (!metadata.title && this.draft()?.imslpAutoFill?.title === undefined)) {
+      this.prefillIMSLPField('title', name.replace(/\s*\([^)]*\)$/, ''));
+    }
     const composer = name.match(/\(([^()]+, [^()]+)\)$/)?.[1];
-    if (!metadata.composer && composer) metadata.composer = composer;
+    if (
+      changedWork ||
+      (!metadata.composer && this.draft()?.imslpAutoFill?.composer === undefined)
+    ) {
+      this.prefillIMSLPField('composer', composer ?? '');
+    }
     this.mark();
     return url.href;
+  }
+  private prefillIMSLPField(field: 'title' | 'composer', value: string) {
+    const d = this.draft()!;
+    const provenance = (d.imslpAutoFill ??= {});
+    const manuallyEdited = field === 'title' ? provenance.titleEdited : provenance.composerEdited;
+    if (manuallyEdited) return;
+    if (
+      !d.metadata[field] ||
+      (provenance[field] !== undefined && d.metadata[field] === provenance[field])
+    ) {
+      d.metadata[field] = value;
+      provenance[field] = value;
+    } else {
+      delete provenance[field];
+    }
+  }
+  async searchIMSLP() {
+    const query = this.imslpQuery.trim();
+    if (query.length < 2 || query.length > 100) {
+      this.imslpStatus.set('idle');
+      this.imslpResults.set([]);
+      return;
+    }
+    const request = ++this.imslpRequest;
+    this.imslpStatus.set('searching');
+    this.imslpResults.set([]);
+    try {
+      const result = await firstValueFrom(this.api.searchIMSLP(query));
+      if (request !== this.imslpRequest || this.destroyed) return;
+      this.imslpStatus.set(result.status);
+      this.imslpResults.set(result.results);
+    } catch {
+      if (request !== this.imslpRequest || this.destroyed) return;
+      this.imslpStatus.set('error');
+      this.imslpResults.set([]);
+    }
+  }
+  selectIMSLPWork(work: IMSLPWork) {
+    if (!this.draft() || this.busy() || this.finalizing() || !this.imslpResults().includes(work))
+      return;
+    this.imslp = work.url;
+    const metadata = this.draft()!.metadata;
+    metadata.sourceUrl = work.url;
+    this.prefillIMSLPField('title', work.title);
+    this.prefillIMSLPField('composer', work.composer);
+    this.draft.update((d) =>
+      d
+        ? {
+            ...d,
+            metadata: { ...d.metadata },
+            imslpAutoFill: { ...d.imslpAutoFill },
+          }
+        : null,
+    );
+    this.mark();
   }
   async openIMSLP() {
     try {

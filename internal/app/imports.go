@@ -57,11 +57,35 @@ func scanDraft(row pgx.Row) (ImportDraft, error) {
 	if err = json.Unmarshal(metadata, &d.Metadata); err != nil {
 		return d, err
 	}
+	var draftOnly struct {
+		IMSLPAutoFill IMSLPAutoFill `json:"imslpAutoFill"`
+	}
+	if err = json.Unmarshal(metadata, &draftOnly); err != nil {
+		return d, err
+	}
+	d.IMSLPAutoFill = draftOnly.IMSLPAutoFill
 	if err = json.Unmarshal(manifest, &d.Manifest); err != nil {
 		return d, err
 	}
 	err = json.Unmarshal(initial, &d.InitialManifest)
 	return d, err
+}
+
+func marshalDraftMetadata(metadata PieceInput, provenance IMSLPAutoFill) ([]byte, error) {
+	return json.Marshal(struct {
+		PieceInput
+		IMSLPAutoFill IMSLPAutoFill `json:"imslpAutoFill"`
+	}{metadata, provenance})
+}
+
+func validateIMSLPAutoFill(metadata PieceInput, provenance IMSLPAutoFill) error {
+	if provenance.Title != nil && (provenance.TitleEdited || len(*provenance.Title) > 300 || *provenance.Title != metadata.Title) {
+		return fmt.Errorf("IMSLP title ownership must match the draft title")
+	}
+	if provenance.Composer != nil && (provenance.ComposerEdited || len(*provenance.Composer) > 300 || *provenance.Composer != metadata.Composer) {
+		return fmt.Errorf("IMSLP composer ownership must match the draft composer")
+	}
+	return nil
 }
 func (s *Service) draftTx(ctx context.Context, tx pgx.Tx, owner, id string) (ImportDraft, error) {
 	d, err := scanDraft(tx.QueryRow(ctx, `SELECT `+draftColumns+` FROM import_drafts WHERE id=$1 AND user_id=$2 AND updated_at>now()-interval '7 days' FOR UPDATE`, id, owner))
@@ -171,7 +195,7 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 		}
 	}
 	d.InitialManifest = d.Manifest
-	meta, _ := json.Marshal(d.Metadata)
+	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill)
 	manifest, _ := json.Marshal(d.Manifest)
 	_, err = tx.Exec(ctx, `INSERT INTO import_drafts(id,user_id,piece_id,base_revision,metadata,manifest,initial_manifest) VALUES($1,$2,$3,$4,$5,$6,$6)`, d.ID, owner, d.PieceID, d.BaseRevision, meta, manifest)
 	if err != nil {
@@ -211,7 +235,10 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 	if _, err = validatePiece(metadata); err != nil {
 		return d, err
 	}
-	meta, _ := json.Marshal(input.Metadata)
+	if err = validateIMSLPAutoFill(input.Metadata, input.IMSLPAutoFill); err != nil {
+		return d, err
+	}
+	meta, _ := marshalDraftMetadata(input.Metadata, input.IMSLPAutoFill)
 	manifest, _ := json.Marshal(input.Manifest)
 	_, err = tx.Exec(ctx, `UPDATE import_drafts SET metadata=$2,manifest=$3,revision=revision+1,updated_at=now() WHERE id=$1`, id, meta, manifest)
 	if err != nil {
@@ -276,11 +303,14 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	for n := 0; n < count && len(d.Manifest.Pages) < 100; n++ {
 		d.Manifest.Pages = append(d.Manifest.Pages, PageEdit{ID: uuid.NewString(), SourceID: a.ID, Page: n})
 	}
-	if d.Metadata.Title == "" {
+	if d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited {
 		d.Metadata.Title = strings.TrimSuffix(filename, ".pdf")
+		// The filename is an automatic fallback, not a user edit. Own it so
+		// choosing a work later can replace it.
+		d.IMSLPAutoFill.Title = &d.Metadata.Title
 	}
 	manifest, _ := json.Marshal(d.Manifest)
-	meta, _ := json.Marshal(d.Metadata)
+	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill)
 	_, err = tx.Exec(ctx, `UPDATE import_drafts SET manifest=$2,metadata=$3,revision=revision+1,updated_at=now() WHERE id=$1`, id, manifest, meta)
 	if err != nil {
 		return d, err

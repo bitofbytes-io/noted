@@ -3,7 +3,7 @@ import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angul
 import { Observable, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
-import { ImportAsset, ImportDraft, PageEdit, Piece } from '../../core/models';
+import { ImportAsset, ImportDraft, IMSLPSearch, PageEdit, Piece } from '../../core/models';
 import {
   PreparedPageCache,
   ProcessingStoppedError,
@@ -38,6 +38,7 @@ describe('PrepareComponent', () => {
     deleteImport: ReturnType<typeof vi.fn>;
     updateImport: ReturnType<typeof vi.fn>;
     finalizeImport: ReturnType<typeof vi.fn>;
+    searchIMSLP: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -46,6 +47,7 @@ describe('PrepareComponent', () => {
       deleteImport: vi.fn((): Observable<void> => of(undefined)),
       updateImport: vi.fn((value: ImportDraft) => of(value)),
       finalizeImport: vi.fn(() => of({ id: 'piece-one', pdf: {} } as unknown as Piece)),
+      searchIMSLP: vi.fn((): Observable<IMSLPSearch> => of({ status: 'ready', results: [] })),
     };
     await TestBed.configureTestingModule({
       imports: [PrepareComponent],
@@ -66,6 +68,270 @@ describe('PrepareComponent', () => {
     fixture = TestBed.createComponent(PrepareComponent);
     fixture.detectChanges();
     await fixture.whenStable();
+  });
+
+  it('marks meaningful page edits and clears the marker after reset', () => {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      manifest: {
+        version: 1,
+        pages: [
+          { id: 'page-1', sourceId: 'photo', page: 0, paperCleanupStrength: 0.4 },
+          { id: 'page-2', sourceId: 'photo', page: 0 },
+        ],
+      },
+    });
+    component.step.set('pages');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.adjusted-marker')).toHaveLength(1);
+    expect(
+      fixture.nativeElement.querySelectorAll('.thumbnail button')[0].getAttribute('aria-label'),
+    ).toBe('Preview page 1, adjusted');
+    component.selected.set(0);
+    component.resetPage();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.adjusted-marker')).toHaveLength(0);
+    component.undo();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.adjusted-marker')).toHaveLength(1);
+  });
+
+  it('keeps work search fallback and prefills selected IMSLP metadata in the same draft', async () => {
+    const component = fixture.componentInstance;
+    const work = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [work] }));
+    component.sourceMode.set('imslp');
+    component.imslpQuery = 'Prelude';
+    await component.searchIMSLP();
+    fixture.detectChanges();
+    expect(api.searchIMSLP).toHaveBeenCalledWith('Prelude');
+    expect(fixture.nativeElement.textContent).toContain('Add downloaded PDF');
+    component.selectIMSLPWork(work);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: 'Draft score',
+      composer: 'Example, Ada',
+      sourceUrl: work.url,
+    });
+    expect(component.imslp).toBe(work.url);
+  });
+
+  it('does not select a work while uploading or finalizing', async () => {
+    const component = fixture.componentInstance;
+    const work = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [work] }));
+    component.sourceMode.set('imslp');
+    component.imslpQuery = 'Prelude';
+    await component.searchIMSLP();
+
+    for (const state of ['busy', 'finalizing'] as const) {
+      component[state].set(true);
+      fixture.detectChanges();
+      const select = fixture.nativeElement.querySelector(
+        'button[aria-label="Select Prelude by Example, Ada"]',
+      );
+      expect(select.disabled).toBe(true);
+      component.selectIMSLPWork(work);
+      expect(component.draft()?.metadata).toEqual(draft.metadata);
+      expect(component.imslp).toBe('');
+      component[state].set(false);
+    }
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('button[aria-label="Select Prelude by Example, Ada"]')
+        .disabled,
+    ).toBe(false);
+  });
+
+  it('updates only auto-owned fields when switching IMSLP works', async () => {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      metadata: { ...structuredClone(draft.metadata), title: '', composer: '' },
+    });
+    const first = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    const second = {
+      title: 'Nocturne',
+      composer: 'Sample, Bea',
+      url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [first, second] }));
+    component.imslpQuery = 'music';
+    await component.searchIMSLP();
+    component.sourceMode.set('imslp');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Showing up to 30 works');
+
+    component.selectIMSLPWork(first);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: first.title,
+      composer: first.composer,
+      sourceUrl: first.url,
+    });
+    component.selectIMSLPWork(second);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: second.title,
+      composer: second.composer,
+      sourceUrl: second.url,
+    });
+
+    component.updateMetadata('title', 'My printed edition');
+    component.selectIMSLPWork(first);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: 'My printed edition',
+      composer: first.composer,
+      sourceUrl: first.url,
+    });
+    component.updateMetadata('composer', 'Teacher attribution');
+    component.selectIMSLPWork(second);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: 'My printed edition',
+      composer: 'Teacher attribution',
+      sourceUrl: second.url,
+    });
+  });
+
+  it('keeps autofill ownership across saving and resuming a draft', async () => {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      metadata: { ...structuredClone(draft.metadata), title: '', composer: '' },
+    });
+    const first = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    const second = {
+      title: 'Nocturne',
+      composer: 'Sample, Bea',
+      url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [first, second] }));
+    component.imslpQuery = 'music';
+    await component.searchIMSLP();
+    component.selectIMSLPWork(first);
+    await component.persist();
+    const saved = structuredClone(component.draft()!);
+    api.importDraft.mockReturnValue(of(saved));
+    await component.load();
+    component.selectIMSLPWork(second);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: second.title,
+      composer: second.composer,
+      sourceUrl: second.url,
+    });
+    expect(component.draft()?.imslpAutoFill).toMatchObject({
+      title: second.title,
+      composer: second.composer,
+    });
+  });
+
+  it('preserves manually edited fields across IMSLP draft resume', async () => {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      metadata: { ...structuredClone(draft.metadata), title: '', composer: '' },
+    });
+    const first = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    const second = {
+      title: 'Nocturne',
+      composer: 'Sample, Bea',
+      url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [first, second] }));
+    component.imslpQuery = 'music';
+    await component.searchIMSLP();
+    component.selectIMSLPWork(first);
+    component.updateMetadata('title', 'My printed edition');
+    component.updateMetadata('composer', '');
+    await component.persist();
+    api.importDraft.mockReturnValue(of(structuredClone(component.draft()!)));
+    await component.load();
+    component.selectIMSLPWork(second);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: 'My printed edition',
+      composer: '',
+      sourceUrl: second.url,
+    });
+    expect(component.draft()?.imslpAutoFill).toMatchObject({
+      titleEdited: true,
+      composerEdited: true,
+    });
+  });
+
+  it('updates pasted IMSLP work metadata when the work link changes after resume', async () => {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      metadata: { ...structuredClone(draft.metadata), title: '', composer: '' },
+    });
+    component.imslp = 'https://imslp.org/wiki/Prelude_(Example,_Ada)';
+    Reflect.get(component, 'applyIMSLP').call(component);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: 'Prelude',
+      composer: 'Example, Ada',
+    });
+    await component.persist();
+    api.importDraft.mockReturnValue(of(structuredClone(component.draft()!)));
+    await component.load();
+    component.imslp = 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)';
+    Reflect.get(component, 'applyIMSLP').call(component);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: 'Nocturne',
+      composer: 'Sample, Bea',
+      sourceUrl: component.imslp,
+    });
+  });
+
+  it('replaces an auto-owned filename fallback with a selected work title', async () => {
+    const component = fixture.componentInstance;
+    component.draft.set({
+      ...structuredClone(draft),
+      metadata: { ...structuredClone(draft.metadata), title: '', composer: '' },
+    });
+    component.imslp = 'https://imslp.org/wiki/(Composer,_Name)';
+    Reflect.get(component, 'applyIMSLP').call(component);
+    expect(component.draft()?.imslpAutoFill?.title).toBe('');
+    // This is the draft returned by UploadImportSource after its filename fallback.
+    component.draft.update((d) =>
+      d
+        ? {
+            ...d,
+            metadata: { ...d.metadata, title: 'from-book' },
+            imslpAutoFill: { ...d.imslpAutoFill, title: 'from-book' },
+          }
+        : null,
+    );
+    const work = {
+      title: 'Nocturne',
+      composer: 'Sample, Bea',
+      url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [work] }));
+    component.imslpQuery = 'Nocturne';
+    await component.searchIMSLP();
+    component.selectIMSLPWork(work);
+    expect(component.draft()?.metadata).toMatchObject({
+      title: work.title,
+      sourceUrl: work.url,
+    });
   });
 
   it('discards a draft even when an in-flight autosave fails', async () => {

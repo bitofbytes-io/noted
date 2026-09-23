@@ -23,6 +23,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -169,6 +170,8 @@ expected='asset_deletion_queue
 draft_sources
 import_assets
 import_drafts
+imslp_catalog_state
+imslp_catalog_works
 oauth_login_states
 piece_pdfs
 piece_sources
@@ -203,7 +206,8 @@ if [ "$version" != "000001_binder
 000002_users_and_ownership
 000003_piece_listening_url
 000004_score_intake
-000005_reader_scroll_speed" ]; then
+000005_reader_scroll_speed
+000006_imslp_catalog" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -255,7 +259,9 @@ if docker compose -p "$project" -f "$compose_file" exec -T postgres \
   exit 1
 fi
 
-# Roll back reader speed, score intake and listening URL before exercising the ownership guard.
+# Roll back the work cache, reader speed, score intake and listening URL
+# before exercising the ownership guard.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
