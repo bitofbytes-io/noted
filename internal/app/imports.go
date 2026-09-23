@@ -305,11 +305,9 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	}
 	if d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited {
 		d.Metadata.Title = strings.TrimSuffix(filename, ".pdf")
-		if d.IMSLPAutoFill.Title != nil {
-			// The filename is another automatic fallback, not a user edit. Keep
-			// ownership aligned so choosing a work later can replace it.
-			d.IMSLPAutoFill.Title = &d.Metadata.Title
-		}
+		// The filename is an automatic fallback, not a user edit. Own it so
+		// choosing a work later can replace it.
+		d.IMSLPAutoFill.Title = &d.Metadata.Title
 	}
 	manifest, _ := json.Marshal(d.Manifest)
 	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill)

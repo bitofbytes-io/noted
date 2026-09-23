@@ -119,6 +119,27 @@ func TestIntegrationImports(t *testing.T) {
 	if err = s.DeleteImport(ctx, owner.ID, emptyTitleDraft.ID); err != nil {
 		t.Fatal(err)
 	}
+	filenameDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filenameDraft, err = s.UploadImportSource(ctx, owner.ID, filenameDraft.ID, "my-book.pdf", filenameDraft.Revision, bytes.NewReader(pdf))
+	if err != nil || filenameDraft.Metadata.Title != "my-book" || filenameDraft.IMSLPAutoFill.Title == nil ||
+		*filenameDraft.IMSLPAutoFill.Title != "my-book" {
+		t.Fatalf("filename fallback did not acquire title ownership: %+v %v", filenameDraft, err)
+	}
+	filenameDraft.Metadata.Title = selectedTitle
+	filenameDraft.Metadata.SourceURL = "https://imslp.org/wiki/Nocturne_(Sample,_Bea)"
+	filenameDraft.IMSLPAutoFill.Title = &selectedTitle
+	if _, err = s.UpdateImport(ctx, owner.ID, filenameDraft.ID, UpdateImport{
+		Revision: filenameDraft.Revision, Metadata: filenameDraft.Metadata,
+		IMSLPAutoFill: filenameDraft.IMSLPAutoFill, Manifest: filenameDraft.Manifest,
+	}); err != nil {
+		t.Fatalf("selected work could not replace filename title: %v", err)
+	}
+	if err = s.DeleteImport(ctx, owner.ID, filenameDraft.ID); err != nil {
+		t.Fatal(err)
+	}
 	manualBlankDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{})
 	if err != nil {
 		t.Fatal(err)

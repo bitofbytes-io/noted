@@ -120,6 +120,37 @@ describe('PrepareComponent', () => {
     expect(component.imslp).toBe(work.url);
   });
 
+  it('does not select a work while uploading or finalizing', async () => {
+    const component = fixture.componentInstance;
+    const work = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [work] }));
+    component.sourceMode.set('imslp');
+    component.imslpQuery = 'Prelude';
+    await component.searchIMSLP();
+
+    for (const state of ['busy', 'finalizing'] as const) {
+      component[state].set(true);
+      fixture.detectChanges();
+      const select = fixture.nativeElement.querySelector(
+        'button[aria-label="Select Prelude by Example, Ada"]',
+      );
+      expect(select.disabled).toBe(true);
+      component.selectIMSLPWork(work);
+      expect(component.draft()?.metadata).toEqual(draft.metadata);
+      expect(component.imslp).toBe('');
+      component[state].set(false);
+    }
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('button[aria-label="Select Prelude by Example, Ada"]')
+        .disabled,
+    ).toBe(false);
+  });
+
   it('updates only auto-owned fields when switching IMSLP works', async () => {
     const component = fixture.componentInstance;
     component.draft.set({

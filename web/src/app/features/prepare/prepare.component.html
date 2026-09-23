@@ -228,6 +228,7 @@
                     <button
                       class="btn-secondary"
                       type="button"
+                      [disabled]="busy() || finalizing()"
                       (click)="selectIMSLPWork(work)"
                       [attr.aria-label]="'Select ' + work.title + ' by ' + work.composer"
                     >

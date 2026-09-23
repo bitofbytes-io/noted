@@ -1276,7 +1276,8 @@ export class PrepareComponent implements OnDestroy {
     }
   }
   selectIMSLPWork(work: IMSLPWork) {
-    if (!this.draft() || !this.imslpResults().includes(work)) return;
+    if (!this.draft() || this.busy() || this.finalizing() || !this.imslpResults().includes(work))
+      return;
     this.imslp = work.url;
     const metadata = this.draft()!.metadata;
     metadata.sourceUrl = work.url;
