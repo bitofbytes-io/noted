@@ -215,6 +215,7 @@ describe('ReaderComponent', () => {
       const oldPages = new QueryList<ElementRef<HTMLElement>>();
       oldPages.reset([scrollPage()]);
       const oldCanvas = document.createElement('canvas');
+      spyOnCanvasPublishing(oldCanvas);
       const oldCanvases = new QueryList<ElementRef<HTMLCanvasElement>>();
       oldCanvases.reset([new ElementRef(oldCanvas)]);
       Reflect.set(component, 'scrollPages', oldPages);
@@ -239,6 +240,7 @@ describe('ReaderComponent', () => {
       const newPages = new QueryList<ElementRef<HTMLElement>>();
       newPages.reset([scrollPage()]);
       const newCanvas = document.createElement('canvas');
+      spyOnCanvasPublishing(newCanvas);
       const newCanvases = new QueryList<ElementRef<HTMLCanvasElement>>();
       newCanvases.reset([new ElementRef(newCanvas)]);
       Reflect.set(component, 'scrollPages', newPages);
@@ -251,7 +253,7 @@ describe('ReaderComponent', () => {
       await renderVisible();
 
       expect(renderPage).toHaveBeenCalledTimes(2);
-      expect(renderPage.mock.calls[1][0]).toBe(newCanvas);
+      expect(renderPage.mock.calls[1][0]).not.toBe(newCanvas);
       expect(renderedWidths.get(1)).toBe(200);
       Reflect.get(component, 'loading').set(true);
       component.ngOnDestroy();
@@ -259,6 +261,59 @@ describe('ReaderComponent', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not publish an older scroll render after a newer request completes', async () => {
+    const component = createReaderComponent();
+    const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
+    Reflect.set(component, 'stage', {
+      nativeElement: { getBoundingClientRect: () => stageRect },
+    });
+    const pages = new QueryList<ElementRef<HTMLElement>>();
+    pages.reset([
+      new ElementRef({
+        clientWidth: 200,
+        getBoundingClientRect: () => ({ top: 0, bottom: 100 }) as DOMRect,
+      } as HTMLElement),
+    ]);
+    const canvas = document.createElement('canvas');
+    const drawImage = spyOnCanvasPublishing(canvas);
+    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+    canvases.reset([new ElementRef(canvas)]);
+    Reflect.set(component, 'scrollPages', pages);
+    Reflect.set(component, 'canvases', canvases);
+    Reflect.get(component, 'loading').set(false);
+    Reflect.get(component, 'mode').set('scroll');
+
+    const finish: Array<() => void> = [];
+    vi.spyOn(Reflect.get(component, 'pdf'), 'renderPage').mockImplementation((canvasTarget) => {
+      const target = canvasTarget as HTMLCanvasElement;
+      const request = String(finish.length + 1);
+      return new Promise<void>((resolve) =>
+        finish.push(() => {
+          target.width = 200;
+          target.height = 300;
+          target.dataset['request'] = request;
+          resolve();
+        }),
+      );
+    });
+    const renderVisible = Reflect.get(component, 'renderVisible').bind(
+      component,
+    ) as () => Promise<void>;
+
+    const first = renderVisible();
+    Reflect.set(component, 'renderGeneration', 1);
+    const second = renderVisible();
+    finish[1]();
+    await second;
+    finish[0]();
+    await first;
+
+    expect(drawImage.mock.lastCall?.[0].dataset['request'] ?? canvas.dataset['request']).toBe('2');
+    expect(canvas.width).toBe(200);
+    expect(Reflect.get(component, 'renderedWidths').get(1)).toBe(200);
+    component.ngOnDestroy();
   });
 
   it('evicts distant scroll canvases and renders them again when they return', async () => {
@@ -288,7 +343,9 @@ describe('ReaderComponent', () => {
       secondPage as unknown as ElementRef<HTMLElement>,
     ]);
     const firstCanvas = document.createElement('canvas');
+    spyOnCanvasPublishing(firstCanvas);
     const secondCanvas = document.createElement('canvas');
+    spyOnCanvasPublishing(secondCanvas);
     secondCanvas.width = 1200;
     secondCanvas.height = 1600;
     const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();

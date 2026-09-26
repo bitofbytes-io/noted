@@ -452,11 +452,17 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       }
       const width = Math.round(page.nativeElement.clientWidth);
       if (this.renderedWidths.get(pageNumber) === width) return;
+      if (canvas.width || canvas.height) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
       const generation = this.renderGeneration;
       const request = ++this.nextScrollRenderRequest;
       this.scrollRenderRequests.set(pageNumber, request);
+      // Publish only after the request is still current; PDF.js draws asynchronously.
+      const renderCanvas = document.createElement('canvas');
       pending.push(
-        this.pdf.renderPage(canvas, pageNumber, width).then(() => {
+        this.pdf.renderPage(renderCanvas, pageNumber, width).then(() => {
           const currentStageRect = this.stage.nativeElement.getBoundingClientRect();
           const currentRect = page.nativeElement.getBoundingClientRect();
           const retained =
@@ -476,6 +482,13 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
             Math.round(page.nativeElement.clientWidth) === width &&
             retained
           ) {
+            canvas.width = renderCanvas.width;
+            canvas.height = renderCanvas.height;
+            canvas.style.width = renderCanvas.style.width;
+            canvas.style.height = renderCanvas.style.height;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Canvas rendering is unavailable.');
+            context.drawImage(renderCanvas, 0, 0);
             this.renderedWidths.set(pageNumber, width);
           } else {
             const newerRequestOwnsCanvas =
