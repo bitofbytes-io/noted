@@ -163,6 +163,24 @@ func ccittTestPDF(params string, raw []byte) []byte {
 	return pdf.Bytes()
 }
 
+func TestMergeDraftMetadataKeepsFieldsTheDraftDidNotChange(t *testing.T) {
+	base := PieceInput{Title: "Base", Composer: "Composer", Notes: "Notes"}
+	current := base
+	current.Title, current.Favorite = "Renamed elsewhere", true
+	draft := base
+	draft.Composer, draft.Notes = "Draft composer", ""
+	want := PieceInput{Title: "Renamed elsewhere", Composer: "Draft composer", Favorite: true}
+	if got := mergeDraftMetadata(current, base, draft); got != want {
+		t.Fatalf("merged %+v, want %+v", got, want)
+	}
+	draft.Title, draft.Favorite = "Draft title", false
+	current.Favorite = false
+	base.Favorite = true
+	if got := mergeDraftMetadata(current, base, draft); got.Title != "Draft title" || got.Favorite {
+		t.Fatalf("draft changes lost: %+v", got)
+	}
+}
+
 func TestManifestPageLimit(t *testing.T) {
 	source := ImportAsset{ID: "25c675db-6d18-4d36-b9e1-2810a859b199", MIME: "application/pdf", PageCount: MaxPreparedPages + 1}
 	manifest := EditManifest{Version: 1}

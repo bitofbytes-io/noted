@@ -143,10 +143,12 @@ lower peak memory during correction. Unchanged JPEG embedding retains the full
 original resolution. Each RGBA correction surface is at most 16 MB; that is not
 a bound on total browser memory, which also includes decoding and the wasm heap.
 
-Preparation saves conservatively conflict when the saved piece changes, including
-title or favorite edits made while a draft is open. The newer piece metadata and
-the draft are both retained. The error directs the user to start a new preparation
-from the current piece; reloading the stale draft cannot update its base revision.
+Preparation saves conflict when the saved piece's content (its PDF or prepared
+pages) changes while a draft is open. The newer piece and the draft are both
+retained. The error directs the user to start a new preparation from the current
+piece; reloading the stale draft cannot update its base revision. Metadata edits
+made elsewhere, such as title or favorite, do not conflict: saving the draft
+applies only the metadata fields the draft itself changed and keeps the others.
 
 
 The local preparation controls now use one **Adjust page edges** editor on the

@@ -66,11 +66,13 @@ func scanDraft(row pgx.Row) (ImportDraft, error) {
 	}
 	var draftOnly struct {
 		IMSLPAutoFill IMSLPAutoFill `json:"imslpAutoFill"`
+		BaseMetadata  *PieceInput   `json:"baseMetadata"`
 	}
 	if err = json.Unmarshal(metadata, &draftOnly); err != nil {
 		return d, err
 	}
 	d.IMSLPAutoFill = draftOnly.IMSLPAutoFill
+	d.BaseMetadata = draftOnly.BaseMetadata
 	if err = json.Unmarshal(manifest, &d.Manifest); err != nil {
 		return d, err
 	}
@@ -78,11 +80,35 @@ func scanDraft(row pgx.Row) (ImportDraft, error) {
 	return d, err
 }
 
-func marshalDraftMetadata(metadata PieceInput, provenance IMSLPAutoFill) ([]byte, error) {
+func marshalDraftMetadata(metadata PieceInput, provenance IMSLPAutoFill, base *PieceInput) ([]byte, error) {
 	return json.Marshal(struct {
 		PieceInput
 		IMSLPAutoFill IMSLPAutoFill `json:"imslpAutoFill"`
-	}{metadata, provenance})
+		BaseMetadata  *PieceInput   `json:"baseMetadata,omitempty"`
+	}{metadata, provenance, base})
+}
+
+// mergeDraftMetadata applies only the fields a draft changed from its base to the
+// current piece, so metadata edited elsewhere while the draft was open is kept.
+func mergeDraftMetadata(current, base, draft PieceInput) PieceInput {
+	pick := func(current, base, draft string) string {
+		if draft != base {
+			return draft
+		}
+		return current
+	}
+	merged := PieceInput{
+		Title:        pick(current.Title, base.Title, draft.Title),
+		Composer:     pick(current.Composer, base.Composer, draft.Composer),
+		Favorite:     current.Favorite,
+		SourceURL:    pick(current.SourceURL, base.SourceURL, draft.SourceURL),
+		ListeningURL: pick(current.ListeningURL, base.ListeningURL, draft.ListeningURL),
+		Notes:        pick(current.Notes, base.Notes, draft.Notes),
+	}
+	if draft.Favorite != base.Favorite {
+		merged.Favorite = draft.Favorite
+	}
+	return merged
 }
 
 func validateIMSLPAutoFill(metadata PieceInput, provenance IMSLPAutoFill) error {
@@ -173,6 +199,8 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 		if err != nil {
 			return d, err
 		}
+		base := d.Metadata
+		d.BaseMetadata = &base
 		if len(saved) > 0 {
 			if err = json.Unmarshal(saved, &d.Manifest); err != nil {
 				return d, err
@@ -208,7 +236,7 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 		}
 	}
 	d.InitialManifest = d.Manifest
-	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill)
+	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill, d.BaseMetadata)
 	manifest, _ := json.Marshal(d.Manifest)
 	_, err = tx.Exec(ctx, `INSERT INTO import_drafts(id,user_id,piece_id,base_revision,metadata,manifest,initial_manifest) VALUES($1,$2,$3,$4,$5,$6,$6)`, d.ID, owner, d.PieceID, d.BaseRevision, meta, manifest)
 	if err != nil {
@@ -251,7 +279,7 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 	if err = validateIMSLPAutoFill(input.Metadata, input.IMSLPAutoFill); err != nil {
 		return d, err
 	}
-	meta, _ := marshalDraftMetadata(input.Metadata, input.IMSLPAutoFill)
+	meta, _ := marshalDraftMetadata(input.Metadata, input.IMSLPAutoFill, d.BaseMetadata)
 	manifest, _ := json.Marshal(input.Manifest)
 	_, err = tx.Exec(ctx, `UPDATE import_drafts SET metadata=$2,manifest=$3,revision=revision+1,updated_at=now() WHERE id=$1`, id, meta, manifest)
 	if err != nil {
@@ -323,7 +351,7 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 		d.IMSLPAutoFill.Title = &d.Metadata.Title
 	}
 	manifest, _ := json.Marshal(d.Manifest)
-	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill)
+	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill, d.BaseMetadata)
 	_, err = tx.Exec(ctx, `UPDATE import_drafts SET manifest=$2,metadata=$3,revision=revision+1,updated_at=now() WHERE id=$1`, id, manifest, meta)
 	if err != nil {
 		return d, err
@@ -391,15 +419,23 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 	var oldPageCount int
 	if d.PieceID != nil {
 		var rev int64
-		err = tx.QueryRow(ctx, `SELECT content_revision FROM pieces WHERE id=$1 AND user_id=$2 FOR UPDATE`, *d.PieceID, owner).Scan(&rev)
+		var current PieceInput
+		err = tx.QueryRow(ctx, `SELECT content_revision,title,composer,favorite,source_url,listening_url,notes FROM pieces WHERE id=$1 AND user_id=$2 FOR UPDATE`, *d.PieceID, owner).Scan(&rev, &current.Title, &current.Composer, &current.Favorite, &current.SourceURL, &current.ListeningURL, &current.Notes)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Piece{}, ErrNotFound
 		}
 		if err != nil {
 			return Piece{}, err
 		}
+		// Only content changes (a new PDF or preparation) invalidate the draft.
 		if rev != d.BaseRevision {
 			return Piece{}, ErrPieceChanged
+		}
+		// Drafts created before the base was recorded keep publishing all of their metadata.
+		if d.BaseMetadata != nil {
+			if metadata, err = validatePiece(mergeDraftMetadata(current, *d.BaseMetadata, metadata)); err != nil {
+				return Piece{}, err
+			}
 		}
 		err = tx.QueryRow(ctx, `SELECT storage_key,checksum_sha256,page_count FROM piece_pdfs WHERE piece_id=$1`, *d.PieceID).Scan(&oldKey, &oldChecksum, &oldPageCount)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {

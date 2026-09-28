@@ -228,7 +228,17 @@ func TestIntegrationImports(t *testing.T) {
 	if _, err = s.FinalizeImport(ctx, owner.ID, second.ID, second.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrPieceChanged) {
 		t.Fatalf("stale piece publish: %v", err)
 	}
+	// Metadata edited elsewhere (favorite, title) must not block a draft, and the
+	// draft publishes only the metadata it changed.
 	metadataDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{PieceID: piece.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataDraft.Metadata.Composer = "Draft composer"
+	metadataDraft, err = s.UpdateImport(ctx, owner.ID, metadataDraft.ID, UpdateImport{
+		Revision: metadataDraft.Revision, Metadata: metadataDraft.Metadata,
+		IMSLPAutoFill: metadataDraft.IMSLPAutoFill, Manifest: metadataDraft.Manifest,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,19 +246,12 @@ func TestIntegrationImports(t *testing.T) {
 	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrPieceChanged) {
-		t.Fatalf("metadata conflict: %v", err)
+	current, err := s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf))
+	if err != nil {
+		t.Fatalf("metadata-only change blocked finalize: %v", err)
 	}
-	current, err := s.GetPiece(ctx, owner.ID, piece.ID)
-	if err != nil || current.Title != title || !current.Favorite {
-		t.Fatalf("concurrent metadata lost: %+v %v", current, err)
-	}
-	preserved, err := s.GetImport(ctx, owner.ID, metadataDraft.ID)
-	if err != nil || preserved.Finalized || preserved.Revision != metadataDraft.Revision || len(preserved.Manifest.Pages) != len(metadataDraft.Manifest.Pages) {
-		t.Fatalf("draft lost: %+v %v", preserved, err)
-	}
-	if err = s.DeleteImport(ctx, owner.ID, metadataDraft.ID); err != nil {
-		t.Fatal(err)
+	if current.Title != title || !current.Favorite || current.Composer != "Draft composer" {
+		t.Fatalf("finalize did not merge metadata: %+v", current)
 	}
 	retained, err := s.GetReaderState(ctx, owner.ID, piece.ID)
 	if err != nil || retained.LastPage != 2 || retained.Zoom != 1.5 {

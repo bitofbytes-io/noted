@@ -157,7 +157,7 @@ func (s *Service) UpdatePiece(
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			listening_url=$6, notes=$7, content_revision=content_revision+1, updated_at=now() WHERE id=$1 AND user_id=$8`,
+			listening_url=$6, notes=$7, updated_at=now() WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
 		input.ListeningURL, input.Notes, userID)
 	if err != nil {
