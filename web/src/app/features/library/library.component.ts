@@ -174,8 +174,10 @@ export class LibraryComponent implements OnDestroy {
       /* Library remains usable if drafts are temporarily unavailable. */
     }
   }
+  /** Uses the chosen replacement PDF when there is one, otherwise the saved PDF. */
   protected tooLongToPrepare(piece: Piece | null): boolean {
-    return (piece?.pdf?.pageCount ?? 0) > MAX_PREPARED_PAGES;
+    const pages = this.selectedFile ? this.selectedPageCount : (piece?.pdf?.pageCount ?? 0);
+    return pages > MAX_PREPARED_PAGES;
   }
 
   async editPages(): Promise<void> {

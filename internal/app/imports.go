@@ -431,11 +431,14 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		if rev != d.BaseRevision {
 			return Piece{}, ErrPieceChanged
 		}
-		// Drafts created before the base was recorded keep publishing all of their metadata.
 		if d.BaseMetadata != nil {
 			if metadata, err = validatePiece(mergeDraftMetadata(current, *d.BaseMetadata, metadata)); err != nil {
 				return Piece{}, err
 			}
+		} else if metadata != current {
+			// A draft created before its base was recorded cannot tell its own edits
+			// from newer piece edits, so it must not overwrite either; it is retained.
+			return Piece{}, ErrPieceChanged
 		}
 		err = tx.QueryRow(ctx, `SELECT storage_key,checksum_sha256,page_count FROM piece_pdfs WHERE piece_id=$1`, *d.PieceID).Scan(&oldKey, &oldChecksum, &oldPageCount)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {

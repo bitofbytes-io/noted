@@ -131,6 +131,8 @@ describe('LibraryComponent', () => {
       imports: vi.fn(() => of([])),
       pieces: vi.fn(() => of([])),
       createImport: vi.fn(),
+      updatePiece: vi.fn(),
+      uploadPdf: vi.fn(),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -178,11 +180,25 @@ describe('LibraryComponent', () => {
     );
     await component.editPages();
     expect(api.createImport).not.toHaveBeenCalled();
+    const select = (pages: number) => {
+      Reflect.set(component, 'selectedFile', new File(['%PDF-'], 'replacement.pdf'));
+      Reflect.set(component, 'selectedPageCount', pages);
+      render();
+    };
+    // A chosen short replacement can be prepared, and a chosen long one cannot.
+    select(MAX_PREPARED_PAGES);
+    expect(editPagesButton().disabled).toBe(false);
 
     component.openEdit(piece(MAX_PREPARED_PAGES));
     render();
     expect(editPagesButton().disabled).toBe(false);
     expect(fixture.nativeElement.querySelector('#edit-pages-limit')).toBeNull();
+    select(MAX_PREPARED_PAGES + 2);
+    expect(editPagesButton().disabled).toBe(true);
+    await component.editPages();
+    expect(api.updatePiece).not.toHaveBeenCalled();
+    expect(api.uploadPdf).not.toHaveBeenCalled();
+    expect(api.createImport).not.toHaveBeenCalled();
     fixture.destroy();
   });
 });
