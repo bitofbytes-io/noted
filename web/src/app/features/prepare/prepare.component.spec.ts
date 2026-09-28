@@ -18,6 +18,8 @@ import {
   preparedPhotoKey,
 } from './prepare-processing';
 import { PrepareComponent } from './prepare.component';
+import { routes } from '../../app.routes';
+import { canLeave } from '../../core/leave.guard';
 
 describe('PrepareComponent', () => {
   const draft: ImportDraft = {
@@ -358,6 +360,59 @@ describe('PrepareComponent', () => {
       title: work.title,
       sourceUrl: work.url,
     });
+  });
+
+  it('flushes a debounced edit before the route is left', async () => {
+    vi.useFakeTimers();
+    try {
+      const component = fixture.componentInstance;
+      component.updateMetadata('composer', 'Changed before Back');
+      expect(api.updateImport).not.toHaveBeenCalled();
+
+      await expect(canLeave(component, null!, null!, null!)).resolves.toBe(true);
+      expect(api.updateImport).toHaveBeenCalledTimes(1);
+      expect(api.updateImport.mock.calls[0][0].metadata.composer).toBe('Changed before Back');
+
+      component.ngOnDestroy();
+      await vi.runAllTimersAsync();
+      expect(api.updateImport).toHaveBeenCalledTimes(1);
+      await expect(component.canLeave()).resolves.toBe(true);
+      expect(routes.find((route) => route.path === 'prepare/:draftId')?.canDeactivate).toEqual([
+        canLeave,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('asks before leaving when the departure save fails', async () => {
+    const component = fixture.componentInstance;
+    const confirm = vi
+      .spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    api.updateImport.mockReturnValue(throwError(() => new Error('offline')));
+    component.updateMetadata('notes', 'Unsaved');
+
+    await expect(component.canLeave()).resolves.toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(component.error()).toBe('Offline.');
+    await expect(component.canLeave()).resolves.toBe(true);
+    expect(api.updateImport).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+  });
+
+  it('flushes and warns before unloading only with unsaved changes', () => {
+    const component = fixture.componentInstance;
+    const clean = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+
+    component.updateMetadata('notes', 'Unsaved');
+    const dirty = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+    expect(api.updateImport).toHaveBeenCalledTimes(1);
   });
 
   it('discards a draft even when an in-flight autosave fails', async () => {

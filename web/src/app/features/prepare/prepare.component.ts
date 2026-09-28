@@ -1,4 +1,12 @@
-import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  OnDestroy,
+  ViewChild,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -11,6 +19,7 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { LeaveGuarded } from '../../core/leave.guard';
 import {
   EditManifest,
   ImportAsset,
@@ -63,7 +72,7 @@ interface ThumbnailRequest {
   templateUrl: './prepare.component.html',
   styleUrl: './prepare.component.scss',
 })
-export class PrepareComponent implements OnDestroy {
+export class PrepareComponent implements OnDestroy, LeaveGuarded {
   readonly Math = Math;
   readonly hasPageAdjustments = hasPageAdjustments;
   readonly maxPreparedPages = MAX_PREPARED_PAGES;
@@ -220,6 +229,30 @@ export class PrepareComponent implements OnDestroy {
     this.revokePreviewURL();
     this.revokeDisplayRaster();
     this.revokeThumbnails();
+  }
+  /** Route departure flushes pending draft edits; a failed save asks before discarding them. */
+  async canLeave(): Promise<boolean> {
+    if (!this.hasUnsavedChanges()) return true;
+    try {
+      await this.persist();
+      return true;
+    } catch (e) {
+      this.error.set(errorMessage(e));
+      return window.confirm(
+        'Your latest draft changes could not be saved. Leave anyway and lose them?',
+      );
+    }
+  }
+  /** Closing or reloading the tab cannot await a save: start one and ask the browser to warn. */
+  @HostListener('window:beforeunload', ['$event'])
+  warnBeforeUnload(event: BeforeUnloadEvent) {
+    if (!this.hasUnsavedChanges()) return;
+    void this.persist().catch((e) => this.error.set(errorMessage(e)));
+    event.preventDefault();
+    event.returnValue = '';
+  }
+  private hasUnsavedChanges(): boolean {
+    return !this.discarding && (this.dirty || this.pendingSave !== undefined);
   }
   async detailsWithoutPDF() {
     const d = this.draft();
