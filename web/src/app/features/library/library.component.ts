@@ -35,7 +35,7 @@ import {
   tap,
 } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { Piece, PieceInput, Session, ImportDraft } from '../../core/models';
+import { MAX_PREPARED_PAGES, Piece, PieceInput, Session, ImportDraft } from '../../core/models';
 import { listeningUrlError, titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
@@ -68,6 +68,7 @@ type PieceLoadResult = { pieces: Piece[] } | { error: unknown };
 })
 export class LibraryComponent implements OnDestroy {
   protected readonly drafts = signal<ImportDraft[]>([]);
+  protected readonly maxPreparedPages = MAX_PREPARED_PAGES;
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
@@ -168,8 +169,13 @@ export class LibraryComponent implements OnDestroy {
       /* Library remains usable if drafts are temporarily unavailable. */
     }
   }
+  protected tooLongToPrepare(piece: Piece | null): boolean {
+    return (piece?.pdf?.pageCount ?? 0) > MAX_PREPARED_PAGES;
+  }
+
   async editPages(): Promise<void> {
-    if (!this.editing || this.readingPdf() || this.saving()) return;
+    if (!this.editing || this.readingPdf() || this.saving() || this.tooLongToPrepare(this.editing))
+      return;
     if (this.editorDirty()) {
       const saved = await this.persistEditor();
       if (!saved || !this.editing) return;

@@ -391,6 +391,8 @@ func handleError(writer http.ResponseWriter, err error) {
 		writeError(writer, http.StatusRequestEntityTooLarge, "Import limit reached: max 20 drafts, 200 MiB per draft, and configured per-file limit")
 	case errors.Is(err, app.ErrNotFound):
 		writeError(writer, http.StatusNotFound, "piece not found")
+	case errors.Is(err, app.ErrTooManyPages):
+		writeError(writer, http.StatusBadRequest, err.Error())
 	case strings.Contains(err.Error(), "must"), strings.Contains(err.Error(), "cannot"):
 		writeError(writer, http.StatusBadRequest, err.Error())
 	default:

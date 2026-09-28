@@ -20,6 +20,13 @@ var ErrConflict = errors.New("draft changed; reload before saving")
 var ErrPieceChanged = errors.New("saved piece changed; your draft is retained. Start a new preparation from the current piece before saving")
 var ErrImportLimit = errors.New("import limit reached")
 
+// MaxPreparedPages caps the pages in one preparation draft. A saved score with
+// more pages cannot be opened for preparation, so a draft never starts from a
+// partial copy that would replace the full PDF on an unchanged save.
+const MaxPreparedPages = 10
+
+var ErrTooManyPages = fmt.Errorf("page editing supports scores of up to %d pages; replace the PDF to change a longer score", MaxPreparedPages)
+
 func (s *Service) importLimit() int64 {
 	if s.maxUploadBytes > 0 {
 		return s.maxUploadBytes
@@ -170,6 +177,9 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 			if err = json.Unmarshal(saved, &d.Manifest); err != nil {
 				return d, err
 			}
+			if len(d.Manifest.Pages) > MaxPreparedPages {
+				return d, ErrTooManyPages
+			}
 			for _, p := range d.Manifest.Pages {
 				sources = append(sources, p.SourceID)
 			}
@@ -178,6 +188,9 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 			err = tx.QueryRow(ctx, `SELECT storage_key,original_filename,size_bytes,checksum_sha256,page_count FROM piece_pdfs WHERE piece_id=$1`, input.PieceID).Scan(&a.StorageKey, &a.Filename, &a.Size, &a.Checksum, &a.PageCount)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return d, err
+			}
+			if err == nil && a.PageCount > MaxPreparedPages {
+				return d, ErrTooManyPages
 			}
 			if err == nil {
 				// Retain the existing opaque object key without copying PDF bytes.
@@ -188,7 +201,7 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 					return d, err
 				}
 				sources = append(sources, a.ID)
-				for n := 0; n < a.PageCount && n < 100; n++ {
+				for n := 0; n < a.PageCount; n++ {
 					d.Manifest.Pages = append(d.Manifest.Pages, PageEdit{ID: uuid.NewString(), SourceID: a.ID, Page: n})
 				}
 			}
@@ -300,7 +313,7 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	if _, err = tx.Exec(ctx, `INSERT INTO draft_sources VALUES($1,$2)`, id, a.ID); err != nil {
 		return d, err
 	}
-	for n := 0; n < count && len(d.Manifest.Pages) < 100; n++ {
+	for n := 0; n < count && len(d.Manifest.Pages) < MaxPreparedPages; n++ {
 		d.Manifest.Pages = append(d.Manifest.Pages, PageEdit{ID: uuid.NewString(), SourceID: a.ID, Page: n})
 	}
 	if d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited {

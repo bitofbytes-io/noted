@@ -163,6 +163,21 @@ func ccittTestPDF(params string, raw []byte) []byte {
 	return pdf.Bytes()
 }
 
+func TestManifestPageLimit(t *testing.T) {
+	source := ImportAsset{ID: "25c675db-6d18-4d36-b9e1-2810a859b199", MIME: "application/pdf", PageCount: MaxPreparedPages + 1}
+	manifest := EditManifest{Version: 1}
+	for n := 0; n < MaxPreparedPages; n++ {
+		manifest.Pages = append(manifest.Pages, PageEdit{ID: fmt.Sprintf("d10a2d43-bde2-4249-b645-%012d", n), SourceID: source.ID, Page: n})
+	}
+	if err := validateManifest(manifest, []ImportAsset{source}, false); err != nil {
+		t.Fatalf("%d pages rejected: %v", MaxPreparedPages, err)
+	}
+	manifest.Pages = append(manifest.Pages, PageEdit{ID: fmt.Sprintf("d10a2d43-bde2-4249-b645-%012d", MaxPreparedPages), SourceID: source.ID, Page: MaxPreparedPages})
+	if err := validateManifest(manifest, []ImportAsset{source}, false); err == nil {
+		t.Fatalf("%d pages accepted", MaxPreparedPages+1)
+	}
+}
+
 func TestPreparationStrengthAndMarginValidation(t *testing.T) {
 	source := ImportAsset{ID: "25c675db-6d18-4d36-b9e1-2810a859b199", MIME: "image/jpeg", PageCount: 1}
 	base := PageEdit{ID: "d10a2d43-bde2-4249-b645-3f2e746c61ea", SourceID: source.ID, FitEdges: true}

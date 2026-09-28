@@ -106,7 +106,9 @@ backend download proxy is included.
 Originals needed by the current saved manifest or an open draft remain private.
 Superseded, unreferenced files enter a durable deletion queue; drafts expire after
 seven inactive days. Limits are the configured file limit, 200 MiB per draft,
-100 prepared pages, 20 active drafts per owner, and 20 megapixels per photo.
+10 prepared pages, 20 active drafts per owner, and 20 megapixels per photo.
+A saved score longer than 10 pages cannot be opened for page editing; it can
+still be replaced with a new PDF. A draft never starts from a partial copy.
 Revision checks prevent stale saves; repeat finalization returns the same piece.
 Unchanged preparation preserves original output bytes and reader state; content
 changes reset position/page/zoom while retaining reading mode and scroll speed.

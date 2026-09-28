@@ -3,7 +3,14 @@ import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angul
 import { Observable, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
-import { ImportAsset, ImportDraft, IMSLPSearch, PageEdit, Piece } from '../../core/models';
+import {
+  ImportAsset,
+  ImportDraft,
+  IMSLPSearch,
+  MAX_PREPARED_PAGES,
+  PageEdit,
+  Piece,
+} from '../../core/models';
 import {
   PreparedPageCache,
   ProcessingStoppedError,
@@ -95,6 +102,25 @@ describe('PrepareComponent', () => {
     component.undo();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.adjusted-marker')).toHaveLength(1);
+  });
+
+  it('limits a chosen source range to the preparation page limit', () => {
+    const component = fixture.componentInstance;
+    const source = { id: 'book', mime: 'application/pdf', pageCount: 40 } as ImportAsset;
+    component.draft.set({ ...structuredClone(draft), sources: [source] });
+    component.rangeSourceId = source.id;
+    component.rangeText = `1-${MAX_PREPARED_PAGES + 1}`;
+    component.useRange();
+    expect(component.error()).toContain(`at most ${MAX_PREPARED_PAGES} pages`);
+    expect(component.draft()!.manifest.pages).toHaveLength(0);
+
+    component.error.set('');
+    component.rangeText = `3-${MAX_PREPARED_PAGES + 2}`;
+    component.useRange();
+    expect(component.error()).toBe('');
+    expect(component.draft()!.manifest.pages.map((page) => page.page)).toEqual(
+      Array.from({ length: MAX_PREPARED_PAGES }, (_, index) => index + 2),
+    );
   });
 
   it('keeps work search fallback and prefills selected IMSLP metadata in the same draft', async () => {
