@@ -261,6 +261,55 @@ describe('ReaderComponent', () => {
     }
   });
 
+  it('lets a slow scroll render finish while scrolling refreshes the visible pages', async () => {
+    const component = createReaderComponent();
+    const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
+    Reflect.set(component, 'stage', { nativeElement: { getBoundingClientRect: () => stageRect } });
+    let pageWidth = 200;
+    const pages = new QueryList<ElementRef<HTMLElement>>();
+    pages.reset([
+      new ElementRef({
+        get clientWidth() {
+          return pageWidth;
+        },
+        getBoundingClientRect: () => ({ top: 0, bottom: 100 }) as DOMRect,
+      } as HTMLElement),
+    ]);
+    const canvas = document.createElement('canvas');
+    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+    canvases.reset([new ElementRef(canvas)]);
+    Reflect.set(component, 'scrollPages', pages);
+    Reflect.set(component, 'canvases', canvases);
+    Reflect.get(component, 'loading').set(false);
+    Reflect.get(component, 'mode').set('scroll');
+    const finishes: (() => void)[] = [];
+    const renderPage = vi
+      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
+      .mockImplementation(() => new Promise<void>((resolve) => finishes.push(resolve)));
+    const renderVisible = Reflect.get(component, 'renderVisible').bind(
+      component,
+    ) as () => Promise<void>;
+    const renderedWidths = Reflect.get(component, 'renderedWidths') as Map<number, number>;
+
+    const slowRender = renderVisible();
+    for (let refresh = 0; refresh < 5; refresh++) await renderVisible();
+    expect(renderPage).toHaveBeenCalledTimes(1);
+    finishes[0]();
+    await slowRender;
+    expect(renderedWidths.get(1)).toBe(200);
+
+    renderedWidths.clear();
+    const narrowRender = renderVisible();
+    pageWidth = 180;
+    const resizedRender = renderVisible();
+    expect(renderPage.mock.calls.map((call) => call[2])).toEqual([200, 200, 180]);
+    finishes[1]();
+    finishes[2]();
+    await Promise.all([narrowRender, resizedRender]);
+    expect(renderedWidths.get(1)).toBe(180);
+    component.ngOnDestroy();
+  });
+
   it('evicts distant scroll canvases and renders them again when they return', async () => {
     const component = createReaderComponent();
     const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
