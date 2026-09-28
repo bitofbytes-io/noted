@@ -547,6 +547,8 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
         this.progress.set(`Adding ${i + 1} of ${files.length}: ${file.name}`);
         const oldCount = d.manifest.pages.length;
         const next = await firstValueFrom(this.api.uploadImport(d, file));
+        // Each completed file is one Undo step, even when later files fail or are cancelled.
+        this.remember();
         this.draft.set(next);
         this.rangeSourceId ||= next.sources[0]?.id || '';
         const incoming = next.sources.find(

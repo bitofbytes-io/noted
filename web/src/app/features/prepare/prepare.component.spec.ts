@@ -415,6 +415,59 @@ describe('PrepareComponent', () => {
     expect(api.updateImport).toHaveBeenCalledTimes(1);
   });
 
+  it('makes each uploaded file its own Undo step', async () => {
+    const component = fixture.componentInstance;
+    vi.spyOn(component, 'renderPreview').mockResolvedValue();
+    const pdf = (id: string): ImportAsset => ({
+      id,
+      filename: `${id}.pdf`,
+      mime: 'application/pdf',
+      size: 1,
+      checksum: id,
+      pageCount: 1,
+      width: 0,
+      height: 0,
+    });
+    const pageA: PageEdit = { id: 'page-a', sourceId: 'a', page: 0 };
+    component.draft.set({
+      ...structuredClone(draft),
+      sources: [pdf('a')],
+      manifest: { version: 1, pages: [structuredClone(pageA)] },
+    });
+    component.step.set('pages');
+    const uploaded = (source: ImportAsset, extra: PageEdit) => (current: ImportDraft) =>
+      of({
+        ...structuredClone(current),
+        revision: current.revision + 1,
+        sources: [...current.sources, source],
+        manifest: { version: 1 as const, pages: [...current.manifest.pages, extra] },
+      });
+    const uploadImport = vi.fn(uploaded(pdf('b'), { id: 'page-b', sourceId: 'b', page: 0 }));
+    Reflect.set(api, 'uploadImport', uploadImport);
+    const choose = (replace = false) => {
+      const input = document.createElement('input');
+      Object.defineProperty(input, 'files', { value: [new File(['%PDF-'], 'b.pdf')] });
+      return component.upload({ target: input } as unknown as Event, replace);
+    };
+    const pages = () => component.draft()!.manifest.pages;
+
+    component.rotate();
+    await choose();
+    expect(pages().map((page) => page.id)).toEqual(['page-a', 'page-b']);
+
+    component.undo();
+    expect(pages()).toEqual([{ ...pageA, rotation: 90 }]);
+    component.undo();
+    expect(pages()).toEqual([pageA]);
+
+    uploadImport.mockImplementation(uploaded(pdf('c'), { id: 'page-c', sourceId: 'c', page: 0 }));
+    component.selected.set(0);
+    await choose(true);
+    expect(pages()).toEqual([{ id: 'page-a', sourceId: 'c', page: 0 }]);
+    component.undo();
+    expect(pages()).toEqual([pageA]);
+  });
+
   it('discards a draft even when an in-flight autosave fails', async () => {
     const component = fixture.componentInstance;
     const router = TestBed.inject(Router);
