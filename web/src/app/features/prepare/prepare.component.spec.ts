@@ -3,7 +3,14 @@ import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angul
 import { Observable, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
-import { ImportAsset, ImportDraft, IMSLPSearch, PageEdit, Piece } from '../../core/models';
+import {
+  ImportAsset,
+  ImportDraft,
+  IMSLPSearch,
+  MAX_PREPARED_PAGES,
+  PageEdit,
+  Piece,
+} from '../../core/models';
 import {
   PreparedPageCache,
   ProcessingStoppedError,
@@ -11,6 +18,8 @@ import {
   preparedPhotoKey,
 } from './prepare-processing';
 import { PrepareComponent } from './prepare.component';
+import { routes } from '../../app.routes';
+import { canLeave } from '../../core/leave.guard';
 
 describe('PrepareComponent', () => {
   const draft: ImportDraft = {
@@ -95,6 +104,25 @@ describe('PrepareComponent', () => {
     component.undo();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.adjusted-marker')).toHaveLength(1);
+  });
+
+  it('limits a chosen source range to the preparation page limit', () => {
+    const component = fixture.componentInstance;
+    const source = { id: 'book', mime: 'application/pdf', pageCount: 40 } as ImportAsset;
+    component.draft.set({ ...structuredClone(draft), sources: [source] });
+    component.rangeSourceId = source.id;
+    component.rangeText = `1-${MAX_PREPARED_PAGES + 1}`;
+    component.useRange();
+    expect(component.error()).toContain(`at most ${MAX_PREPARED_PAGES} pages`);
+    expect(component.draft()!.manifest.pages).toHaveLength(0);
+
+    component.error.set('');
+    component.rangeText = `3-${MAX_PREPARED_PAGES + 2}`;
+    component.useRange();
+    expect(component.error()).toBe('');
+    expect(component.draft()!.manifest.pages.map((page) => page.page)).toEqual(
+      Array.from({ length: MAX_PREPARED_PAGES }, (_, index) => index + 2),
+    );
   });
 
   it('keeps work search fallback and prefills selected IMSLP metadata in the same draft', async () => {
@@ -332,6 +360,112 @@ describe('PrepareComponent', () => {
       title: work.title,
       sourceUrl: work.url,
     });
+  });
+
+  it('flushes a debounced edit before the route is left', async () => {
+    vi.useFakeTimers();
+    try {
+      const component = fixture.componentInstance;
+      component.updateMetadata('composer', 'Changed before Back');
+      expect(api.updateImport).not.toHaveBeenCalled();
+
+      await expect(canLeave(component, null!, null!, null!)).resolves.toBe(true);
+      expect(api.updateImport).toHaveBeenCalledTimes(1);
+      expect(api.updateImport.mock.calls[0][0].metadata.composer).toBe('Changed before Back');
+
+      component.ngOnDestroy();
+      await vi.runAllTimersAsync();
+      expect(api.updateImport).toHaveBeenCalledTimes(1);
+      await expect(component.canLeave()).resolves.toBe(true);
+      expect(routes.find((route) => route.path === 'prepare/:draftId')?.canDeactivate).toEqual([
+        canLeave,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('asks before leaving when the departure save fails', async () => {
+    const component = fixture.componentInstance;
+    const confirm = vi
+      .spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    api.updateImport.mockReturnValue(throwError(() => new Error('offline')));
+    component.updateMetadata('notes', 'Unsaved');
+
+    await expect(component.canLeave()).resolves.toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(component.error()).toBe('Offline.');
+    await expect(component.canLeave()).resolves.toBe(true);
+    expect(api.updateImport).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+  });
+
+  it('flushes and warns before unloading only with unsaved changes', () => {
+    const component = fixture.componentInstance;
+    const clean = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+
+    component.updateMetadata('notes', 'Unsaved');
+    const dirty = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+    expect(api.updateImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes each uploaded file its own Undo step', async () => {
+    const component = fixture.componentInstance;
+    vi.spyOn(component, 'renderPreview').mockResolvedValue();
+    const pdf = (id: string): ImportAsset => ({
+      id,
+      filename: `${id}.pdf`,
+      mime: 'application/pdf',
+      size: 1,
+      checksum: id,
+      pageCount: 1,
+      width: 0,
+      height: 0,
+    });
+    const pageA: PageEdit = { id: 'page-a', sourceId: 'a', page: 0 };
+    component.draft.set({
+      ...structuredClone(draft),
+      sources: [pdf('a')],
+      manifest: { version: 1, pages: [structuredClone(pageA)] },
+    });
+    component.step.set('pages');
+    const uploaded = (source: ImportAsset, extra: PageEdit) => (current: ImportDraft) =>
+      of({
+        ...structuredClone(current),
+        revision: current.revision + 1,
+        sources: [...current.sources, source],
+        manifest: { version: 1 as const, pages: [...current.manifest.pages, extra] },
+      });
+    const uploadImport = vi.fn(uploaded(pdf('b'), { id: 'page-b', sourceId: 'b', page: 0 }));
+    Reflect.set(api, 'uploadImport', uploadImport);
+    const choose = (replace = false) => {
+      const input = document.createElement('input');
+      Object.defineProperty(input, 'files', { value: [new File(['%PDF-'], 'b.pdf')] });
+      return component.upload({ target: input } as unknown as Event, replace);
+    };
+    const pages = () => component.draft()!.manifest.pages;
+
+    component.rotate();
+    await choose();
+    expect(pages().map((page) => page.id)).toEqual(['page-a', 'page-b']);
+
+    component.undo();
+    expect(pages()).toEqual([{ ...pageA, rotation: 90 }]);
+    component.undo();
+    expect(pages()).toEqual([pageA]);
+
+    uploadImport.mockImplementation(uploaded(pdf('c'), { id: 'page-c', sourceId: 'c', page: 0 }));
+    component.selected.set(0);
+    await choose(true);
+    expect(pages()).toEqual([{ id: 'page-a', sourceId: 'c', page: 0 }]);
+    component.undo();
+    expect(pages()).toEqual([pageA]);
   });
 
   it('discards a draft even when an in-flight autosave fails', async () => {

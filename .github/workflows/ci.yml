@@ -28,6 +28,12 @@ jobs:
         run: |
           test -z "$(gofmt -l cmd internal migrations)"
           go vet ./...
+      - name: Check Go vulnerabilities
+        # v1.7.0 is the newest release that builds with Go 1.25. Install, then run it with the
+        # go.mod toolchain so standard-library findings match the version we ship.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
   ui:
     name: UI tests, lint, and build

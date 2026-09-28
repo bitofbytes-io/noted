@@ -14,6 +14,7 @@ import (
 const defaultSessionTTL = 90 * 24 * time.Hour
 
 type Config struct {
+	ListenHost     string
 	Port           string
 	AppEnv         string
 	DatabaseURL    string
@@ -58,6 +59,7 @@ func Load() (Config, error) {
 		}
 	}
 	cfg := Config{
+		ListenHost:     value("LISTEN_HOST", defaultListenHost(appEnv)),
 		Port:           value("PORT", "8080"),
 		AppEnv:         appEnv,
 		DatabaseURL:    databaseURL,
@@ -91,6 +93,15 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// defaultListenHost keeps non-production servers, whose development authentication
+// trusts every request, on loopback. Production containers listen on all interfaces.
+func defaultListenHost(appEnv string) string {
+	if appEnv == "production" {
+		return ""
+	}
+	return "127.0.0.1"
 }
 
 func LoadDatabaseURL() (string, error) {

@@ -21,7 +21,7 @@ import {
   LucideUpload,
   LucideX,
 } from '@lucide/angular';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { GlobalWorkerOptions, PDFDocumentLoadingTask, getDocument } from 'pdfjs-dist';
 import {
   Subject,
   Subscription,
@@ -35,7 +35,7 @@ import {
   tap,
 } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
-import { Piece, PieceInput, Session, ImportDraft } from '../../core/models';
+import { MAX_PREPARED_PAGES, Piece, PieceInput, Session, ImportDraft } from '../../core/models';
 import { listeningUrlError, titleFromFilename } from './library.utils';
 
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
@@ -68,6 +68,7 @@ type PieceLoadResult = { pieces: Piece[] } | { error: unknown };
 })
 export class LibraryComponent implements OnDestroy {
   protected readonly drafts = signal<ImportDraft[]>([]);
+  protected readonly maxPreparedPages = MAX_PREPARED_PAGES;
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
@@ -86,6 +87,10 @@ export class LibraryComponent implements OnDestroy {
   protected selectedFile: File | null = null;
   protected selectedPageCount = 0;
   private searchTimer?: number;
+  /** Identifies the open editor and the latest PDF selection so stale reads are ignored. */
+  private editorSession = 0;
+  private pdfSelection = 0;
+  private pdfLoadingTask?: PDFDocumentLoadingTask;
   private readonly pieceLoadRequests = new Subject<PieceLoadRequest>();
   private readonly pieceLoadSubscription: Subscription;
 
@@ -141,6 +146,7 @@ export class LibraryComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.cancelPdfSelection();
     if (this.searchTimer) window.clearTimeout(this.searchTimer);
     this.pieceLoadSubscription.unsubscribe();
     this.pieceLoadRequests.complete();
@@ -168,8 +174,15 @@ export class LibraryComponent implements OnDestroy {
       /* Library remains usable if drafts are temporarily unavailable. */
     }
   }
+  /** Uses the chosen replacement PDF when there is one, otherwise the saved PDF. */
+  protected tooLongToPrepare(piece: Piece | null): boolean {
+    const pages = this.selectedFile ? this.selectedPageCount : (piece?.pdf?.pageCount ?? 0);
+    return pages > MAX_PREPARED_PAGES;
+  }
+
   async editPages(): Promise<void> {
-    if (!this.editing || this.readingPdf() || this.saving()) return;
+    if (!this.editing || this.readingPdf() || this.saving() || this.tooLongToPrepare(this.editing))
+      return;
     if (this.editorDirty()) {
       const saved = await this.persistEditor();
       if (!saved || !this.editing) return;
@@ -191,16 +204,15 @@ export class LibraryComponent implements OnDestroy {
     void this.router.navigate(['/prepare', id]);
   }
   openCreate(): void {
+    this.beginEditorSession();
     this.editing = null;
     this.form = emptyPiece();
-    this.selectedFile = null;
-    this.selectedPageCount = 0;
-    this.error.set('');
     this.editor?.nativeElement.showModal();
   }
 
   openEdit(piece: Piece, event?: Event): void {
     event?.stopPropagation();
+    this.beginEditorSession();
     this.editing = piece;
     this.form = {
       title: piece.title,
@@ -210,37 +222,71 @@ export class LibraryComponent implements OnDestroy {
       listeningUrl: piece.listeningUrl,
       notes: piece.notes,
     };
-    this.selectedFile = null;
-    this.selectedPageCount = 0;
-    this.error.set('');
     this.editor?.nativeElement.showModal();
   }
 
   closeEditor(): void {
-    if (!this.saving()) this.editor?.nativeElement.close();
+    if (this.saving()) return;
+    this.cancelPdfSelection();
+    this.editor?.nativeElement.close();
   }
 
   async choosePdf(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0] ?? null;
     if (!file) return;
+    this.cancelPdfSelection();
+    const session = this.editorSession;
+    const selection = this.pdfSelection;
+    const current = () => session === this.editorSession && selection === this.pdfSelection;
     this.readingPdf.set(true);
     this.error.set('');
+    let loadingTask: PDFDocumentLoadingTask | undefined;
     try {
-      const loadingTask = getDocument({ data: await file.arrayBuffer(), wasmUrl: '/pdfjs/wasm/' });
+      const data = await file.arrayBuffer();
+      if (!current()) return;
+      loadingTask = this.openPdf(data);
+      this.pdfLoadingTask = loadingTask;
       const document = await loadingTask.promise;
+      if (!current()) return;
       this.selectedFile = file;
       this.selectedPageCount = document.numPages;
       if (!this.form.title.trim()) this.form.title = titleFromFilename(file.name);
-      await loadingTask.destroy();
     } catch {
+      if (!current()) return;
       this.selectedFile = null;
       this.selectedPageCount = 0;
       input.value = '';
       this.error.set('The selected file could not be read as a PDF.');
     } finally {
-      this.readingPdf.set(false);
+      // A superseded task was already destroyed when its selection was cancelled.
+      if (loadingTask && this.pdfLoadingTask === loadingTask) {
+        this.pdfLoadingTask = undefined;
+        void loadingTask.destroy().catch(() => {});
+      }
+      if (current()) this.readingPdf.set(false);
     }
+  }
+
+  private openPdf(data: ArrayBuffer): PDFDocumentLoadingTask {
+    return getDocument({ data, wasmUrl: '/pdfjs/wasm/' });
+  }
+
+  /** Starts a new editor session; results from an earlier session are discarded. */
+  private beginEditorSession(): void {
+    this.editorSession++;
+    this.cancelPdfSelection();
+    this.selectedFile = null;
+    this.selectedPageCount = 0;
+    this.error.set('');
+  }
+
+  private cancelPdfSelection(): void {
+    this.pdfSelection++;
+    const task = this.pdfLoadingTask;
+    this.pdfLoadingTask = undefined;
+    if (task) void task.destroy().catch(() => {});
+    this.readingPdf.set(false);
   }
 
   async save(): Promise<void> {

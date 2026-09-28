@@ -13,7 +13,7 @@ practice, MusicXML, playback, and OMR product is preserved only under
 
 Prerequisites:
 
-- Go 1.25 or newer
+- Go 1.25.14 or newer
 - Node.js 22 or newer and npm 11
 - Docker with Compose v2
 
@@ -40,6 +40,14 @@ make web-start
 
 Configuration defaults are in `.env.example`. Uploaded PDFs use opaque storage
 keys beneath `.local/noted-assets`; both `.env` and `.local/` are ignored.
+
+Local services listen on loopback only: PostgreSQL is published on
+`127.0.0.1:5434`, and outside production the API listens on `127.0.0.1:8080`.
+To reach the API directly from a phone or another device, set
+`LISTEN_HOST=0.0.0.0` (and point `ALLOWED_ORIGIN`/`FRONTEND_URL` at the address
+the device uses) for that session only: development authentication treats every
+request as the seeded learner. Production images listen on all interfaces inside
+the container (`LISTEN_HOST=0.0.0.0`).
 
 Local development defaults to `AUTH_MODE=development` and resolves
 `DEV_USER_EMAIL` to a seeded learner. Production requires `AUTH_MODE=google`,

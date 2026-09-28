@@ -255,7 +255,8 @@
         <button
           class="btn-secondary"
           type="button"
-          [disabled]="saving() || readingPdf()"
+          [disabled]="saving() || readingPdf() || tooLongToPrepare(editing)"
+          [attr.aria-describedby]="tooLongToPrepare(editing) ? 'edit-pages-limit' : null"
           (click)="editPages()"
         >
           <svg lucideFileText aria-hidden="true"></svg>
@@ -268,6 +269,12 @@
           </a>
         }
       </div>
+      @if (tooLongToPrepare(editing)) {
+        <small id="edit-pages-limit" class="field-help pdf-limit">
+          Page editing supports scores of up to {{ maxPreparedPages }} pages. Choose a PDF above to
+          replace a longer score.
+        </small>
+      }
     }
 
     @if (error()) {

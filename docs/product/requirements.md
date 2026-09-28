@@ -106,7 +106,9 @@ backend download proxy is included.
 Originals needed by the current saved manifest or an open draft remain private.
 Superseded, unreferenced files enter a durable deletion queue; drafts expire after
 seven inactive days. Limits are the configured file limit, 200 MiB per draft,
-100 prepared pages, 20 active drafts per owner, and 20 megapixels per photo.
+10 prepared pages, 20 active drafts per owner, and 20 megapixels per photo.
+A saved score longer than 10 pages cannot be opened for page editing; it can
+still be replaced with a new PDF. A draft never starts from a partial copy.
 Revision checks prevent stale saves; repeat finalization returns the same piece.
 Unchanged preparation preserves original output bytes and reader state; content
 changes reset position/page/zoom while retaining reading mode and scroll speed.
@@ -141,10 +143,12 @@ lower peak memory during correction. Unchanged JPEG embedding retains the full
 original resolution. Each RGBA correction surface is at most 16 MB; that is not
 a bound on total browser memory, which also includes decoding and the wasm heap.
 
-Preparation saves conservatively conflict when the saved piece changes, including
-title or favorite edits made while a draft is open. The newer piece metadata and
-the draft are both retained. The error directs the user to start a new preparation
-from the current piece; reloading the stale draft cannot update its base revision.
+Preparation saves conflict when the saved piece's content (its PDF or prepared
+pages) changes while a draft is open. The newer piece and the draft are both
+retained. The error directs the user to start a new preparation from the current
+piece; reloading the stale draft cannot update its base revision. Metadata edits
+made elsewhere, such as title or favorite, do not conflict: saving the draft
+applies only the metadata fields the draft itself changed and keeps the others.
 
 
 The local preparation controls now use one **Adjust page edges** editor on the

@@ -1,4 +1,12 @@
-import { Component, ElementRef, OnDestroy, ViewChild, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  OnDestroy,
+  ViewChild,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -11,11 +19,13 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { LeaveGuarded } from '../../core/leave.guard';
 import {
   EditManifest,
   ImportAsset,
   ImportDraft,
   IMSLPWork,
+  MAX_PREPARED_PAGES,
   PageEdit,
   PieceInput,
 } from '../../core/models';
@@ -62,9 +72,10 @@ interface ThumbnailRequest {
   templateUrl: './prepare.component.html',
   styleUrl: './prepare.component.scss',
 })
-export class PrepareComponent implements OnDestroy {
+export class PrepareComponent implements OnDestroy, LeaveGuarded {
   readonly Math = Math;
   readonly hasPageAdjustments = hasPageAdjustments;
+  readonly maxPreparedPages = MAX_PREPARED_PAGES;
   readonly steps: { id: 'source' | 'pages' | 'details'; label: string }[] = [
     { id: 'source', label: 'Source' },
     { id: 'pages', label: 'Pages' },
@@ -218,6 +229,30 @@ export class PrepareComponent implements OnDestroy {
     this.revokePreviewURL();
     this.revokeDisplayRaster();
     this.revokeThumbnails();
+  }
+  /** Route departure flushes pending draft edits; a failed save asks before discarding them. */
+  async canLeave(): Promise<boolean> {
+    if (!this.hasUnsavedChanges()) return true;
+    try {
+      await this.persist();
+      return true;
+    } catch (e) {
+      this.error.set(errorMessage(e));
+      return window.confirm(
+        'Your latest draft changes could not be saved. Leave anyway and lose them?',
+      );
+    }
+  }
+  /** Closing or reloading the tab cannot await a save: start one and ask the browser to warn. */
+  @HostListener('window:beforeunload', ['$event'])
+  warnBeforeUnload(event: BeforeUnloadEvent) {
+    if (!this.hasUnsavedChanges()) return;
+    void this.persist().catch((e) => this.error.set(errorMessage(e)));
+    event.preventDefault();
+    event.returnValue = '';
+  }
+  private hasUnsavedChanges(): boolean {
+    return !this.discarding && (this.dirty || this.pendingSave !== undefined);
   }
   async detailsWithoutPDF() {
     const d = this.draft();
@@ -497,6 +532,7 @@ export class PrepareComponent implements OnDestroy {
     this.skipRemainingUploads = false;
     this.syncCancellable();
     const uploadGeneration = ++this.uploadGeneration;
+    let pagesOmitted = false;
     try {
       this.applyIMSLP();
       await this.persist();
@@ -511,13 +547,21 @@ export class PrepareComponent implements OnDestroy {
         this.progress.set(`Adding ${i + 1} of ${files.length}: ${file.name}`);
         const oldCount = d.manifest.pages.length;
         const next = await firstValueFrom(this.api.uploadImport(d, file));
+        // Each completed file is one Undo step, even when later files fail or are cancelled.
+        this.remember();
         this.draft.set(next);
         this.rangeSourceId ||= next.sources[0]?.id || '';
+        const incoming = next.sources.find(
+          (source) => !d.sources.some((old) => old.id === source.id),
+        );
+        if (
+          !this.replaceID &&
+          incoming &&
+          next.manifest.pages.length - oldCount < incoming.pageCount
+        )
+          pagesOmitted = true;
         if (this.replaceID) {
           const target = next.manifest.pages.findIndex((p) => p.id === this.replaceID);
-          const incoming = next.sources.find(
-            (source) => !d.sources.some((old) => old.id === source.id),
-          );
           if (!incoming || target < 0) throw Error('Replacement source was not received.');
           next.manifest.pages = next.manifest.pages.filter((page) => page.sourceId !== incoming.id);
           next.manifest.pages[target] = { id: this.replaceID, sourceId: incoming.id, page: 0 };
@@ -538,6 +582,10 @@ export class PrepareComponent implements OnDestroy {
       }
       this.setStep('pages');
       this.reconcilePreparedKeys();
+      if (pagesOmitted)
+        this.error.set(
+          `A draft holds at most ${MAX_PREPARED_PAGES} pages, so some uploaded pages were not added. Use Choose source pages to pick others.`,
+        );
       await this.renderPreview();
     } catch (e) {
       this.error.set(errorMessage(e) + ' Pages already added remain in this draft.');
@@ -1194,11 +1242,17 @@ export class PrepareComponent implements OnDestroy {
         if (!match) throw Error('Enter page numbers such as 1-4, 7.');
         const first = +match[1],
           last = +(match[2] || match[1]);
-        if (first < 1 || last < first || last > source.pageCount || last - first > 99)
-          throw Error('Choose a valid source range of at most 100 pages.');
+        if (
+          first < 1 ||
+          last < first ||
+          last > source.pageCount ||
+          last - first >= MAX_PREPARED_PAGES
+        )
+          throw Error(`Choose a valid source range of at most ${MAX_PREPARED_PAGES} pages.`);
         for (let n = first; n <= last; n++) pages.push(n - 1);
       }
-      if (!pages.length || pages.length > 100) throw Error('Choose 1 to 100 pages.');
+      if (!pages.length || pages.length > MAX_PREPARED_PAGES)
+        throw Error(`Choose 1 to ${MAX_PREPARED_PAGES} pages.`);
       this.remember();
       d.manifest = {
         version: 1,

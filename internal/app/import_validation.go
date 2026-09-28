@@ -103,8 +103,8 @@ func ValidateIMSLP(value string) error {
 	return nil
 }
 func validateManifest(manifest EditManifest, sources []ImportAsset, allowEmpty bool) error {
-	if manifest.Version != 1 || len(manifest.Pages) > 100 || (!allowEmpty && len(manifest.Pages) == 0) {
-		return fmt.Errorf("manifest must contain 1 to 100 pages and version 1")
+	if manifest.Version != 1 || len(manifest.Pages) > MaxPreparedPages || (!allowEmpty && len(manifest.Pages) == 0) {
+		return fmt.Errorf("manifest must contain 1 to %d pages and version 1", MaxPreparedPages)
 	}
 	assets := map[string]ImportAsset{}
 	for _, a := range sources {

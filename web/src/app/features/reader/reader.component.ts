@@ -34,6 +34,13 @@ import { PageMetric, PdfDocument } from './pdf-document.service';
 import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 import { ScreenWakeLock } from './screen-wake-lock';
 
+interface ScrollRenderRequest {
+  width: number;
+  canvas: HTMLCanvasElement;
+  generation: number;
+  settled: boolean;
+}
+
 @Component({
   selector: 'app-reader',
   imports: [
@@ -94,8 +101,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private pageRenderInFlight = false;
   private pageRenderPending = false;
   private renderGeneration = 0;
-  private nextScrollRenderRequest = 0;
-  private scrollRenderRequests = new Map<number, number>();
+  private scrollRenderRequests = new Map<number, ScrollRenderRequest>();
   private destroyed = false;
   private readerStateSaveBlocked = false;
   private readerStateSaveInFlight = false;
@@ -453,10 +459,27 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       const width = Math.round(page.nativeElement.clientWidth);
       if (this.renderedWidths.get(pageNumber) === width) return;
       const generation = this.renderGeneration;
-      const request = ++this.nextScrollRenderRequest;
+      const active = this.scrollRenderRequests.get(pageNumber);
+      // Scroll refreshes outpace slow pages; restarting would starve them, so let it finish.
+      if (
+        active &&
+        !active.settled &&
+        active.width === width &&
+        active.canvas === canvas &&
+        active.generation === generation
+      )
+        return;
+      const request: ScrollRenderRequest = { width, canvas, generation, settled: false };
       this.scrollRenderRequests.set(pageNumber, request);
+      const forgetFailedRequest = (error: unknown) => {
+        request.settled = true;
+        if (this.scrollRenderRequests.get(pageNumber) === request)
+          this.scrollRenderRequests.delete(pageNumber);
+        throw error;
+      };
       pending.push(
         this.pdf.renderPage(canvas, pageNumber, width).then(() => {
+          request.settled = true;
           const currentStageRect = this.stage.nativeElement.getBoundingClientRect();
           const currentRect = page.nativeElement.getBoundingClientRect();
           const retained =
@@ -489,7 +512,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
               this.scrollRenderRequests.delete(pageNumber);
             }
           }
-        }),
+        }, forgetFailedRequest),
       );
     });
     await Promise.all(pending);

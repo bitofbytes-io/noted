@@ -228,7 +228,17 @@ func TestIntegrationImports(t *testing.T) {
 	if _, err = s.FinalizeImport(ctx, owner.ID, second.ID, second.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrPieceChanged) {
 		t.Fatalf("stale piece publish: %v", err)
 	}
+	// Metadata edited elsewhere (favorite, title) must not block a draft, and the
+	// draft publishes only the metadata it changed.
 	metadataDraft, err := s.CreateImport(ctx, owner.ID, CreateImport{PieceID: piece.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataDraft.Metadata.Composer = "Draft composer"
+	metadataDraft, err = s.UpdateImport(ctx, owner.ID, metadataDraft.ID, UpdateImport{
+		Revision: metadataDraft.Revision, Metadata: metadataDraft.Metadata,
+		IMSLPAutoFill: metadataDraft.IMSLPAutoFill, Manifest: metadataDraft.Manifest,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,19 +246,12 @@ func TestIntegrationImports(t *testing.T) {
 	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf)); !errors.Is(err, ErrPieceChanged) {
-		t.Fatalf("metadata conflict: %v", err)
+	current, err := s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf))
+	if err != nil {
+		t.Fatalf("metadata-only change blocked finalize: %v", err)
 	}
-	current, err := s.GetPiece(ctx, owner.ID, piece.ID)
-	if err != nil || current.Title != title || !current.Favorite {
-		t.Fatalf("concurrent metadata lost: %+v %v", current, err)
-	}
-	preserved, err := s.GetImport(ctx, owner.ID, metadataDraft.ID)
-	if err != nil || preserved.Finalized || preserved.Revision != metadataDraft.Revision || len(preserved.Manifest.Pages) != len(metadataDraft.Manifest.Pages) {
-		t.Fatalf("draft lost: %+v %v", preserved, err)
-	}
-	if err = s.DeleteImport(ctx, owner.ID, metadataDraft.ID); err != nil {
-		t.Fatal(err)
+	if current.Title != title || !current.Favorite || current.Composer != "Draft composer" {
+		t.Fatalf("finalize did not merge metadata: %+v", current)
 	}
 	retained, err := s.GetReaderState(ctx, owner.ID, piece.ID)
 	if err != nil || retained.LastPage != 2 || retained.Zoom != 1.5 {
@@ -515,5 +518,168 @@ func (s *blockedImportSave) Save(ctx context.Context, r io.Reader) (assets.Objec
 		return s.Store.Save(ctx, r)
 	case <-ctx.Done():
 		return assets.Object{}, ctx.Err()
+	}
+}
+
+// An existing score longer than the preparation limit must be refused rather
+// than opened as a truncated draft that an unchanged save would publish.
+func TestIntegrationPreparationPageLimit(t *testing.T) {
+	url := os.Getenv("NOTED_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("NOTED_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store, err := assets.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewService(pool, store)
+	owner := uuid.NewString()
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Limit tester','development')`, owner, owner+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner)
+	upload := func(pages int) (Piece, []byte) {
+		t.Helper()
+		piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: fmt.Sprintf("%d pages", pages)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := blankPDF(pages)
+		if piece, err = s.UploadPDF(ctx, owner, piece.ID, "score.pdf", pages, bytes.NewReader(data)); err != nil {
+			t.Fatal(err)
+		}
+		return piece, data
+	}
+
+	long, _ := upload(MaxPreparedPages + 1)
+	if _, err = s.CreateImport(ctx, owner, CreateImport{PieceID: long.ID}); !errors.Is(err, ErrTooManyPages) {
+		t.Fatalf("%d-page preparation: %v", MaxPreparedPages+1, err)
+	}
+	var drafts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM import_drafts WHERE user_id=$1`, owner).Scan(&drafts); err != nil || drafts != 0 {
+		t.Fatalf("refused preparation left drafts: %d %v", drafts, err)
+	}
+
+	full, data := upload(MaxPreparedPages)
+	d, err := s.CreateImport(ctx, owner, CreateImport{PieceID: full.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Manifest.Pages) != MaxPreparedPages || len(d.InitialManifest.Pages) != MaxPreparedPages {
+		t.Fatalf("draft pages %d, initial %d", len(d.Manifest.Pages), len(d.InitialManifest.Pages))
+	}
+	// The browser rebuilds an equivalent PDF; unchanged preparation keeps the original bytes.
+	piece, err := s.FinalizeImport(ctx, owner, d.ID, d.Revision, bytes.NewReader(blankPDF(MaxPreparedPages)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, reader, err := s.PDFSource(ctx, owner, piece.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := io.ReadAll(reader)
+	reader.Close()
+	if piece.PDF.PageCount != MaxPreparedPages || !bytes.Equal(actual, data) {
+		t.Fatalf("unchanged preparation replaced the PDF: %d pages", piece.PDF.PageCount)
+	}
+}
+
+func blankPDF(pages int) []byte {
+	objects := []string{"<< /Type /Catalog /Pages 2 0 R >>", ""}
+	kids := ""
+	for n := 0; n < pages; n++ {
+		kids += fmt.Sprintf("%d 0 R ", n+3)
+		objects = append(objects, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>")
+	}
+	objects[1] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids, pages)
+	var pdf bytes.Buffer
+	pdf.WriteString("%PDF-1.4\n")
+	offsets := []int{}
+	for i, object := range objects {
+		offsets = append(offsets, pdf.Len())
+		fmt.Fprintf(&pdf, "%d 0 obj\n%s\nendobj\n", i+1, object)
+	}
+	xref := pdf.Len()
+	fmt.Fprintf(&pdf, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for _, offset := range offsets {
+		fmt.Fprintf(&pdf, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&pdf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	return pdf.Bytes()
+}
+
+// Drafts created before baseMetadata was recorded must not overwrite metadata
+// edited elsewhere, now that metadata edits no longer change content_revision.
+func TestIntegrationLegacyDraftKeepsNewerMetadata(t *testing.T) {
+	url := os.Getenv("NOTED_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("NOTED_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store, err := assets.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewService(pool, store)
+	owner := uuid.NewString()
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Legacy tester','development')`, owner, owner+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner)
+	data := blankPDF(2)
+	piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: "Legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if piece, err = s.UploadPDF(ctx, owner, piece.ID, "score.pdf", 2, bytes.NewReader(data)); err != nil {
+		t.Fatal(err)
+	}
+	legacyDraft := func() ImportDraft {
+		t.Helper()
+		d, err := s.CreateImport(ctx, owner, CreateImport{PieceID: piece.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, `UPDATE import_drafts SET metadata=metadata-'baseMetadata' WHERE id=$1`, d.ID); err != nil {
+			t.Fatal(err)
+		}
+		if d, err = s.GetImport(ctx, owner, d.ID); err != nil || d.BaseMetadata != nil {
+			t.Fatalf("legacy draft still has a base: %+v %v", d.BaseMetadata, err)
+		}
+		return d
+	}
+
+	stale := legacyDraft()
+	favorite := true
+	if _, err = s.UpdatePiece(ctx, owner, piece.ID, PiecePatch{Favorite: &favorite}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.FinalizeImport(ctx, owner, stale.ID, stale.Revision, bytes.NewReader(data)); !errors.Is(err, ErrPieceChanged) {
+		t.Fatalf("legacy draft with stale metadata: %v", err)
+	}
+	current, err := s.GetPiece(ctx, owner, piece.ID)
+	if err != nil || !current.Favorite {
+		t.Fatalf("newer metadata overwritten: %+v %v", current, err)
+	}
+	if kept, err := s.GetImport(ctx, owner, stale.ID); err != nil || kept.Finalized {
+		t.Fatalf("legacy draft not retained: %+v %v", kept, err)
+	}
+
+	unchanged := legacyDraft()
+	if _, err = s.FinalizeImport(ctx, owner, unchanged.ID, unchanged.Revision, bytes.NewReader(data)); err != nil {
+		t.Fatalf("legacy draft with current metadata: %v", err)
 	}
 }

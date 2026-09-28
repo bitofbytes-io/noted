@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { canLeave } from './core/leave.guard';
 
 export const routes: Routes = [
   {
@@ -17,6 +18,7 @@ export const routes: Routes = [
     path: 'prepare/:draftId',
     loadComponent: () =>
       import('./features/prepare/prepare.component').then((m) => m.PrepareComponent),
+    canDeactivate: [canLeave],
     title: 'Prepare score · Noted',
   },
   { path: '**', redirectTo: '' },

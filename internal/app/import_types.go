@@ -37,12 +37,14 @@ type ImportAsset struct {
 	StorageKey string    `json:"-"`
 }
 type ImportDraft struct {
-	ID              string        `json:"id"`
-	PieceID         *string       `json:"pieceId"`
-	Revision        int64         `json:"revision"`
-	BaseRevision    int64         `json:"-"`
-	Metadata        PieceInput    `json:"metadata"`
-	IMSLPAutoFill   IMSLPAutoFill `json:"imslpAutoFill"`
+	ID            string        `json:"id"`
+	PieceID       *string       `json:"pieceId"`
+	Revision      int64         `json:"revision"`
+	BaseRevision  int64         `json:"-"`
+	Metadata      PieceInput    `json:"metadata"`
+	IMSLPAutoFill IMSLPAutoFill `json:"imslpAutoFill"`
+	// BaseMetadata is the piece metadata when an existing piece's draft started.
+	BaseMetadata    *PieceInput   `json:"-"`
 	Manifest        EditManifest  `json:"manifest"`
 	InitialManifest EditManifest  `json:"initialManifest"`
 	Sources         []ImportAsset `json:"sources"`

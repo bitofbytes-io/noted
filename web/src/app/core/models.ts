@@ -57,6 +57,9 @@ export interface ReaderState {
   updatedAt?: string;
 }
 
+/** Mirrors MaxPreparedPages in internal/app/imports.go. */
+export const MAX_PREPARED_PAGES = 10;
+
 export interface PageEdit {
   fitEdges?: boolean;
   margins?: number[];

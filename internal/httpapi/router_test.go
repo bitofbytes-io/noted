@@ -496,3 +496,11 @@ func TestChangedPieceConflictGuidance(t *testing.T) {
 		t.Fatalf("stale piece guidance: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestTooManyPagesIsAValidationError(t *testing.T) {
+	response := httptest.NewRecorder()
+	handleError(response, app.ErrTooManyPages)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "up to 10 pages") {
+		t.Fatalf("page limit response: %d %s", response.Code, response.Body.String())
+	}
+}
