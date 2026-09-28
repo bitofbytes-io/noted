@@ -13,7 +13,7 @@ practice, MusicXML, playback, and OMR product is preserved only under
 
 Prerequisites:
 
-- Go 1.25 or newer
+- Go 1.25.14 or newer
 - Node.js 22 or newer and npm 11
 - Docker with Compose v2
 
