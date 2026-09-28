@@ -247,3 +247,22 @@ func setProductionGoogleEnvironment(t *testing.T) {
 	t.Setenv("ALLOWED_ORIGINS", "")
 	t.Setenv("FRONTEND_URL", "")
 }
+
+func TestListenHostDefaultsToLoopbackOutsideProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("LISTEN_HOST", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ListenHost != "127.0.0.1" {
+		t.Fatalf("ListenHost = %q", cfg.ListenHost)
+	}
+	if host := defaultListenHost("production"); host != "" {
+		t.Fatalf("production ListenHost = %q", host)
+	}
+	t.Setenv("LISTEN_HOST", "0.0.0.0")
+	if cfg, err = Load(); err != nil || cfg.ListenHost != "0.0.0.0" {
+		t.Fatalf("override ListenHost = %q %v", cfg.ListenHost, err)
+	}
+}

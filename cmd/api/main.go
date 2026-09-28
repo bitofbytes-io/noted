@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -43,7 +44,7 @@ func main() {
 	go service.RunImportCleanup(ctx)
 	go service.RunIMSLPCatalog(ctx)
 	server := &http.Server{
-		Addr: ":" + cfg.Port,
+		Addr: net.JoinHostPort(cfg.ListenHost, cfg.Port),
 		Handler: httpapi.NewRouter(
 			service,
 			auth.NewService(pool, cfg.AllowedEmails, cfg.SessionTTL),
