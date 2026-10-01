@@ -3,14 +3,18 @@
     <a class="wordmark" href="/" aria-label="Noted library">Noted</a>
     <div class="masthead-actions">
       @if (session()?.user; as user) {
-        <div class="account" [title]="user.email">
-          <span class="account-name">{{ user.displayName }}</span>
+        <div class="masthead-account">
+          <button
+            class="btn-quiet account-button"
+            type="button"
+            aria-haspopup="dialog"
+            [title]="user.email"
+            (click)="openAccount()"
+          >
+            {{ user.displayName }}
+          </button>
           @if (session()?.development) {
             <small class="dev-chip">Dev</small>
-          } @else {
-            <button class="btn-quiet" type="button" (click)="logout()" [disabled]="signingOut()">
-              {{ signingOut() ? 'Signing out…' : 'Sign out' }}
-            </button>
           }
         </div>
       }
@@ -301,4 +305,142 @@
       </button>
     </footer>
   </form>
+</dialog>
+
+<dialog #account class="account" aria-labelledby="account-name" (close)="accountClosed()">
+  @if (session()?.user; as user) {
+    <header class="account-head">
+      <div class="account-who">
+        <h2 id="account-name">{{ user.displayName }}</h2>
+        <small>{{ user.email }}</small>
+      </div>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Close"
+        title="Close"
+        (click)="closeAccount()"
+      >
+        <svg lucideX aria-hidden="true"></svg>
+      </button>
+    </header>
+
+    <section class="account-section" aria-labelledby="shortcut-heading">
+      <h3 id="shortcut-heading">Send to Noted</h3>
+      @switch (shortcutState()) {
+        @case ('loading') {
+          <p class="account-note">Checking…</p>
+        }
+        @case ('none') {
+          <p class="account-note">
+            Share a PDF from Safari or Files straight into a new draft on this iPad.
+          </p>
+          <div class="account-actions">
+            <button
+              class="btn-secondary"
+              type="button"
+              [disabled]="shortcutBusy()"
+              (click)="createShortcut()"
+            >
+              Set up on this iPad
+            </button>
+          </div>
+        }
+        @case ('created') {
+          @if (createdToken(); as created) {
+            <ol class="shortcut-steps">
+              <li>
+                @if (created.installUrl) {
+                  <a [href]="created.installUrl" target="_blank" rel="noopener noreferrer"
+                    >Install the Shortcut</a
+                  >
+                  on this iPad.
+                } @else {
+                  The Shortcut link will be added here.
+                }
+              </li>
+              <li>When Shortcuts asks for your Noted token, paste this:</li>
+            </ol>
+            <div class="shortcut-token">
+              <code #tokenText class="tabular">{{ created.token }}</code>
+              <button class="btn-secondary" type="button" (click)="copyToken()">
+                {{ copyNote() === 'Copied' ? 'Copied' : 'Copy' }}
+              </button>
+            </div>
+            @if (copyNote() && copyNote() !== 'Copied') {
+              <p class="account-note" role="status">{{ copyNote() }}</p>
+            }
+            <ol class="shortcut-steps" start="3">
+              <li>Tap Done. Share any PDF with <strong>Send to Noted</strong>.</li>
+            </ol>
+            <p class="shortcut-warning">
+              You won’t see this token again. If you lose it, come back and tap Replace.
+            </p>
+          }
+        }
+        @case ('active') {
+          <p class="shortcut-status">{{ shortcutStatus() }}</p>
+          <div class="account-actions">
+            <button
+              class="btn-quiet accent"
+              type="button"
+              [disabled]="shortcutBusy()"
+              [attr.aria-expanded]="confirming() === 'replace'"
+              (click)="confirming.set('replace')"
+            >
+              Replace
+            </button>
+            <button
+              class="btn-quiet danger"
+              type="button"
+              [disabled]="shortcutBusy()"
+              [attr.aria-expanded]="confirming() === 'off'"
+              (click)="confirming.set('off')"
+            >
+              Turn off
+            </button>
+          </div>
+          @if (confirming(); as action) {
+            <div class="shortcut-confirm" role="group" aria-label="Confirm">
+              @if (action === 'replace') {
+                <p>
+                  Replace the token? The Shortcut on your iPad stops working until you paste the new
+                  one.
+                </p>
+              } @else {
+                <p>Turn off Send to Noted? The Shortcut on your iPad stops working.</p>
+              }
+              <div class="account-actions">
+                <button
+                  class="btn-secondary"
+                  type="button"
+                  [class.danger]="action === 'off'"
+                  [disabled]="shortcutBusy()"
+                  (click)="action === 'replace' ? createShortcut() : turnOffShortcut()"
+                >
+                  {{ action === 'replace' ? 'Replace token' : 'Turn off' }}
+                </button>
+                <button class="btn-quiet" type="button" (click)="confirming.set(null)">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          }
+        }
+      }
+      @if (shortcutError()) {
+        <p class="notice" role="alert">{{ shortcutError() }}</p>
+      }
+    </section>
+
+    @if (!session()?.development) {
+      <section class="account-section">
+        <div class="account-actions">
+          <button class="btn-quiet" type="button" (click)="logout()" [disabled]="signingOut()">
+            {{ signingOut() ? 'Signing out…' : 'Sign out' }}
+          </button>
+        </div>
+      </section>
+    }
+  }
 </dialog>

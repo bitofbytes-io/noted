@@ -12,6 +12,21 @@ export interface Session {
   user?: User;
 }
 
+/** The user's Send to Noted token as the account dialog sees it: never the token itself. */
+export interface ShortcutToken {
+  active: boolean;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** The one response that carries the token's plaintext. */
+export interface ShortcutTokenCreated {
+  token: string;
+  createdAt: string;
+  /** The published iCloud link to the Shortcut; empty until it is published. */
+  installUrl: string;
+}
+
 export interface PiecePdf {
   originalFilename: string;
   sizeBytes: number;

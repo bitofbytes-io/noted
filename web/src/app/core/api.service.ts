@@ -1,7 +1,16 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, of, throwError } from 'rxjs';
-import { Piece, PieceInput, ReaderState, Session, ImportDraft, IMSLPSearch } from './models';
+import {
+  Piece,
+  PieceInput,
+  ReaderState,
+  Session,
+  ImportDraft,
+  IMSLPSearch,
+  ShortcutToken,
+  ShortcutTokenCreated,
+} from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -61,6 +70,17 @@ export class ApiService {
 
   logout(): Observable<void> {
     return this.http.delete<void>('/api/session');
+  }
+
+  shortcutToken(): Observable<ShortcutToken> {
+    return this.http.get<ShortcutToken>('/api/account/shortcut-token');
+  }
+  /** Creates the token, or replaces the current one. */
+  createShortcutToken(): Observable<ShortcutTokenCreated> {
+    return this.http.post<ShortcutTokenCreated>('/api/account/shortcut-token', null);
+  }
+  deleteShortcutToken(): Observable<void> {
+    return this.http.delete<void>('/api/account/shortcut-token');
   }
 
   pieces(query = '', favorite = false): Observable<Piece[]> {
