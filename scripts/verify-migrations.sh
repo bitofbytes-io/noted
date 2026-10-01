@@ -25,6 +25,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -177,6 +178,7 @@ piece_sources
 pieces
 reader_states
 schema_migrations
+shortcut_tokens
 unrelated_application_data
 user_sessions
 users'
@@ -207,7 +209,8 @@ if [ "$version" != "000001_binder
 000004_score_intake
 000005_reader_scroll_speed
 000006_imslp_catalog
-000007_drop_imslp_catalog" ]; then
+000007_drop_imslp_catalog
+000008_shortcut_tokens" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -258,6 +261,70 @@ if docker compose -p "$project" -f "$compose_file" exec -T postgres \
   echo "reader scroll speed constraint unexpectedly accepted 11" >&2
   exit 1
 fi
+
+# A shortcut token is a 32-byte hash, unique, one per user, and leaves with
+# its user.
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "INSERT INTO shortcut_tokens (user_id, token_hash)
+      VALUES ('db53bb2a-b720-407a-8941-cd4459f69e79', decode(repeat('ab', 32), 'hex'))" >/dev/null
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE shortcut_tokens SET token_hash=decode(repeat('ab', 31), 'hex')" >/dev/null 2>&1; then
+  echo "shortcut token hash length constraint unexpectedly accepted 31 bytes" >&2
+  exit 1
+fi
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "INSERT INTO shortcut_tokens (user_id, token_hash)
+      VALUES ('db53bb2a-b720-407a-8941-cd4459f69e79', decode(repeat('cd', 32), 'hex'))" >/dev/null 2>&1; then
+  echo "a second shortcut token for one user was unexpectedly accepted" >&2
+  exit 1
+fi
+
+# Rolling back 000008 removes only the token table; reapplying restores it.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+token_table=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT count(*) FROM information_schema.tables
+     WHERE table_schema='public' AND table_name='shortcut_tokens'"
+)
+if [ "$token_table" != "0" ]; then
+  echo "shortcut_tokens survived rolling back 000008" >&2
+  exit 1
+fi
+DATABASE_URL="$database_url" go run ./cmd/migrate
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "INSERT INTO shortcut_tokens (user_id, token_hash)
+      VALUES ('db53bb2a-b720-407a-8941-cd4459f69e79', decode(repeat('ef', 32), 'hex'))" >/dev/null
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "DELETE FROM pieces; DELETE FROM users;" >/dev/null
+remaining_tokens=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT count(*) FROM shortcut_tokens"
+)
+if [ "$remaining_tokens" != "0" ]; then
+  echo "deleting a user did not remove its shortcut token" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
+INSERT INTO users (id,email,display_name,auth_provider)
+VALUES ('db53bb2a-b720-407a-8941-cd4459f69e79','owner@example.test','Owner','development');
+INSERT INTO pieces (id,user_id,title)
+VALUES (
+  '4f607127-fb97-4b22-90f5-1b9bec77b739',
+  'db53bb2a-b720-407a-8941-cd4459f69e79',
+  'Owned piece'
+);
+INSERT INTO reader_states (piece_id, scroll_speed)
+VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
+SQL
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # Rolling back the catalogue removal restores both tables and the single
 # state row exactly as 000006 created them.
