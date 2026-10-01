@@ -1,16 +1,25 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, catchError, of, throwError } from 'rxjs';
 import { Piece, PieceInput, ReaderState, Session, ImportDraft, IMSLPSearch } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
 
+  /** The per-user limit answers 429; callers see it as the `throttled` status. */
   searchIMSLP(query: string): Observable<IMSLPSearch> {
-    return this.http.get<IMSLPSearch>('/api/imslp/works', {
-      params: new HttpParams().set('q', query.trim()),
-    });
+    return this.http
+      .get<IMSLPSearch>('/api/imslp/works', {
+        params: new HttpParams().set('q', query.trim()),
+      })
+      .pipe(
+        catchError((error: unknown) =>
+          error instanceof HttpErrorResponse && error.status === 429
+            ? of<IMSLPSearch>({ status: 'throttled', results: [] })
+            : throwError(() => error),
+        ),
+      );
   }
 
   imports(): Observable<ImportDraft[]> {

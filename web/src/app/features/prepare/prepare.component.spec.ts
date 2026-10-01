@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
-import { Observable, of, throwError } from 'rxjs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Observable, Subject, of, throwError } from 'rxjs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
 import {
   ImportAsset,
@@ -49,8 +49,10 @@ describe('PrepareComponent', () => {
     finalizeImport: ReturnType<typeof vi.fn>;
     searchIMSLP: ReturnType<typeof vi.fn>;
   };
+  let openWindow: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    openWindow = vi.spyOn(window, 'open').mockReturnValue(null);
     api = {
       importDraft: vi.fn(() => of(structuredClone(draft))),
       deleteImport: vi.fn((): Observable<void> => of(undefined)),
@@ -77,6 +79,10 @@ describe('PrepareComponent', () => {
     fixture = TestBed.createComponent(PrepareComponent);
     fixture.detectChanges();
     await fixture.whenStable();
+  });
+
+  afterEach(() => {
+    openWindow.mockRestore();
   });
 
   it('marks meaningful page edits and clears the marker after reset', () => {
@@ -164,18 +170,20 @@ describe('PrepareComponent', () => {
       component[state].set(true);
       fixture.detectChanges();
       const select = fixture.nativeElement.querySelector(
-        'button[aria-label="Select Prelude by Example, Ada"]',
+        'button[aria-label="Open Prelude by Example, Ada on IMSLP"]',
       );
       expect(select.disabled).toBe(true);
       component.selectIMSLPWork(work);
       expect(component.draft()?.metadata).toEqual(draft.metadata);
       expect(component.imslp).toBe('');
+      expect(openWindow).not.toHaveBeenCalled();
       component[state].set(false);
     }
     fixture.detectChanges();
     expect(
-      fixture.nativeElement.querySelector('button[aria-label="Select Prelude by Example, Ada"]')
-        .disabled,
+      fixture.nativeElement.querySelector(
+        'button[aria-label="Open Prelude by Example, Ada on IMSLP"]',
+      ).disabled,
     ).toBe(false);
   });
 
@@ -200,7 +208,7 @@ describe('PrepareComponent', () => {
     await component.searchIMSLP();
     component.sourceMode.set('imslp');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Showing up to 30 works');
+    expect(fixture.nativeElement.textContent).toContain("Showing IMSLP's top matches");
 
     component.selectIMSLPWork(first);
     expect(component.draft()?.metadata).toMatchObject({
@@ -359,6 +367,285 @@ describe('PrepareComponent', () => {
     expect(component.draft()?.metadata).toMatchObject({
       title: work.title,
       sourceUrl: work.url,
+    });
+  });
+
+  describe('IMSLP live search', () => {
+    const prelude = {
+      title: 'Prelude',
+      composer: 'Example, Ada',
+      url: 'https://imslp.org/wiki/Prelude_(Example,_Ada)',
+    };
+    const type = (component: PrepareComponent, query: string) => {
+      component.imslpQuery = query;
+      component.imslpInput();
+    };
+    const text = () => fixture.nativeElement.textContent as string;
+    const linkField = () =>
+      fixture.nativeElement.querySelector('.imslp-link input[type="url"]') as HTMLInputElement;
+    const addPDF = () =>
+      Array.from(
+        fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+      ).find((button) => button.textContent?.trim() === 'Add downloaded PDF')!;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      fixture.componentInstance.sourceMode.set('imslp');
+      fixture.detectChanges();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      // Focusing the search field leaves a document selection later specs rely on being empty.
+      (document.activeElement as HTMLElement | null)?.blur();
+      document.getSelection()?.removeAllRanges();
+    });
+
+    it('sends nothing below two characters and shows the idle hint', () => {
+      const component = fixture.componentInstance;
+      type(component, 'P');
+      vi.advanceTimersByTime(1000);
+      type(component, ' P ');
+      vi.advanceTimersByTime(1000);
+      fixture.detectChanges();
+      expect(api.searchIMSLP).not.toHaveBeenCalled();
+      expect(component.imslpStatus()).toBe('idle');
+      expect(text()).toContain('Type at least two characters.');
+    });
+
+    it('debounces typing into one request for the last query', () => {
+      const component = fixture.componentInstance;
+      type(component, 'Pre');
+      vi.advanceTimersByTime(100);
+      type(component, 'Prel');
+      vi.advanceTimersByTime(100);
+      type(component, 'Prelu');
+      vi.advanceTimersByTime(349);
+      expect(api.searchIMSLP).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+      expect(api.searchIMSLP).toHaveBeenCalledWith('Prelu');
+    });
+
+    it('searches at once on Enter and cancels the pending debounce', () => {
+      const component = fixture.componentInstance;
+      type(component, 'Prelude');
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+      component.imslpEnter(enter);
+      expect(enter.defaultPrevented).toBe(true);
+      expect(api.searchIMSLP).toHaveBeenCalledWith('Prelude');
+      vi.advanceTimersByTime(1000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips a repeated query and answers earlier queries from the page cache', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockImplementation((query: string) =>
+        of({ status: 'ready', results: query === 'Prelude' ? [prelude] : [] }),
+      );
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      type(component, '  prelude ');
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+      type(component, 'Prelud');
+      vi.advanceTimersByTime(350);
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+      expect(component.imslpResults()).toEqual([prelude]);
+      fixture.detectChanges();
+      expect(text()).toContain("Showing IMSLP's top matches");
+    });
+
+    it('cancels the in-flight request and ignores its late response', () => {
+      const component = fixture.componentInstance;
+      const first = new Subject<IMSLPSearch>();
+      const second = new Subject<IMSLPSearch>();
+      api.searchIMSLP.mockReturnValueOnce(first).mockReturnValueOnce(second);
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      expect(first.observed).toBe(true);
+      fixture.detectChanges();
+      expect(text()).toContain('Searching IMSLP…');
+      type(component, 'Nocturne');
+      vi.advanceTimersByTime(350);
+      expect(first.observed).toBe(false);
+      first.next({ status: 'ready', results: [prelude] });
+      expect(component.imslpResults()).toEqual([]);
+      expect(component.imslpStatus()).toBe('searching');
+      second.next({ status: 'ready', results: [] });
+      fixture.detectChanges();
+      expect(component.imslpStatus()).toBe('ready');
+      expect(text()).toContain(
+        'No works match. Check the spelling, try the composer alone, or paste a work link.',
+      );
+    });
+
+    it('opens the chosen work on IMSLP, prefills, persists and offers Change', async () => {
+      const component = fixture.componentInstance;
+      component.draft.set({
+        ...structuredClone(draft),
+        metadata: { ...structuredClone(draft.metadata), title: '', composer: '' },
+      });
+      api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [prelude] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      fixture.detectChanges();
+      (
+        fixture.nativeElement.querySelector(
+          'button[aria-label="Open Prelude by Example, Ada on IMSLP"]',
+        ) as HTMLButtonElement
+      ).click();
+      expect(openWindow).toHaveBeenCalledWith(prelude.url, '_blank', 'noopener,noreferrer');
+      expect(component.draft()?.metadata).toMatchObject({
+        title: 'Prelude',
+        composer: 'Example, Ada',
+        sourceUrl: prelude.url,
+      });
+      expect(component.imslp).toBe(prelude.url);
+      await vi.runOnlyPendingTimersAsync();
+      expect(api.updateImport).toHaveBeenCalledTimes(1);
+      expect(api.updateImport.mock.calls[0][0].metadata.sourceUrl).toBe(prelude.url);
+
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.chosen-title').textContent).toContain('Prelude');
+      expect(text()).toContain('Title and composer filled from IMSLP');
+      expect(text()).toContain('IMSLP opened in a new tab');
+      expect(text()).toContain('Waiting for your PDF');
+      expect(fixture.nativeElement.querySelector('input[type="search"]')).toBeNull();
+
+      const change = fixture.nativeElement.querySelector(
+        '.chosen-work button',
+      ) as HTMLButtonElement;
+      change.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const search = fixture.nativeElement.querySelector('input[type="search"]');
+      expect(document.activeElement).toBe(search);
+      expect(component.imslpQuery).toBe('Prelude');
+      expect(component.imslpResults()).toEqual([prelude]);
+      expect(component.draft()?.metadata.sourceUrl).toBe(prelude.url);
+
+      component.updateMetadata('title', 'My edition');
+      component.imslpChanging.set(false);
+      fixture.detectChanges();
+      expect(text()).toContain('Composer filled from IMSLP');
+      expect(text()).not.toContain('Title and composer filled from IMSLP');
+    });
+
+    it('keeps earlier results faded while throttled and retries once the limit refills', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'ready', results: [prelude] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'throttled', results: [] }));
+      type(component, 'Prelude in C');
+      vi.advanceTimersByTime(350);
+      fixture.detectChanges();
+      expect(text()).toContain("You're searching quickly. Results will catch up in a moment.");
+      expect(component.imslpResults()).toEqual([prelude]);
+      expect(fixture.nativeElement.querySelector('.imslp-results.stale')).not.toBeNull();
+      expect(linkField().disabled).toBe(false);
+      expect(addPDF().disabled).toBe(false);
+
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'ready', results: [] }));
+      vi.advanceTimersByTime(1000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(3);
+      expect(api.searchIMSLP).toHaveBeenLastCalledWith('Prelude in C');
+      expect(component.imslpStatus()).toBe('ready');
+    });
+
+    it('clears results when IMSLP is unavailable and keeps the fallbacks open', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'ready', results: [prelude] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'unavailable', results: [] }));
+      type(component, 'Chopin Nocturne');
+      vi.advanceTimersByTime(350);
+      fixture.detectChanges();
+      expect(text()).toContain(
+        'IMSLP is slow right now. Paste a work link or add a downloaded PDF; search will come back on its own.',
+      );
+      expect(component.imslpResults()).toEqual([]);
+      expect(fixture.nativeElement.querySelector('.imslp-link').open).toBe(true);
+      expect(linkField().disabled).toBe(false);
+      expect(addPDF().disabled).toBe(false);
+
+      // An API error reads the same, and the same query can be tried again.
+      api.searchIMSLP.mockReturnValueOnce(throwError(() => new Error('offline')));
+      type(component, 'Chopin Nocturne ');
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(3);
+      expect(component.imslpStatus()).toBe('unavailable');
+    });
+
+    it('adds a dropped IMSLP PDF through the upload path and stays on Source', async () => {
+      const component = fixture.componentInstance;
+      vi.spyOn(component, 'renderPreview').mockResolvedValue();
+      component.draft.update((d) =>
+        d ? { ...d, metadata: { ...d.metadata, sourceUrl: prelude.url } } : null,
+      );
+      component.imslp = prelude.url;
+      const source: ImportAsset = {
+        id: 'imslp-file',
+        filename: 'IMSLP01240-Example_-_Prelude.pdf',
+        mime: 'application/pdf',
+        size: 1,
+        checksum: 'imslp-file',
+        pageCount: 1,
+        width: 0,
+        height: 0,
+      };
+      const uploadImport = vi.fn((current: ImportDraft) =>
+        of({
+          ...structuredClone(current),
+          revision: current.revision + 1,
+          sources: [source],
+          manifest: {
+            version: 1 as const,
+            pages: [{ id: 'page-1', sourceId: source.id, page: 0 }],
+          },
+        }),
+      );
+      Reflect.set(api, 'uploadImport', uploadImport);
+      fixture.detectChanges();
+      const panel = fixture.nativeElement.querySelector('article.imslp') as HTMLElement;
+      const drag = (types: string[], files: File[] = []) =>
+        ({
+          preventDefault: vi.fn(),
+          currentTarget: panel,
+          relatedTarget: null,
+          dataTransfer: { types, files, dropEffect: 'none' },
+        }) as unknown as DragEvent;
+
+      const over = drag(['Files']);
+      component.imslpDragOver(over);
+      fixture.detectChanges();
+      expect(over.preventDefault).toHaveBeenCalled();
+      expect(panel.querySelector('.imslp-drop.hot')?.textContent).toContain('Release to add');
+      component.imslpDragLeave(drag(['Files']));
+      expect(component.imslpDropHot()).toBe(false);
+
+      await component.imslpDrop(drag(['Files'], [new File(['x'], 'notes.txt')]));
+      expect(component.error()).toBe('Only PDF files can be dropped here.');
+      expect(uploadImport).not.toHaveBeenCalled();
+      component.error.set('');
+
+      const file = new File(['%PDF-'], 'IMSLP01240-Example_-_Prelude.pdf', {
+        type: 'application/pdf',
+      });
+      await component.imslpDrop(drag(['Files'], [file]));
+      expect(uploadImport).toHaveBeenCalledWith(expect.anything(), file);
+      expect(component.step()).toBe('source');
+      expect(component.error()).toBe('');
+      fixture.detectChanges();
+      expect(text()).toContain('IMSLP01240-Example_-_Prelude.pdf');
+      expect(text()).toContain("IMSLP file 01240, by the chosen work's composer.");
+      const continueButton = Array.from(
+        fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+      ).find((button) => button.textContent?.trim() === 'Continue')!;
+      expect(continueButton.disabled).toBe(false);
     });
   });
 

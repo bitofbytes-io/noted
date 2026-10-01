@@ -118,6 +118,6 @@ export interface IMSLPWork {
 }
 
 export interface IMSLPSearch {
-  status: 'ready' | 'loading' | 'unavailable';
+  status: 'ready' | 'unavailable' | 'throttled';
   results: IMSLPWork[];
 }

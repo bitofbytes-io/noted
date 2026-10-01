@@ -176,92 +176,173 @@
           </article>
         }
         @if (sourceMode() === 'imslp') {
-          <article class="imslp">
+          @let chosen = imslpChanging() ? null : chosenIMSLPWork;
+          <article
+            class="imslp"
+            [class.drop-hot]="imslpDropHot()"
+            (dragover)="imslpDragOver($event)"
+            (dragleave)="imslpDragLeave($event)"
+            (drop)="imslpDrop($event)"
+          >
             <h2>Find a score on IMSLP</h2>
-            <p>
-              Open the work, choose your edition and download its PDF, then add that file here. The
-              work link stays with the piece.
-            </p>
-            <form class="imslp-search" (ngSubmit)="searchIMSLP()">
-              <label class="field">
-                <span>Search title or composer</span>
-                <input
-                  type="search"
-                  name="imslpQuery"
-                  [(ngModel)]="imslpQuery"
-                  maxlength="100"
-                  placeholder="Piece or composer"
-                />
+            @if (chosen) {
+              <div class="chosen-work">
+                <div>
+                  <p class="chosen-label">Chosen work</p>
+                  <p class="chosen-title">{{ chosen.title || chosen.url }}</p>
+                  @if (chosen.composer) {
+                    <p class="chosen-composer">{{ chosen.composer }}</p>
+                  }
+                  <a
+                    class="chosen-link"
+                    [href]="chosen.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >{{ chosen.url }}</a
+                  >
+                  @if (imslpProvenance) {
+                    <p class="provenance">{{ imslpProvenance }}</p>
+                  }
+                </div>
+                <button
+                  class="btn-quiet"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="changeIMSLPWork()"
+                >
+                  Change
+                </button>
+              </div>
+              @if (imslpOpened() && !imslpAdded().length) {
+                <div class="imslp-banner">
+                  <p class="imslp-banner-heading">IMSLP opened in a new tab</p>
+                  <p>
+                    Pick the edition there and download its PDF. IMSLP shows a short wait unless you
+                    are a member. Then come back here and add the file.
+                  </p>
+                </div>
+              }
+            } @else {
+              <p>
+                Search by title, composer, or both. Choosing a work opens it on IMSLP, where you
+                pick the edition and download the PDF.
+              </p>
+              <label class="field imslp-query">
+                <span>Title or composer</span>
+                <span class="imslp-input">
+                  <input
+                    #imslpSearchInput
+                    type="search"
+                    name="imslpQuery"
+                    [(ngModel)]="imslpQuery"
+                    (input)="imslpInput()"
+                    (keydown.enter)="imslpEnter($event)"
+                    maxlength="100"
+                    placeholder="Debussy Clair de lune"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  @if (imslpStatus() === 'searching') {
+                    <span class="imslp-spinner" aria-hidden="true"></span>
+                  }
+                </span>
               </label>
-              <button
-                class="btn-secondary"
-                type="submit"
-                [disabled]="imslpQuery.trim().length < 2 || imslpStatus() === 'searching'"
+              <p
+                class="imslp-status"
+                [class.error]="imslpStatus() === 'unavailable'"
+                role="status"
+                aria-live="polite"
               >
-                Search works
-              </button>
-            </form>
-            @if (imslpStatus() === 'searching') {
-              <p role="status">Searching cached works…</p>
-            } @else if (imslpStatus() === 'loading') {
-              <p role="status">
-                The work list is still loading. You can use a work link or add a downloaded PDF now.
+                {{ imslpStatusText() }}
               </p>
-            } @else if (imslpStatus() === 'unavailable' || imslpStatus() === 'error') {
-              <p role="status">
-                Work search is unavailable right now. You can use a work link or add a downloaded
-                PDF.
-              </p>
-            } @else if (imslpStatus() === 'ready' && !imslpResults().length) {
-              <p role="status">
-                No matching works found. Try another title or composer, or use a work link.
-              </p>
+              @if (imslpResults().length) {
+                <ul
+                  class="imslp-results"
+                  [class.stale]="imslpStatus() === 'throttled'"
+                  aria-label="IMSLP work results"
+                >
+                  @for (work of imslpResults(); track work.url) {
+                    <li [class.chosen]="work.url === d.metadata.sourceUrl">
+                      <span class="imslp-work"
+                        ><strong>{{ work.title }}</strong
+                        ><small>{{ work.composer }}</small></span
+                      >
+                      <button
+                        class="btn-secondary"
+                        type="button"
+                        [disabled]="busy() || finalizing() || imslpStatus() === 'throttled'"
+                        (click)="selectIMSLPWork(work)"
+                        [attr.aria-label]="
+                          'Open ' + work.title + ' by ' + work.composer + ' on IMSLP'
+                        "
+                      >
+                        <span class="label-long">Open on IMSLP</span
+                        ><span class="label-short">Open</span>
+                        <svg lucideExternalLink aria-hidden="true"></svg>
+                      </button>
+                    </li>
+                  }
+                </ul>
+                <p class="imslp-hint">
+                  Showing IMSLP's top matches. Add the composer to narrow a common title.
+                </p>
+              }
+              <details
+                class="imslp-link"
+                [open]="imslpLinkOpen()"
+                (toggle)="imslpLinkOpen.set($any($event.target).open)"
+              >
+                <summary>Have a work link already?</summary>
+                <label class="field">
+                  <span>IMSLP work link</span>
+                  <input
+                    type="url"
+                    [(ngModel)]="imslp"
+                    [disabled]="busy()"
+                    placeholder="https://imslp.org/wiki/…"
+                  />
+                </label>
+              </details>
             }
-            @if (imslpResults().length) {
-              <ul class="imslp-results" aria-label="IMSLP work results">
-                @for (work of imslpResults(); track work.url) {
-                  <li>
-                    <span
-                      ><strong>{{ work.title }}</strong
-                      ><small>{{ work.composer }}</small></span
-                    >
-                    <button
-                      class="btn-secondary"
-                      type="button"
-                      [disabled]="busy() || finalizing()"
-                      (click)="selectIMSLPWork(work)"
-                      [attr.aria-label]="'Select ' + work.title + ' by ' + work.composer"
-                    >
-                      Select work
-                    </button>
-                  </li>
+            @if (chosen || imslpDropHot()) {
+              <div class="imslp-drop" [class.hot]="imslpDropHot()">
+                <span
+                  class="drop-mark"
+                  [class.waiting]="!imslpDropHot() && !imslpAdded().length"
+                  aria-hidden="true"
+                ></span>
+                @if (imslpDropHot()) {
+                  <p class="drop-match">Release to add the PDF to this draft.</p>
+                } @else if (imslpAdded().length) {
+                  @for (file of imslpAdded(); track $index) {
+                    <p class="drop-filename">{{ file.filename }}</p>
+                    @if (file.match) {
+                      <p class="drop-match">{{ file.match }}</p>
+                    }
+                  }
+                  <p>Added to this draft. Continue when you are ready.</p>
+                } @else {
+                  <p>Waiting for your PDF. Drop it here, or use Add downloaded PDF.</p>
                 }
-              </ul>
-              <p class="imslp-result-limit">
-                Showing up to 30 works. Try a more specific title or composer to narrow the results.
-              </p>
+              </div>
             }
-            <label class="field">
-              <span>IMSLP work link</span>
-              <input
-                type="url"
-                [(ngModel)]="imslp"
-                [disabled]="busy()"
-                placeholder="https://imslp.org/wiki/…"
-              />
-            </label>
             <div class="actions">
-              <button class="btn-secondary" (click)="openIMSLP()" [disabled]="busy() || !imslp">
-                <span>Open IMSLP</span>
-                <svg lucideExternalLink aria-hidden="true"></svg>
-              </button>
+              @if (imslp) {
+                <button class="btn-secondary" (click)="openIMSLP()" [disabled]="busy()">
+                  <span>Open on IMSLP</span>
+                  <svg lucideExternalLink aria-hidden="true"></svg>
+                </button>
+              }
               <button
-                class="btn-secondary"
+                class="btn-secondary add-downloaded"
                 (click)="pdfInput.click()"
                 [disabled]="busy() || editingEdges"
               >
                 Add downloaded PDF
               </button>
+              @if (chosen) {
+                <span class="imslp-note">On iPad this opens Files; Safari saves to Downloads.</span>
+              }
             </div>
           </article>
         }

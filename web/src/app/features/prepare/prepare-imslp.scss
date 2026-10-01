@@ -1,0 +1,297 @@
+/* IMSLP panel on the Source step: live search, chosen work and the PDF drop target.
+   Kept apart from prepare.component.scss so each stylesheet stays within its budget. */
+
+.source-options .imslp-query {
+  margin: 20px 0 6px;
+}
+
+.imslp-input {
+  position: relative;
+  display: block;
+}
+
+.imslp-input input {
+  padding-right: 44px;
+  font-size: 17px;
+}
+
+.imslp-spinner {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: imslp-spin 0.8s linear infinite;
+}
+
+@keyframes imslp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.imslp-status {
+  min-height: 20px;
+  margin: 0 0 12px;
+  color: var(--ink-muted);
+  font-size: var(--text-meta);
+}
+
+.imslp-status.error {
+  color: var(--danger);
+}
+
+.imslp-results {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  border-top: 1px solid var(--line);
+}
+
+.imslp-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 8px 0 8px 8px;
+  border-bottom: 1px solid var(--line);
+  transition:
+    background-color 150ms ease,
+    opacity 150ms ease;
+}
+
+.imslp-results li:hover,
+.imslp-results li:focus-within,
+.imslp-results li.chosen {
+  background: var(--green-soft);
+}
+
+.imslp-results.stale li {
+  opacity: 0.55;
+}
+
+.imslp-work {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.imslp-work strong {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.imslp-work small {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imslp-results .btn-secondary {
+  flex: none;
+}
+
+.label-short {
+  display: none;
+}
+
+.imslp-hint,
+.imslp-note {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: var(--text-meta);
+}
+
+.imslp-link {
+  margin: 16px 0 0;
+}
+
+.imslp-link summary {
+  width: fit-content;
+  color: var(--ink-faint);
+  font-size: var(--text-meta);
+  cursor: pointer;
+}
+
+.imslp-link .field {
+  margin: 12px 0 0;
+}
+
+.chosen-work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 16px;
+  margin: 20px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+}
+
+.chosen-work p {
+  margin: 0;
+}
+
+.chosen-label {
+  color: var(--ink-muted);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.chosen-title {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.chosen-composer {
+  color: var(--ink-muted);
+}
+
+.chosen-link,
+.imslp-drop .drop-filename {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+.chosen-link {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-faint);
+}
+
+.chosen-work .provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chosen-work .provenance::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  content: '';
+}
+
+.imslp-banner {
+  display: grid;
+  gap: 4px;
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--ink-muted);
+}
+
+.imslp-banner p {
+  margin: 0;
+}
+
+.imslp-banner-heading {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.imslp-drop {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 22px 20px;
+  border: 1px dashed var(--line-strong);
+  background: var(--paper-raised);
+  text-align: center;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.imslp-drop.hot {
+  border-style: solid;
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.imslp-drop p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.imslp-drop .drop-match {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.imslp-drop .drop-filename {
+  color: var(--ink);
+}
+
+.drop-mark {
+  position: relative;
+  width: 36px;
+  height: 44px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+}
+
+.drop-mark.waiting {
+  border-style: dashed;
+  background: transparent;
+}
+
+.drop-mark::after {
+  position: absolute;
+  inset: auto 0 6px;
+  color: var(--ink-muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-align: center;
+  content: 'PDF';
+}
+
+.imslp.drop-hot {
+  outline: 2px solid var(--green);
+  outline-offset: 8px;
+}
+
+.source-options .imslp .actions {
+  align-items: center;
+  gap: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imslp-spinner {
+    animation: none;
+    border-top-color: var(--line-strong);
+  }
+}
+
+@media (max-width: 419.98px) {
+  .label-long {
+    display: none;
+  }
+
+  .label-short {
+    display: inline;
+  }
+
+  .source-options .imslp .add-downloaded {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
