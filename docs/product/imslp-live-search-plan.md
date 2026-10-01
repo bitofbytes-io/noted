@@ -161,8 +161,11 @@ opens is the only recurring log line, which fixes the current log noise.
 - The selected work stays visible above the results ("Chosen work: …") with
   a quiet **Change** action that returns focus to the search field.
 - Status copy: `throttled` → "You're searching quickly. Results will catch
-  up in a moment." `unavailable` → "IMSLP is slow right now. Paste a work link
-  or add a downloaded PDF." Neither hides the link field or upload button.
+  up in a moment." (the same query is retried after 1 s). `unavailable` →
+  "IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press
+  Enter to try again." (the same query is retried once, quietly, after 30 s if
+  it is unchanged and the panel is still open). Neither hides the link field or
+  upload button. Leaving the panel or the Source step cancels pending retries.
 - Drop target: the IMSLP panel accepts a dropped PDF (`dragover`/`drop`) and
   routes it through the same path as the file input. Desktop only in
   practice; harmless on touch.

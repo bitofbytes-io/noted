@@ -116,7 +116,7 @@
         <button
           class="btn-quiet accent back-to-sources"
           [disabled]="busy()"
-          (click)="sourceMode.set('all')"
+          (click)="chooseSource('all')"
         >
           Choose a different source
         </button>
@@ -170,7 +170,7 @@
           <article class="imslp-entry">
             <h2>Find a score on IMSLP</h2>
             <p>Explore classical works, then choose and download an edition on IMSLP.</p>
-            <button class="btn-secondary" type="button" (click)="sourceMode.set('imslp')">
+            <button class="btn-secondary" type="button" (click)="chooseSource('imslp')">
               Find a score on IMSLP
             </button>
           </article>

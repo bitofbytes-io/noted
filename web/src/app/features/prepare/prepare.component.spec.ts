@@ -591,7 +591,7 @@ describe('PrepareComponent', () => {
       vi.advanceTimersByTime(350);
       fixture.detectChanges();
       expect(text()).toContain(
-        'IMSLP is slow right now. Paste a work link or add a downloaded PDF; search will come back on its own.',
+        'IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.',
       );
       expect(component.imslpResults()).toEqual([]);
       expect(fixture.nativeElement.querySelector('.imslp-link').open).toBe(true);
@@ -604,6 +604,67 @@ describe('PrepareComponent', () => {
       vi.advanceTimersByTime(350);
       expect(api.searchIMSLP).toHaveBeenCalledTimes(3);
       expect(component.imslpStatus()).toBe('unavailable');
+    });
+
+    it('retries an unavailable search once after 30 seconds', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockReturnValue(of({ status: 'unavailable', results: [] }));
+      type(component, 'Chopin Nocturne');
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(29_999);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+      expect(api.searchIMSLP).toHaveBeenLastCalledWith('Chopin Nocturne');
+      expect(component.imslpStatus()).toBe('unavailable');
+      vi.advanceTimersByTime(120_000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+
+      // A recovered retry shows its results.
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'unavailable', results: [] }));
+      api.searchIMSLP.mockReturnValueOnce(of({ status: 'ready', results: [prelude] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350 + 30_000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(4);
+      expect(component.imslpStatus()).toBe('ready');
+      expect(component.imslpResults()).toEqual([prelude]);
+    });
+
+    it('skips the unavailable retry once the query or panel changed', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockReturnValue(of({ status: 'unavailable', results: [] }));
+      type(component, 'Chopin Nocturne');
+      vi.advanceTimersByTime(350);
+      component.imslpQuery = 'Chopin Nocturne Op.9';
+      vi.advanceTimersByTime(30_000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+
+      type(component, 'Chopin');
+      vi.advanceTimersByTime(350);
+      component.chooseSource('all');
+      vi.advanceTimersByTime(30_000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops a pending throttled retry when the draft leaves the IMSLP panel', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockReturnValue(of({ status: 'throttled', results: [] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      expect(component.imslpStatus()).toBe('throttled');
+      component.setStep('pages');
+      vi.advanceTimersByTime(5000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+      expect(component.imslpStatus()).toBe('idle');
+
+      component.setStep('source');
+      type(component, 'Nocturne');
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+      component.chooseSource('all');
+      vi.advanceTimersByTime(5000);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
     });
 
     it('adds a dropped IMSLP PDF through the upload path and stays on Source', async () => {

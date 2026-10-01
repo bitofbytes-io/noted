@@ -46,6 +46,8 @@ GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
 const IMSLP_DEBOUNCE_MS = 350;
 /** The per-user limit refills within a second (the API's Retry-After). */
 const IMSLP_THROTTLE_RETRY_MS = 1000;
+/** One quiet retry after "unavailable"; the API's breaker pauses for up to 60 s. */
+const IMSLP_UNAVAILABLE_RETRY_MS = 30_000;
 const IMSLP_CACHE_ENTRIES = 20;
 interface IMSLPAddedFile {
   filename: string;
@@ -237,9 +239,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   ngOnDestroy() {
     this.destroyed = true;
-    this.imslpRequest++;
-    clearTimeout(this.imslpTimer);
-    this.imslpSearch?.unsubscribe();
+    this.cancelIMSLPSearch();
     this.invalidatePreview();
     this.dragCleanup?.();
     clearTimeout(this.previewTimer);
@@ -1084,6 +1084,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     this.preparedKeysByPage = current;
   }
   setStep(step: 'source' | 'pages' | 'details'): void {
+    if (step !== 'source') this.cancelIMSLPSearch();
     this.step.set(step);
     void this.renderThumbnails();
     setTimeout(() => void this.renderThumbnails());
@@ -1359,8 +1360,15 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     event.preventDefault();
     this.searchIMSLP(true);
   }
-  /** Enter (immediate) may repeat the last query; the debounce never does. */
-  searchIMSLP(immediate = false) {
+  chooseSource(mode: string) {
+    if (mode !== 'imslp') this.cancelIMSLPSearch();
+    this.sourceMode.set(mode);
+  }
+  /**
+   * Enter (immediate) may repeat the last query; the debounce never does. A
+   * retry runs without the searching state and never schedules another retry.
+   */
+  searchIMSLP(immediate = false, retry = false) {
     clearTimeout(this.imslpTimer);
     const query = this.imslpQuery.trim();
     if (query.length < 2 || query.length > 100) {
@@ -1380,12 +1388,21 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.imslpResults.set(cached);
       return;
     }
-    this.imslpStatus.set('searching');
+    if (!retry) this.imslpStatus.set('searching');
     const unavailable = () => {
       this.imslpLastSent = '';
       this.imslpStatus.set('unavailable');
       this.imslpResults.set([]);
       this.imslpLinkOpen.set(true);
+      if (retry) return;
+      this.imslpTimer = setTimeout(() => {
+        if (
+          this.imslpQuery.trim() === query &&
+          this.sourceMode() === 'imslp' &&
+          this.step() === 'source'
+        )
+          this.searchIMSLP(true, true);
+      }, IMSLP_UNAVAILABLE_RETRY_MS);
     };
     this.imslpSearch = this.api.searchIMSLP(query).subscribe({
       next: (result) => {
@@ -1416,7 +1433,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       case 'throttled':
         return "You're searching quickly. Results will catch up in a moment.";
       case 'unavailable':
-        return 'IMSLP is slow right now. Paste a work link or add a downloaded PDF; search will come back on its own.';
+        return 'IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.';
       default:
         return this.imslpResults().length
           ? ''
@@ -1424,13 +1441,19 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     }
   }
   private resetIMSLPSearch() {
+    this.cancelIMSLPSearch();
+    this.imslpStatus.set('idle');
+    this.imslpResults.set([]);
+  }
+  /** Stops the pending debounce or retry and the in-flight request, e.g. on leaving the panel. */
+  private cancelIMSLPSearch() {
     clearTimeout(this.imslpTimer);
     this.imslpRequest++;
     this.imslpSearch?.unsubscribe();
     this.imslpSearch = undefined;
     this.imslpLastSent = '';
-    this.imslpStatus.set('idle');
-    this.imslpResults.set([]);
+    if (this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled')
+      this.imslpStatus.set(this.imslpResults().length ? 'ready' : 'idle');
   }
   private rememberIMSLPResults(key: string, works: IMSLPWork[]) {
     this.imslpCache.delete(key);

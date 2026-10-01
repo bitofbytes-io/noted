@@ -298,7 +298,7 @@ a { color: var(--green); }
         <p class="variant-name">Upstream 5xx / timeout / breaker open → <code>unavailable</code></p>
         <div class="screen">
           <label class="field"><span>Title or composer</span><span class="input"><input type="search" value="Chopin Nocturne" readonly></span></label>
-          <p class="status err">IMSLP is slow right now. Paste a work link or add a downloaded PDF; search will come back on its own.</p>
+          <p class="status err">IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.</p>
           <details open><summary class="hint">Have a work link already?</summary>
             <label class="field" style="margin-top:12px"><span>IMSLP work link</span><span class="input"><input type="url" placeholder="https://imslp.org/wiki/…" readonly></span></label></details>
           <div class="actions"><button class="btn btn-secondary" type="button">Add downloaded PDF</button></div>
@@ -327,7 +327,7 @@ a { color: var(--green); }
     </div>
     <aside class="notes">
       <ul>
-        <li>Previous results stay visible (faded) during <code>throttled</code>; they are replaced when the next request succeeds. For <code>unavailable</code> the list is cleared because it may be stale across the breaker's 60 s window.</li>
+        <li>Previous results stay visible (faded) during <code>throttled</code>; they are replaced when the next request succeeds. For <code>unavailable</code> the list is cleared because it may be stale across the breaker's 60 s window; the same query is retried once, quietly, after 30 s, and Enter retries at once.</li>
         <li>No state removes the link field or the upload button. The only recurring server log line is the circuit breaker opening or closing.</li>
       </ul>
     </aside>
@@ -417,7 +417,7 @@ a { color: var(--green); }
       if (mine !== seq) { logLine('  ignored stale response for "' + query + '"'); return; }
       spin.hidden = true;
       if (simLimit.checked) { logLine('  <i>429 Too Many Requests</i> Retry-After: 1'); setStatus("You're searching quickly. Results will catch up in a moment."); results.querySelectorAll('li').forEach(function (li) { li.classList.add('fade'); }); return; }
-      if (sim502.checked) { logLine('  <i>upstream 502</i> → status unavailable'); results.innerHTML = ''; hint.hidden = true; setStatus('IMSLP is slow right now. Paste a work link or add a downloaded PDF; search will come back on its own.', true); return; }
+      if (sim502.checked) { logLine('  <i>upstream 502</i> → status unavailable'); results.innerHTML = ''; hint.hidden = true; setStatus('IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.', true); return; }
       var list = fakeSearch(query);
       cache.set(key, list); if (cache.size > 20) cache.delete(cache.keys().next().value);
       logLine('  <b>200</b> ' + list.length + ' works');
