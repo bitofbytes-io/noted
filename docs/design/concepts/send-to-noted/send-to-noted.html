@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Send to Noted</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: the Account dialog's three states side by side, then the share flow as a
+   sequence, then the server's decision tree. Title Page tokens, single light look. */
+:root {
+  --paper: #F6F1E7; --paper-raised: #FCFAF4; --ink: #1A1A1A; --ink-muted: #6E6759;
+  --ink-faint: #948C7C; --line: #DDD6C6; --line-strong: #B9B09E;
+  --green: #1E4D3B; --green-dark: #163B2D; --green-soft: #E7EDE6;
+  --danger: #A63A2E; --danger-soft: #F5E4E0; --focus: rgba(30,77,59,.25);
+  --sans: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --ios-bg: #1c1c1e; --ios-card: #2c2c2e; --ios-text: #f2f2f7; --ios-muted: #98989f;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font: 400 15px/1.6 var(--sans); padding-block: 32px 64px; padding-inline: clamp(16px, 4vw, 40px); }
+h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: 0; }
+h1 { font-size: clamp(30px, 4vw, 40px); font-weight: 600; line-height: 1.1; }
+h2 { font-size: 22px; font-weight: 600; }
+h3 { font-size: 19px; font-weight: 600; line-height: 1.25; }
+p { margin: 0; }
+a { color: var(--green); }
+code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border: 1px solid var(--line); padding: 0 4px; }
+.wrap { max-width: 1100px; margin-inline: auto; display: grid; gap: 40px; }
+.intro { max-width: 68ch; display: grid; gap: 12px; }
+.meta { color: var(--ink-muted); font-size: 13px; font-weight: 500; }
+.frame { display: grid; gap: 16px; }
+.frame-head { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
+.frame-head .k { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.notes { display: grid; gap: 8px; color: #5a5347; font-size: 14px; line-height: 1.55; max-width: 72ch; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.journey { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.journey > div { padding: 16px; display: grid; gap: 4px; border-right: 1px solid var(--line); min-width: 0; }
+.journey > div:last-child { border-right: 0; }
+.journey .n { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.journey .where { font-size: 13px; color: var(--ink-faint); }
+.journey .ios .n { color: var(--danger); }
+
+/* the three dialog states */
+.states { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
+.state-name { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin-bottom: 8px; }
+.dialog { background: var(--paper-raised); border: 1px solid var(--line-strong); padding: 24px; display: grid; gap: 20px; }
+.dialog header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.dialog .who { display: grid; gap: 2px; }
+.dialog .who strong { font-size: 19px; font-weight: 600; }
+.dialog .who small { color: var(--ink-muted); font-size: 13px; }
+.x { width: 36px; height: 36px; border: 0; background: transparent; color: var(--ink-muted); font-size: 22px; line-height: 1; cursor: pointer; }
+.section { display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 16px; }
+.section h3 { font-size: 17px; }
+.section p { color: var(--ink-muted); }
+.section .status { color: var(--ink); font-variant-numeric: tabular-nums; }
+.btn { font: 500 15px var(--sans); height: 44px; padding: 0 18px; border-radius: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.btn-secondary { background: transparent; border: 1px solid var(--ink); color: var(--ink); }
+.btn-secondary:hover { background: var(--green-soft); }
+.btn-quiet { background: transparent; border: 0; color: var(--ink-muted); padding: 0 8px; height: 36px; }
+.btn-quiet.danger { color: var(--danger); }
+.btn-quiet.accent { color: var(--green); }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.token { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.token code { font-size: 14px; padding: 10px 12px; word-break: break-all; border-color: var(--line-strong); background: #fff; }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink); }
+.warn { font-size: 13px; color: var(--danger); }
+.confirm { border: 1px solid var(--line-strong); padding: 12px 14px; display: grid; gap: 10px; background: var(--paper); }
+.confirm p { color: var(--ink); }
+.masthead-demo { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border: 1px solid var(--line-strong); background: var(--paper); max-width: 720px; }
+.masthead-demo .word { font-weight: 600; font-size: 17px; }
+.masthead-demo .pill { background: var(--green); color: #fff; border-radius: 999px; padding: 10px 18px; font-weight: 500; }
+.masthead-demo .right { display: flex; gap: 12px; align-items: center; }
+.masthead-demo .name { border-bottom: 1px dashed var(--line-strong); }
+
+/* iOS share frames */
+.ios-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.ios { background: var(--ios-bg); color: var(--ios-text); border-radius: 18px; padding: 16px; font-size: 14px; display: grid; gap: 10px; min-height: 180px; }
+.ios .t { color: var(--ios-muted); font-size: 12px; font-weight: 600; }
+.ios .card { background: var(--ios-card); border-radius: 12px; padding: 12px; display: grid; gap: 6px; }
+.ios .card strong { font-weight: 600; }
+.ios .app { display: flex; align-items: center; gap: 10px; }
+.ios .icon { width: 28px; height: 28px; border-radius: 7px; background: var(--green); flex: 0 0 auto; }
+.ios .notif { background: var(--ios-card); border-radius: 14px; padding: 10px 12px; display: grid; gap: 2px; }
+.ios .notif small { color: var(--ios-muted); font-size: 11px; }
+.ios input, .ios .field { background: #3a3a3c; border-radius: 8px; padding: 8px 10px; color: var(--ios-text); font: 400 13px var(--mono); border: 0; width: 100%; word-break: break-all; }
+.ios .toggle { display: flex; justify-content: space-between; align-items: center; }
+.ios .sw { width: 40px; height: 22px; border-radius: 11px; background: #34c759; position: relative; }
+.ios .sw::after { content: ''; position: absolute; right: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+
+/* decision tree */
+.tree { display: grid; gap: 0; border: 1px solid var(--line-strong); background: var(--paper-raised); max-width: 760px; }
+.tree > div { padding: 12px 16px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 24px 1fr; gap: 12px; }
+.tree > div:last-child { border-bottom: 0; }
+.tree .d { color: var(--ink-faint); }
+.tree .in { padding-left: 40px; }
+.tree .in2 { padding-left: 64px; }
+.tree b { font-weight: 600; }
+.tree .out { color: var(--green); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="intro">
+    <p class="meta">Noted · Score intake · Concept for review · 2026-10-01</p>
+    <h1>Send to Noted: share a PDF from Safari straight into the waiting draft</h1>
+    <p>Two new pieces. An <strong>Account</strong> dialog off the masthead where each user sets up (or turns off) their one Shortcut token, and an iOS Shortcut that posts the shared PDF to Noted with that token. Noted attaches the file to the draft already waiting for that IMSLP work, or starts a new prefilled draft.</p>
+    <p class="meta">Companion plan: <code>docs/product/send-to-noted-shortcut-plan.md</code></p>
+  </header>
+
+  <section class="journey" aria-label="Journey">
+    <div><span class="n">1</span><strong>Set up once</strong><span class="where">Noted · Account dialog → token + install link</span></div>
+    <div class="ios"><span class="n">2</span><strong>Install the Shortcut</strong><span class="where">iPad · paste the token when asked</span></div>
+    <div class="ios"><span class="n">3</span><strong>Share → Send to Noted</strong><span class="where">Safari PDF viewer or Files</span></div>
+    <div><span class="n">4</span><strong>Draft gets the PDF</strong><span class="where">Noted · notification, opens the draft</span></div>
+  </section>
+
+  <!-- Masthead -->
+  <section class="frame">
+    <div class="frame-head"><span class="k">Masthead</span><h2>The display name becomes the account control</h2></div>
+    <div class="masthead-demo" aria-label="Library masthead">
+      <span class="word">Noted</span>
+      <span class="right"><span class="name">Daniel</span><span class="pill">+ Add piece</span></span>
+    </div>
+    <div class="notes"><ul>
+      <li>Tapping the name opens the Account dialog. <em>Sign out</em> moves inside the dialog, so the masthead keeps one quiet account control beside the single green action.</li>
+      <li>Dev mode shows the Dev chip as today and no Sign out.</li>
+    </ul></div>
+  </section>
+
+  <!-- Dialog states -->
+  <section class="frame">
+    <div class="frame-head"><span class="k">Account dialog</span><h2>Three states, one token per user</h2></div>
+    <div class="states">
+      <div>
+        <p class="state-name">A · No token yet</p>
+        <div class="dialog" role="dialog" aria-label="Account">
+          <header><div class="who"><strong>Daniel</strong><small>danwater1@gmail.com</small></div><button class="x" aria-label="Close">×</button></header>
+          <div class="section">
+            <h3>Send to Noted</h3>
+            <p>Share a PDF from Safari or Files straight into a new draft on this iPad.</p>
+            <div class="actions"><button class="btn btn-secondary" type="button">Set up on this iPad</button></div>
+          </div>
+          <div class="section"><div class="actions"><button class="btn btn-quiet" type="button">Sign out</button></div></div>
+        </div>
+      </div>
+      <div>
+        <p class="state-name">B · Just created (shown once)</p>
+        <div class="dialog" role="dialog" aria-label="Account">
+          <header><div class="who"><strong>Daniel</strong><small>danwater1@gmail.com</small></div><button class="x" aria-label="Close">×</button></header>
+          <div class="section">
+            <h3>Send to Noted</h3>
+            <ol class="steps">
+              <li><a href="#">Install the Shortcut</a> on this iPad.</li>
+              <li>When Shortcuts asks for your Noted token, paste this:</li>
+            </ol>
+            <div class="token"><code>pR8xQ2nVf7Lw0mKaZc4HtYe9BjUs1GdNoI3vXb6Fq5E</code><button class="btn btn-secondary" type="button">Copy</button></div>
+            <ol class="steps" start="3"><li>Tap Done. Share any PDF with <strong>Send to Noted</strong>.</li></ol>
+            <p class="warn">You won't see this token again. If you lose it, come back and tap Replace.</p>
+          </div>
+          <div class="section"><div class="actions"><button class="btn btn-quiet" type="button">Sign out</button></div></div>
+        </div>
+      </div>
+      <div>
+        <p class="state-name">C · Active (every later visit)</p>
+        <div class="dialog" role="dialog" aria-label="Account">
+          <header><div class="who"><strong>Daniel</strong><small>danwater1@gmail.com</small></div><button class="x" aria-label="Close">×</button></header>
+          <div class="section">
+            <h3>Send to Noted</h3>
+            <p class="status">Set up on 1 Oct 2026 · last used today</p>
+            <div class="actions"><button class="btn btn-quiet accent" type="button">Replace</button><button class="btn btn-quiet danger" type="button">Turn off</button></div>
+            <div class="confirm">
+              <p>Replace the token? The Shortcut on your iPad stops working until you paste the new one.</p>
+              <div class="actions"><button class="btn btn-secondary" type="button">Replace token</button><button class="btn btn-quiet" type="button">Cancel</button></div>
+            </div>
+          </div>
+          <div class="section"><div class="actions"><button class="btn btn-quiet" type="button">Sign out</button></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes"><ul>
+      <li>The token is 43 characters (32 random bytes, base64url). Noted stores only its SHA-256, like <code>user_sessions.token_hash</code>. Copy uses the clipboard API and falls back to selecting the text.</li>
+      <li>Replace and Turn off confirm inline (the dialog shows the confirm block in C); there is no <code>confirm()</code>. Replace = delete + create in one transaction, then the dialog goes to state B.</li>
+      <li>Sign out does not touch the token; the Shortcut is tied to the device, not the session. Turning it off is the only way to invalidate it.</li>
+      <li>The install link is <code>SHORTCUT_INSTALL_URL</code>. When unset, step 1 reads "The Shortcut link will be added here" and the rest still works.</li>
+    </ul></div>
+  </section>
+
+  <!-- Share flow -->
+  <section class="frame">
+    <div class="frame-head"><span class="k">On the iPad</span><h2>Install once, then Share → Send to Noted</h2></div>
+    <div class="ios-row">
+      <div class="ios" aria-label="Shortcut install screen">
+        <p class="t">SHORTCUTS · INSTALL</p>
+        <div class="card"><div class="app"><span class="icon"></span><strong>Send to Noted</strong></div><span style="color:var(--ios-muted)">Posts a shared PDF to your Noted library.</span></div>
+        <div class="card"><span>Your Noted token</span><input value="pR8xQ2nVf7Lw0mKaZc4HtYe9BjUs1GdN…" readonly aria-label="Noted token"></div>
+        <div class="card"><span>Noted address</span><span class="field">https://noted.bitofbytes.io</span></div>
+        <div class="card toggle"><span>Open Noted after sending</span><span class="sw" aria-hidden="true"></span></div>
+      </div>
+      <div class="ios" aria-label="Share sheet">
+        <p class="t">SAFARI · SHARE SHEET</p>
+        <div class="card"><strong>IMSLP01240-Debussy_-_Suite_bergamasque_-_3_Clair_de_lune.pdf</strong><span style="color:var(--ios-muted)">PDF Document · 412 KB</span></div>
+        <div class="card app"><span class="icon"></span><span>Send to Noted</span></div>
+        <div class="card app" style="opacity:.5"><span class="icon" style="background:#555"></span><span>Save to Files</span></div>
+      </div>
+      <div class="ios" aria-label="Notification">
+        <p class="t">NOTIFICATION</p>
+        <div class="notif"><strong>Clair de lune — Debussy, Claude</strong><span>Added to the waiting draft.</span><small>Send to Noted · now</small></div>
+        <div class="notif"><strong>Prelude and Fugue in C major, BWV 846 — Bach, Johann Sebastian</strong><span>New draft created.</span><small>Send to Noted · earlier</small></div>
+        <div class="notif"><strong>Noted</strong><span>This shortcut was turned off. Set it up again in Noted.</span><small>Send to Noted</small></div>
+      </div>
+    </div>
+    <div class="notes"><ul>
+      <li>Install asks three import questions: token (required), Noted address (default filled), and the open-after-sending toggle (default on). The user never edits the Shortcut's actions.</li>
+      <li>When the toggle is on, the Shortcut opens <code>https://noted.bitofbytes.io/prepare/&lt;draftId&gt;</code> after the notification, which resumes the draft with the PDF attached and Continue enabled.</li>
+      <li>Error notifications carry the server's <code>error</code> text: turned-off token (401), not a PDF (415), too large (413), draft limit (429), unreachable (network).</li>
+    </ul></div>
+  </section>
+
+  <!-- Server decision tree -->
+  <section class="frame">
+    <div class="frame-head"><span class="k">Server</span><h2>What <code>POST /api/shortcut/import</code> does with the file</h2></div>
+    <div class="tree">
+      <div><span class="d">1</span><span>Bearer token → user. Size and PDF checks, same as the normal upload.</span></div>
+      <div><span class="d">2</span><span>Filename starts with <code>IMSLP&lt;number&gt;-</code>?</span></div>
+      <div class="in"><span class="d">→</span><span><b>Yes.</b> <code>Special:ReverseLookup/&lt;number&gt;</code> → 302 → work page URL (cached 24 h; shares the IMSLP limiter and breaker).</span></div>
+      <div class="in2"><span class="d">→</span><span>User has an open draft with that work link and <b>no PDF yet</b>? <span class="out">Attach. matched: true</span></span></div>
+      <div class="in2"><span class="d">→</span><span>Otherwise: <span class="out">new draft with link, title and composer prefilled (IMSLP provenance). matched: false</span></span></div>
+      <div class="in"><span class="d">→</span><span><b>No</b>, or lookup failed: <span class="out">new draft titled from the filename, no provenance.</span></span></div>
+      <div><span class="d">3</span><span>Upload through the existing draft-source path. Reply <code>201 {draftId, draftPath, title, composer, matched}</code>.</span></div>
+    </div>
+    <div class="notes"><ul>
+      <li>The lookup never fails the import; a missed match just means a new draft. The user can still delete a stray draft from the library, and drafts expire after seven idle days.</li>
+      <li>Per-user limit: 10 imports a minute. One info log line per accepted import (user id, matched), never the filename.</li>
+    </ul></div>
+  </section>
+
+</div>
+</body>
+</html>
