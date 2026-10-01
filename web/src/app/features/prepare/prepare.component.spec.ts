@@ -519,6 +519,67 @@ describe('PrepareComponent', () => {
       ).toBe(false);
     });
 
+    it('marks results stale as soon as the query changes, before the debounce', () => {
+      const component = fixture.componentInstance;
+      const nocturne = {
+        title: 'Nocturne',
+        composer: 'Sample, Bea',
+        url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+      };
+      const older = new Subject<IMSLPSearch>();
+      api.searchIMSLP
+        .mockReturnValueOnce(of({ status: 'ready', results: [prelude] }))
+        .mockReturnValueOnce(older)
+        .mockReturnValueOnce(of({ status: 'ready', results: [nocturne] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      type(component, 'Prelude in C');
+      vi.advanceTimersByTime(350);
+      expect(older.observed).toBe(true);
+
+      type(component, 'Nocturne');
+      fixture.detectChanges();
+      expect(older.observed).toBe(false);
+      expect(component.imslpStatus()).not.toBe('ready');
+      expect(fixture.nativeElement.querySelector('.imslp-results.stale')).not.toBeNull();
+      expect(
+        (
+          fixture.nativeElement.querySelector(
+            'button[aria-label="Open Prelude by Example, Ada on IMSLP"]',
+          ) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+      older.next({ status: 'ready', results: [prelude] });
+      void component.selectIMSLPWork(prelude);
+      expect(openWindow).not.toHaveBeenCalled();
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(350);
+      fixture.detectChanges();
+      expect(api.searchIMSLP).toHaveBeenLastCalledWith('Nocturne');
+      expect(component.imslpResults()).toEqual([nocturne]);
+      expect(fixture.nativeElement.querySelector('.imslp-results.stale')).toBeNull();
+      expect(
+        (
+          fixture.nativeElement.querySelector(
+            'button[aria-label="Open Nocturne by Sample, Bea on IMSLP"]',
+          ) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    });
+
+    it('keeps ready results selectable when the same query is retyped', () => {
+      const component = fixture.componentInstance;
+      api.searchIMSLP.mockReturnValue(of({ status: 'ready', results: [prelude] }));
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      type(component, ' prelude  ');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.imslp-results.stale')).toBeNull();
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(1);
+    });
+
     it('ignores an older response that resolves after a newer one', () => {
       const component = fixture.componentInstance;
       const nocturne = {
@@ -771,6 +832,15 @@ describe('PrepareComponent', () => {
         fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
       ).find((button) => button.textContent?.trim() === 'Continue')!;
       expect(continueButton.disabled).toBe(false);
+
+      // A mixed drop uploads the PDF and still reports the skipped file.
+      const second = new File(['%PDF-'], 'second.pdf', { type: 'application/pdf' });
+      await component.imslpDrop(
+        drag(['Files'], [second, new File(['png'], 'cover.png', { type: 'image/png' })]),
+      );
+      expect(uploadImport).toHaveBeenLastCalledWith(expect.anything(), second);
+      expect(uploadImport).toHaveBeenCalledTimes(2);
+      expect(component.error()).toBe('Only PDF files can be dropped here.');
     });
   });
 

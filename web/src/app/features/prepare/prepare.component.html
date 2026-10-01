@@ -258,7 +258,7 @@
               @if (imslpResults().length) {
                 <ul
                   class="imslp-results"
-                  [class.stale]="imslpStatus() === 'throttled' || imslpStatus() === 'searching'"
+                  [class.stale]="imslpResultsStale()"
                   aria-label="IMSLP work results"
                 >
                   @for (work of imslpResults(); track work.url) {
@@ -270,12 +270,7 @@
                       <button
                         class="btn-secondary"
                         type="button"
-                        [disabled]="
-                          busy() ||
-                          finalizing() ||
-                          imslpStatus() === 'throttled' ||
-                          imslpStatus() === 'searching'
-                        "
+                        [disabled]="busy() || finalizing() || imslpResultsStale()"
                         (click)="selectIMSLPWork(work)"
                         [attr.aria-label]="
                           'Open ' + work.title + ' by ' + work.composer + ' on IMSLP'

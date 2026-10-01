@@ -139,6 +139,8 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   readonly imslpOpened = signal(false);
   readonly imslpDropHot = signal(false);
   readonly imslpLinkOpen = signal(false);
+  /** True while the visible results belong to a query the user has since changed. */
+  readonly imslpStale = signal(false);
   /** PDFs added from the IMSLP panel in this visit; the draft stays on Source. */
   readonly imslpAdded = signal<IMSLPAddedFile[]>([]);
   private imslpRequest = 0;
@@ -1354,7 +1356,22 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.resetIMSLPSearch();
       return;
     }
+    if (imslpQueryKey(this.imslpQuery) !== this.imslpLastSent) {
+      // The visible results no longer answer the query in the field: no older
+      // response may land, and nothing on screen may be opened until the next one.
+      this.imslpRequest++;
+      this.imslpSearch?.unsubscribe();
+      this.imslpSearch = undefined;
+      this.imslpLastSent = '';
+      this.imslpStale.set(true);
+    }
     this.imslpTimer = setTimeout(() => this.searchIMSLP(), IMSLP_DEBOUNCE_MS);
+  }
+  /** Results on screen during a pending, running or throttled search are not selectable. */
+  imslpResultsStale(): boolean {
+    return (
+      this.imslpStale() || this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled'
+    );
   }
   imslpEnter(event: Event) {
     event.preventDefault();
@@ -1375,7 +1392,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.resetIMSLPSearch();
       return;
     }
-    const key = query.replace(/\s+/g, ' ').toLowerCase();
+    const key = imslpQueryKey(query);
     if (key === this.imslpLastSent && !immediate) return;
     this.imslpLastSent = key;
     const request = ++this.imslpRequest;
@@ -1386,6 +1403,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.rememberIMSLPResults(key, cached);
       this.imslpStatus.set('ready');
       this.imslpResults.set(cached);
+      this.imslpStale.set(false);
       return;
     }
     if (!retry) this.imslpStatus.set('searching');
@@ -1393,6 +1411,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.imslpLastSent = '';
       this.imslpStatus.set('unavailable');
       this.imslpResults.set([]);
+      this.imslpStale.set(false);
       this.imslpLinkOpen.set(true);
       if (retry) return;
       this.imslpTimer = setTimeout(() => {
@@ -1411,6 +1430,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
           this.rememberIMSLPResults(key, result.results);
           this.imslpStatus.set('ready');
           this.imslpResults.set(result.results);
+          this.imslpStale.set(false);
         } else if (result.status === 'throttled') {
           // Earlier results stay (faded) and the same query is retried once the limit refills.
           this.imslpLastSent = '';
@@ -1452,6 +1472,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     this.imslpSearch?.unsubscribe();
     this.imslpSearch = undefined;
     this.imslpLastSent = '';
+    this.imslpStale.set(false);
     if (this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled')
       this.imslpStatus.set(this.imslpResults().length ? 'ready' : 'idle');
   }
@@ -1463,13 +1484,11 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   /** One tap stores the link, prefills details and opens the work on IMSLP. */
   async selectIMSLPWork(work: IMSLPWork) {
-    // Results on screen during a search or throttle belong to an earlier query.
-    const stale = this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled';
     if (
       !this.draft() ||
       this.busy() ||
       this.finalizing() ||
-      stale ||
+      this.imslpResultsStale() ||
       !this.imslpResults().includes(work)
     )
       return;
@@ -1545,8 +1564,12 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     const pdfs = files.filter(
       (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name),
     );
-    if (pdfs.length < files.length) this.error.set('Only PDF files can be dropped here.');
     await this.uploadFiles(pdfs);
+    // uploadFiles clears earlier errors, so the skipped-file note is added afterwards.
+    if (pdfs.length < files.length) {
+      const warning = 'Only PDF files can be dropped here.';
+      this.error.set(this.error() ? `${this.error()} ${warning}` : warning);
+    }
   }
   async openIMSLP() {
     try {
@@ -1691,4 +1714,8 @@ function imslpFileMatch(filename: string, work: IMSLPWork | null): string {
   return lastName && fold(filename).includes(lastName)
     ? `IMSLP file ${number}, by the chosen work's composer.`
     : `IMSLP file ${number}. Check it is an edition of the chosen work.`;
+}
+
+function imslpQueryKey(query: string): string {
+  return query.trim().replace(/\s+/g, ' ').toLowerCase();
 }
