@@ -329,6 +329,11 @@ func (s *imslpSearcher) record(probe bool, err error, retryAfter time.Duration) 
 		s.probing = false
 	}
 	if err == nil {
+		// Only the half-open probe may close an open breaker: a request admitted
+		// before it opened says nothing about the cooldown or Retry-After.
+		if s.open && !probe {
+			return
+		}
 		s.failures = 0
 		if s.open {
 			s.open = false
@@ -364,16 +369,23 @@ func (s *imslpSearcher) acquireOutbound() (func(), bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.OutboundMaxWait)
 	defer cancel()
+	// A request that never goes out hands its token back.
+	refund := func() (func(), bool) {
+		s.mu.Lock()
+		s.outbound.refund(s.cfg.OutboundBurst)
+		s.mu.Unlock()
+		return nil, false
+	}
 	if wait > 0 {
 		if err := s.cfg.Sleep(ctx, wait); err != nil {
-			return nil, false
+			return refund()
 		}
 	}
 	select {
 	case s.slots <- struct{}{}:
 		return func() { <-s.slots }, true
 	case <-ctx.Done():
-		return nil, false
+		return refund()
 	}
 }
 
@@ -618,4 +630,9 @@ func (b *tokenBucket) reserve(now time.Time, rate float64, burst int, maxWait ti
 	}
 	b.tokens--
 	return wait, true
+}
+
+// refund returns a token taken by reserve for a request that was never made.
+func (b *tokenBucket) refund(burst int) {
+	b.tokens = math.Min(float64(burst), b.tokens+1)
 }

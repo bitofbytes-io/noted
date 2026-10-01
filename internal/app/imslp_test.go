@@ -329,6 +329,88 @@ func TestIMSLPSearchBreakerOpensAfterThreeFailuresAndProbesAfterCooldown(t *test
 	}
 }
 
+func TestIMSLPSearchLateSuccessDoesNotCloseOpenBreaker(t *testing.T) {
+	clock := newFakeClock()
+	s, upstream := testIMSLPSearcher(t, clock, func(cfg *IMSLPSearchConfig) {
+		cfg.Client.Timeout = 5 * time.Second
+	})
+	started, release := make(chan struct{}), make(chan struct{})
+	healthy := atomic.Bool{}
+	upstream.set(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("srsearch"), "slow") {
+			close(started)
+			<-release
+			replyJSON(clairDeLunePage)(w, r)
+			return
+		}
+		if healthy.Load() {
+			replyJSON(clairDeLunePage)(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	})
+	late := make(chan IMSLPSearch, 1)
+	go func() {
+		result, _ := s.search(context.Background(), "user-a", "slow query")
+		late <- result
+	}()
+	<-started
+	for i := range 3 {
+		mustSearch(t, s, fmt.Sprintf("query %d", i))
+	}
+	if !s.open {
+		t.Fatal("three failures did not open the breaker")
+	}
+	close(release)
+	if result := <-late; result.Status != IMSLPStatusReady {
+		t.Fatalf("in-flight request: %+v", result)
+	}
+	if !s.open || s.failures != 3 {
+		t.Fatalf("a pre-admitted success closed the breaker: open=%v failures=%d", s.open, s.failures)
+	}
+	healthy.Store(true)
+	before := upstream.hits.Load()
+	if result := mustSearch(t, s, "Clair de lune"); result.Status != IMSLPStatusUnavailable || upstream.hits.Load() != before {
+		t.Fatalf("breaker let a request through during cooldown: %+v", result)
+	}
+	clock.Advance(60 * time.Second)
+	if result := mustSearch(t, s, "Clair de lune"); result.Status != IMSLPStatusReady || s.open {
+		t.Fatalf("probe after cooldown: %+v open=%v", result, s.open)
+	}
+}
+
+func TestIMSLPSearchRefundsOutboundTokenWhenSlotWaitTimesOut(t *testing.T) {
+	s, upstream := testIMSLPSearcher(t, newFakeClock(), func(cfg *IMSLPSearchConfig) {
+		cfg.Client.Timeout = 5 * time.Second
+		cfg.OutboundRate, cfg.OutboundBurst, cfg.OutboundConcurrency = 1, 2, 1
+		cfg.OutboundMaxWait = 50 * time.Millisecond
+	})
+	started, release := make(chan struct{}), make(chan struct{})
+	upstream.set(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("srsearch"), "slow") {
+			close(started)
+			<-release
+		}
+		replyJSON(clairDeLunePage)(w, r)
+	})
+	done := make(chan struct{})
+	go func() {
+		mustSearch(t, s, "slow query")
+		close(done)
+	}()
+	<-started
+	// The only slot is busy: this caller takes the second token, then times out.
+	if result := mustSearch(t, s, "waiting"); result.Status != IMSLPStatusUnavailable {
+		t.Fatalf("slot wait: %+v", result)
+	}
+	close(release)
+	<-done
+	// The fake clock has not moved, so only a refunded token lets this through.
+	if result := mustSearch(t, s, "next"); result.Status != IMSLPStatusReady {
+		t.Fatalf("token lost by the timed-out caller: %+v", result)
+	}
+}
+
 func TestIMSLPSearchFailedProbeReopensBreaker(t *testing.T) {
 	clock := newFakeClock()
 	s, upstream := testIMSLPSearcher(t, clock, nil)
