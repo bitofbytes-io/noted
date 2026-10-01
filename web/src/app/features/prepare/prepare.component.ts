@@ -1463,7 +1463,15 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   /** One tap stores the link, prefills details and opens the work on IMSLP. */
   async selectIMSLPWork(work: IMSLPWork) {
-    if (!this.draft() || this.busy() || this.finalizing() || !this.imslpResults().includes(work))
+    // Results on screen during a search or throttle belong to an earlier query.
+    const stale = this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled';
+    if (
+      !this.draft() ||
+      this.busy() ||
+      this.finalizing() ||
+      stale ||
+      !this.imslpResults().includes(work)
+    )
       return;
     this.imslp = work.url;
     const metadata = this.draft()!.metadata;

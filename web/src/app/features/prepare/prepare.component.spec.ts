@@ -481,6 +481,44 @@ describe('PrepareComponent', () => {
       );
     });
 
+    it('fades and disables earlier results while a newer search is pending', () => {
+      const component = fixture.componentInstance;
+      const nocturne = {
+        title: 'Nocturne',
+        composer: 'Sample, Bea',
+        url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+      };
+      const pending = new Subject<IMSLPSearch>();
+      api.searchIMSLP
+        .mockReturnValueOnce(of({ status: 'ready', results: [prelude] }))
+        .mockReturnValueOnce(pending);
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      type(component, 'Nocturne');
+      vi.advanceTimersByTime(350);
+      fixture.detectChanges();
+      expect(component.imslpStatus()).toBe('searching');
+      expect(fixture.nativeElement.querySelector('.imslp-results.stale')).not.toBeNull();
+      const old = fixture.nativeElement.querySelector(
+        'button[aria-label="Open Prelude by Example, Ada on IMSLP"]',
+      ) as HTMLButtonElement;
+      expect(old.disabled).toBe(true);
+      void component.selectIMSLPWork(prelude);
+      expect(openWindow).not.toHaveBeenCalled();
+      expect(component.draft()?.metadata.sourceUrl).toBe('');
+
+      pending.next({ status: 'ready', results: [nocturne] });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.imslp-results.stale')).toBeNull();
+      expect(
+        (
+          fixture.nativeElement.querySelector(
+            'button[aria-label="Open Nocturne by Sample, Bea on IMSLP"]',
+          ) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    });
+
     it('ignores an older response that resolves after a newer one', () => {
       const component = fixture.componentInstance;
       const nocturne = {
