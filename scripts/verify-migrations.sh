@@ -24,6 +24,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -170,8 +171,6 @@ expected='asset_deletion_queue
 draft_sources
 import_assets
 import_drafts
-imslp_catalog_state
-imslp_catalog_works
 oauth_login_states
 piece_pdfs
 piece_sources
@@ -207,7 +206,8 @@ if [ "$version" != "000001_binder
 000003_piece_listening_url
 000004_score_intake
 000005_reader_scroll_speed
-000006_imslp_catalog" ]; then
+000006_imslp_catalog
+000007_drop_imslp_catalog" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -256,6 +256,20 @@ if docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE reader_states SET scroll_speed=11" >/dev/null 2>&1; then
   echo "reader scroll speed constraint unexpectedly accepted 11" >&2
+  exit 1
+fi
+
+# Rolling back the catalogue removal restores both tables and the single
+# state row exactly as 000006 created them.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+catalogue=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT (SELECT count(*) FROM imslp_catalog_state WHERE id AND active_generation IS NULL),
+            (SELECT count(*) FROM imslp_catalog_works)"
+)
+if [ "$catalogue" != "1|0" ]; then
+  printf 'unexpected IMSLP catalogue after rolling back 000007: %s\n' "$catalogue" >&2
   exit 1
 fi
 

@@ -2,8 +2,10 @@ import {
   Component,
   ElementRef,
   HostListener,
+  Injector,
   OnDestroy,
   ViewChild,
+  afterNextRender,
   inject,
   signal,
 } from '@angular/core';
@@ -17,7 +19,7 @@ import {
   LucidePlus,
 } from '@lucide/angular';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { firstValueFrom } from 'rxjs';
+import { Subscription, firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { LeaveGuarded } from '../../core/leave.guard';
 import {
@@ -40,6 +42,17 @@ import {
   preparedPhotoKey,
 } from './prepare-processing';
 GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
+/** Requests fire this long after the last keystroke, never per keystroke. */
+const IMSLP_DEBOUNCE_MS = 350;
+/** The per-user limit refills within a second (the API's Retry-After). */
+const IMSLP_THROTTLE_RETRY_MS = 1000;
+/** One quiet retry after "unavailable"; the API's breaker pauses for up to 60 s. */
+const IMSLP_UNAVAILABLE_RETRY_MS = 30_000;
+const IMSLP_CACHE_ENTRIES = 20;
+interface IMSLPAddedFile {
+  filename: string;
+  match: string;
+}
 interface Suggestion {
   confident: boolean;
   angle?: number;
@@ -70,7 +83,7 @@ interface ThumbnailRequest {
     LucidePlus,
   ],
   templateUrl: './prepare.component.html',
-  styleUrl: './prepare.component.scss',
+  styleUrls: ['./prepare.component.scss', './prepare-imslp.scss'],
 })
 export class PrepareComponent implements OnDestroy, LeaveGuarded {
   readonly Math = Math;
@@ -84,8 +97,10 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
   @ViewChild('surface') surface?: ElementRef<HTMLElement>;
   @ViewChild('thumbRail') thumbRail?: ElementRef<HTMLElement>;
+  @ViewChild('imslpSearchInput') imslpSearchInput?: ElementRef<HTMLInputElement>;
   readonly draft = signal<ImportDraft | null>(null);
   readonly step = signal<'source' | 'pages' | 'details'>('source');
   readonly error = signal('');
@@ -115,10 +130,24 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   imslp = '';
   imslpQuery = '';
   readonly imslpResults = signal<IMSLPWork[]>([]);
-  readonly imslpStatus = signal<
-    'idle' | 'searching' | 'ready' | 'loading' | 'unavailable' | 'error'
-  >('idle');
+  readonly imslpStatus = signal<'idle' | 'searching' | 'ready' | 'unavailable' | 'throttled'>(
+    'idle',
+  );
+  /** True after Change: the search shows again while the chosen work link is kept. */
+  readonly imslpChanging = signal(false);
+  /** True once a work was opened on IMSLP in this visit, so the hand-off note shows. */
+  readonly imslpOpened = signal(false);
+  readonly imslpDropHot = signal(false);
+  readonly imslpLinkOpen = signal(false);
+  /** True while the visible results belong to a query the user has since changed. */
+  readonly imslpStale = signal(false);
+  /** PDFs added from the IMSLP panel in this visit; the draft stays on Source. */
+  readonly imslpAdded = signal<IMSLPAddedFile[]>([]);
   private imslpRequest = 0;
+  private imslpTimer?: ReturnType<typeof setTimeout>;
+  private imslpSearch?: Subscription;
+  private imslpLastSent = '';
+  private readonly imslpCache = new Map<string, IMSLPWork[]>();
   readonly sourceMode = signal('all');
   rangeSourceId = '';
   rangeText = '';
@@ -200,9 +229,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.draft.set(d);
       this.sourceMode.set(this.route.snapshot.queryParamMap.get('source') || 'all');
       this.rangeSourceId = d.sources[0]?.id || '';
-      this.imslp = /^https:\/\/(www\.)?imslp\.org\/wiki\//.test(d.metadata.sourceUrl)
-        ? d.metadata.sourceUrl
-        : '';
+      this.imslp = isIMSLPWorkLink(d.metadata.sourceUrl) ? d.metadata.sourceUrl : '';
       this.step.set(d.manifest.pages.length ? 'pages' : 'source');
       this.reconcilePreparedKeys();
       void this.renderThumbnails();
@@ -214,7 +241,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   ngOnDestroy() {
     this.destroyed = true;
-    this.imslpRequest++;
+    this.cancelIMSLPSearch();
     this.invalidatePreview();
     this.dragCleanup?.();
     clearTimeout(this.previewTimer);
@@ -525,7 +552,15 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     const input = event.target as HTMLInputElement,
       files = Array.from(input.files ?? []);
     input.value = '';
-    if (!files.length) return;
+    await this.uploadFiles(files, replace);
+  }
+  /** The file inputs and the IMSLP drop target share this path. */
+  async uploadFiles(files: File[], replace = false) {
+    if (this.busy() || !files.length) return;
+    // A PDF downloaded from IMSLP keeps the draft on Source with the chosen work
+    // in view; Continue moves on to Pages.
+    const stayOnSource = !replace && this.step() === 'source' && this.sourceMode() === 'imslp';
+    const added: IMSLPAddedFile[] = [];
     this.busy.set(true);
     this.error.set('');
     this.uploading = true;
@@ -536,6 +571,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     try {
       this.applyIMSLP();
       await this.persist();
+      const chosen = this.chosenIMSLPWork;
       this.replaceID = replace ? this.page?.id : undefined;
       for (const [i, file] of files.entries()) {
         if (uploadGeneration !== this.uploadGeneration) break;
@@ -579,8 +615,10 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
           this.replaceID = undefined;
         }
         this.selected.set(Math.min(oldCount, this.draft()!.manifest.pages.length - 1));
+        if (stayOnSource)
+          added.push({ filename: file.name, match: imslpFileMatch(file.name, chosen) });
       }
-      this.setStep('pages');
+      if (!stayOnSource) this.setStep('pages');
       this.reconcilePreparedKeys();
       if (pagesOmitted)
         this.error.set(
@@ -590,6 +628,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     } catch (e) {
       this.error.set(errorMessage(e) + ' Pages already added remain in this draft.');
     } finally {
+      if (added.length) this.imslpAdded.update((files) => [...files, ...added]);
       this.uploading = false;
       this.skipRemainingUploads = false;
       this.syncCancellable();
@@ -1047,6 +1086,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     this.preparedKeysByPage = current;
   }
   setStep(step: 'source' | 'pages' | 'details'): void {
+    if (step !== 'source') this.cancelIMSLPSearch();
     this.step.set(step);
     void this.renderThumbnails();
     setTimeout(() => void this.renderThumbnails());
@@ -1279,16 +1319,17 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     const metadata = this.draft()!.metadata;
     const changedWork = metadata.sourceUrl !== url.href;
     metadata.sourceUrl = url.href;
-    const name = decodeURIComponent(url.pathname.slice(6)).replaceAll('_', ' ');
+    const { title, composer } = imslpWorkName(
+      decodeURIComponent(url.pathname.slice(6)).replaceAll('_', ' '),
+    );
     if (changedWork || (!metadata.title && this.draft()?.imslpAutoFill?.title === undefined)) {
-      this.prefillIMSLPField('title', name.replace(/\s*\([^)]*\)$/, ''));
+      this.prefillIMSLPField('title', title);
     }
-    const composer = name.match(/\(([^()]+, [^()]+)\)$/)?.[1];
     if (
       changedWork ||
       (!metadata.composer && this.draft()?.imslpAutoFill?.composer === undefined)
     ) {
-      this.prefillIMSLPField('composer', composer ?? '');
+      this.prefillIMSLPField('composer', composer);
     }
     this.mark();
     return url.href;
@@ -1308,29 +1349,148 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       delete provenance[field];
     }
   }
-  async searchIMSLP() {
-    const query = this.imslpQuery.trim();
-    if (query.length < 2 || query.length > 100) {
-      this.imslpStatus.set('idle');
-      this.imslpResults.set([]);
+  /** Each keystroke restarts the debounce; below two characters nothing is sent. */
+  imslpInput() {
+    clearTimeout(this.imslpTimer);
+    if (this.imslpQuery.trim().length < 2) {
+      this.resetIMSLPSearch();
       return;
     }
+    if (imslpQueryKey(this.imslpQuery) !== this.imslpLastSent) {
+      // The visible results no longer answer the query in the field: no older
+      // response may land, and nothing on screen may be opened until the next one.
+      this.imslpRequest++;
+      this.imslpSearch?.unsubscribe();
+      this.imslpSearch = undefined;
+      this.imslpLastSent = '';
+      this.imslpStale.set(true);
+    }
+    this.imslpTimer = setTimeout(() => this.searchIMSLP(), IMSLP_DEBOUNCE_MS);
+  }
+  /** Results on screen during a pending, running or throttled search are not selectable. */
+  imslpResultsStale(): boolean {
+    return (
+      this.imslpStale() || this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled'
+    );
+  }
+  imslpEnter(event: Event) {
+    event.preventDefault();
+    this.searchIMSLP(true);
+  }
+  chooseSource(mode: string) {
+    if (mode !== 'imslp') this.cancelIMSLPSearch();
+    this.sourceMode.set(mode);
+  }
+  /**
+   * Enter (immediate) may repeat the last query; the debounce never does. A
+   * retry runs without the searching state and never schedules another retry.
+   */
+  searchIMSLP(immediate = false, retry = false) {
+    clearTimeout(this.imslpTimer);
+    const query = this.imslpQuery.trim();
+    if (query.length < 2 || query.length > 100) {
+      this.resetIMSLPSearch();
+      return;
+    }
+    const key = imslpQueryKey(query);
+    if (key === this.imslpLastSent && !immediate) return;
+    this.imslpLastSent = key;
     const request = ++this.imslpRequest;
-    this.imslpStatus.set('searching');
-    this.imslpResults.set([]);
-    try {
-      const result = await firstValueFrom(this.api.searchIMSLP(query));
-      if (request !== this.imslpRequest || this.destroyed) return;
-      this.imslpStatus.set(result.status);
-      this.imslpResults.set(result.results);
-    } catch {
-      if (request !== this.imslpRequest || this.destroyed) return;
-      this.imslpStatus.set('error');
+    this.imslpSearch?.unsubscribe();
+    this.imslpSearch = undefined;
+    const cached = this.imslpCache.get(key);
+    if (cached) {
+      this.rememberIMSLPResults(key, cached);
+      this.imslpStatus.set('ready');
+      this.imslpResults.set(cached);
+      this.imslpStale.set(false);
+      return;
+    }
+    if (!retry) this.imslpStatus.set('searching');
+    const unavailable = () => {
+      this.imslpLastSent = '';
+      this.imslpStatus.set('unavailable');
       this.imslpResults.set([]);
+      this.imslpStale.set(false);
+      this.imslpLinkOpen.set(true);
+      if (retry) return;
+      this.imslpTimer = setTimeout(() => {
+        if (
+          this.imslpQuery.trim() === query &&
+          this.sourceMode() === 'imslp' &&
+          this.step() === 'source'
+        )
+          this.searchIMSLP(true, true);
+      }, IMSLP_UNAVAILABLE_RETRY_MS);
+    };
+    this.imslpSearch = this.api.searchIMSLP(query).subscribe({
+      next: (result) => {
+        if (request !== this.imslpRequest || this.destroyed) return;
+        if (result.status === 'ready') {
+          this.rememberIMSLPResults(key, result.results);
+          this.imslpStatus.set('ready');
+          this.imslpResults.set(result.results);
+          this.imslpStale.set(false);
+        } else if (result.status === 'throttled') {
+          // Earlier results stay (faded) and the same query is retried once the limit refills.
+          this.imslpLastSent = '';
+          this.imslpStatus.set('throttled');
+          this.imslpTimer = setTimeout(() => this.searchIMSLP(true), IMSLP_THROTTLE_RETRY_MS);
+        } else unavailable();
+      },
+      error: () => {
+        if (request !== this.imslpRequest || this.destroyed) return;
+        unavailable();
+      },
+    });
+  }
+  imslpStatusText(): string {
+    switch (this.imslpStatus()) {
+      case 'idle':
+        return 'Type at least two characters.';
+      case 'searching':
+        return 'Searching IMSLP…';
+      case 'throttled':
+        return "You're searching quickly. Results will catch up in a moment.";
+      case 'unavailable':
+        return 'IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.';
+      default:
+        return this.imslpResults().length
+          ? ''
+          : 'No works match. Check the spelling, try the composer alone, or paste a work link.';
     }
   }
-  selectIMSLPWork(work: IMSLPWork) {
-    if (!this.draft() || this.busy() || this.finalizing() || !this.imslpResults().includes(work))
+  private resetIMSLPSearch() {
+    this.cancelIMSLPSearch();
+    this.imslpStatus.set('idle');
+    this.imslpResults.set([]);
+  }
+  /** Stops the pending debounce or retry and the in-flight request, e.g. on leaving the panel. */
+  private cancelIMSLPSearch() {
+    clearTimeout(this.imslpTimer);
+    this.imslpRequest++;
+    this.imslpSearch?.unsubscribe();
+    this.imslpSearch = undefined;
+    this.imslpLastSent = '';
+    this.imslpStale.set(false);
+    if (this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled')
+      this.imslpStatus.set(this.imslpResults().length ? 'ready' : 'idle');
+  }
+  private rememberIMSLPResults(key: string, works: IMSLPWork[]) {
+    this.imslpCache.delete(key);
+    this.imslpCache.set(key, works);
+    if (this.imslpCache.size > IMSLP_CACHE_ENTRIES)
+      this.imslpCache.delete(this.imslpCache.keys().next().value!);
+  }
+  /** One tap stores the link, prefills details and opens the work on IMSLP. */
+  async selectIMSLPWork(work: IMSLPWork) {
+    if (
+      !this.draft() ||
+      this.busy() ||
+      this.finalizing() ||
+      this.imslpResultsStale() ||
+      !this.imslpResults().includes(work)
+    )
       return;
     this.imslp = work.url;
     const metadata = this.draft()!.metadata;
@@ -1347,11 +1507,78 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
         : null,
     );
     this.mark();
+    this.imslpChanging.set(false);
+    this.imslpOpened.set(true);
+    // Still inside the click handler, so iPad Safari treats it as a user gesture.
+    window.open(work.url, '_blank', 'noopener,noreferrer');
+    try {
+      await this.persist();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+  /** The work whose link the draft holds, parsed the same way as a pasted link. */
+  get chosenIMSLPWork(): IMSLPWork | null {
+    const url = this.draft()?.metadata.sourceUrl ?? '';
+    if (!isIMSLPWorkLink(url)) return null;
+    let name = url.slice(url.indexOf('/wiki/') + 6);
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // Keep the raw path segment when it is not valid percent-encoding.
+    }
+    return { ...imslpWorkName(name.replaceAll('_', ' ')), url };
+  }
+  /** The provenance line appears only for fields IMSLP filled and nobody edited since. */
+  get imslpProvenance(): string {
+    const d = this.draft();
+    const title = !!d?.imslpAutoFill?.title && d.imslpAutoFill.title === d.metadata.title;
+    const composer =
+      !!d?.imslpAutoFill?.composer && d.imslpAutoFill.composer === d.metadata.composer;
+    if (title && composer) return 'Title and composer filled from IMSLP';
+    if (title) return 'Title filled from IMSLP';
+    return composer ? 'Composer filled from IMSLP' : '';
+  }
+  changeIMSLPWork() {
+    this.imslpChanging.set(true);
+    afterNextRender(() => this.imslpSearchInput?.nativeElement.focus(), {
+      injector: this.injector,
+    });
+  }
+  imslpDragOver(event: DragEvent) {
+    if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = this.busy() ? 'none' : 'copy';
+    this.imslpDropHot.set(!this.busy());
+  }
+  imslpDragLeave(event: DragEvent) {
+    const panel = event.currentTarget as HTMLElement | null;
+    if (event.relatedTarget instanceof Node && panel?.contains(event.relatedTarget)) return;
+    this.imslpDropHot.set(false);
+  }
+  async imslpDrop(event: DragEvent) {
+    event.preventDefault();
+    this.imslpDropHot.set(false);
+    if (this.busy()) return;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    const pdfs = files.filter(
+      (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name),
+    );
+    await this.uploadFiles(pdfs);
+    // uploadFiles clears earlier errors, so the skipped-file note is added afterwards.
+    if (pdfs.length < files.length) {
+      const warning = 'Only PDF files can be dropped here.';
+      this.error.set(this.error() ? `${this.error()} ${warning}` : warning);
+    }
   }
   async openIMSLP() {
     try {
       const url = this.applyIMSLP();
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        this.imslpChanging.set(false);
+        this.imslpOpened.set(true);
+      }
       await this.persist();
     } catch (e) {
       this.error.set(errorMessage(e));
@@ -1456,4 +1683,39 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       (this.uploading && !this.skipRemainingUploads) || (this.busy() && this.foregroundWorker),
     );
   }
+}
+
+function isIMSLPWorkLink(url: string): boolean {
+  return /^https:\/\/(www\.)?imslp\.org\/wiki\//.test(url);
+}
+
+/** IMSLP work pages are titled "Work title (Last, First)". */
+function imslpWorkName(name: string): { title: string; composer: string } {
+  return {
+    title: name.replace(/\s*\([^)]*\)$/, ''),
+    composer: name.match(/\(([^()]+, [^()]+)\)$/)?.[1] ?? '',
+  };
+}
+
+/**
+ * IMSLP names downloads "IMSLP<file number>-<composer>_-_<title>.pdf". The note is
+ * informational only: a file number cannot be checked against a work without IMSLP.
+ */
+function imslpFileMatch(filename: string, work: IMSLPWork | null): string {
+  const number = filename.match(/^IMSLP(\d+)-/)?.[1];
+  if (!number) return '';
+  const fold = (text: string) =>
+    text
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  const lastName = fold(work?.composer.split(',')[0] ?? '');
+  return lastName && fold(filename).includes(lastName)
+    ? `IMSLP file ${number}, by the chosen work's composer.`
+    : `IMSLP file ${number}. Check it is an edition of the chosen work.`;
+}
+
+function imslpQueryKey(query: string): string {
+  return query.trim().replace(/\s+/g, ' ').toLowerCase();
 }

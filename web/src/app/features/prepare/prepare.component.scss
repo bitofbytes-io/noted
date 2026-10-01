@@ -210,48 +210,6 @@ small {
   max-width: 900px;
 }
 
-.imslp-search {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 20px 0;
-}
-
-.imslp-search .field {
-  flex: 1 1 280px;
-  margin: 0;
-}
-
-.imslp-results {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0 24px;
-  max-height: 320px;
-  overflow-y: auto;
-  border-top: 1px solid var(--line);
-}
-
-.imslp-results li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.imslp-results li span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.imslp-results small {
-  display: block;
-  color: var(--ink-muted);
-}
-
 .source-foot {
   display: flex;
   flex-wrap: wrap;

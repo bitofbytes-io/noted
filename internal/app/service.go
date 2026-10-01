@@ -30,10 +30,11 @@ type Service struct {
 	pool           *pgxpool.Pool
 	store          assets.Store
 	maxUploadBytes int64
+	imslp          *imslpSearcher
 }
 
 func NewService(pool *pgxpool.Pool, store assets.Store, limits ...int64) *Service {
-	s := &Service{pool: pool, store: store}
+	s := &Service{pool: pool, store: store, imslp: newIMSLPSearcher(IMSLPSearchConfig{})}
 	if len(limits) > 0 {
 		s.maxUploadBytes = limits[0]
 	}

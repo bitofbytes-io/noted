@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IMSLP Hand-off Flow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column of mockup frames in the order the user meets them; each frame is a
+   Noted Source-step panel drawn with the accepted Title Page tokens. Single light look,
+   matching the app, so no dark theme on purpose. */
+:root {
+  --paper: #F6F1E7; --paper-raised: #FCFAF4; --ink: #1A1A1A; --ink-muted: #6E6759;
+  --ink-faint: #948C7C; --line: #DDD6C6; --line-strong: #B9B09E;
+  --green: #1E4D3B; --green-dark: #163B2D; --green-soft: #E7EDE6;
+  --danger: #A63A2E; --danger-soft: #F5E4E0; --focus: rgba(30,77,59,.25);
+  --sans: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --annot: #5a5347;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--paper); color: var(--ink); font: 400 15px/1.6 var(--sans);
+  padding-block: 32px 64px; padding-inline: clamp(16px, 4vw, 40px);
+}
+h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: 0; }
+h1 { font-size: clamp(30px, 4vw, 40px); font-weight: 600; line-height: 1.1; }
+h2 { font-size: 22px; font-weight: 600; }
+h3 { font-size: 19px; font-weight: 600; line-height: 1.25; }
+p { margin: 0; }
+a { color: var(--green); }
+.wrap { max-width: 1100px; margin-inline: auto; display: grid; gap: 40px; }
+.intro { max-width: 68ch; display: grid; gap: 12px; }
+.intro .meta { color: var(--ink-muted); font-size: 13px; font-weight: 500; }
+
+/* journey strip: a real sequence, so numbering is information */
+.journey { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.journey > div { padding: 16px 16px 16px 0; display: grid; gap: 4px; border-right: 1px solid var(--line); padding-inline: 16px; min-width: 0; }
+.journey > div:last-child { border-right: 0; }
+.journey .n { font-size: 13px; font-weight: 600; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.journey .where { font-size: 13px; color: var(--ink-faint); }
+.journey .imslp .n { color: var(--danger); }
+.journey strong { font-weight: 600; }
+
+/* a frame: caption + device panel + notes */
+.frame { display: grid; gap: 16px; }
+.frame-head { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
+.frame-head .k { font-size: 13px; font-weight: 600; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.frame-body { display: grid; grid-template-columns: minmax(0, 720px) minmax(240px, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .frame-body { grid-template-columns: minmax(0, 1fr); } }
+.notes { display: grid; gap: 12px; color: var(--annot); font-size: 14px; line-height: 1.55; }
+.notes li { margin: 0; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.notes code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border: 1px solid var(--line); padding: 0 4px; }
+.notes .tag { display: inline-block; font-size: 12px; font-weight: 600; color: var(--green); border: 1px solid var(--green); padding: 0 6px; margin-right: 6px; }
+
+/* device panel = the Noted Prepare screen, Source step */
+.device { background: var(--paper); border: 1px solid var(--line-strong); min-width: 0; }
+.device.phone { max-width: 390px; }
+.masthead { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--line); }
+.masthead .word { font-weight: 600; font-size: 17px; }
+.masthead .user { width: 28px; height: 28px; border-radius: 50%; background: var(--green-soft); border: 1px solid var(--line-strong); }
+.screen { padding: 24px; display: grid; gap: 20px; }
+.device.phone .screen, .device.phone .masthead { padding-inline: 16px; }
+.steps { display: flex; gap: 12px; align-items: center; font-size: 13px; font-weight: 500; color: var(--ink-faint); flex-wrap: wrap; }
+.steps .on { color: var(--green); font-weight: 600; }
+.steps .rule { width: 32px; height: 1px; background: var(--line-strong); }
+.panel { display: grid; gap: 16px; border-top: 1px solid var(--line); padding-top: 20px; }
+.panel .lead { color: var(--ink-muted); max-width: 60ch; }
+
+.field { display: grid; gap: 6px; }
+.field > span { font-size: 13px; font-weight: 600; }
+.input { position: relative; }
+.input input { width: 100%; height: 48px; padding: 0 44px 0 14px; background: var(--paper-raised); border: 1px solid var(--line-strong); font: 400 17px var(--sans); color: var(--ink); border-radius: 0; }
+.input input:focus { outline: 3px solid var(--focus); outline-offset: 2px; border-color: var(--green); }
+.input input::placeholder { color: var(--ink-faint); }
+.input .spin { position: absolute; right: 14px; top: 50%; width: 16px; height: 16px; margin-top: -8px; border: 2px solid var(--line-strong); border-top-color: var(--green); border-radius: 50%; animation: spin .8s linear infinite; }
+.input .spin[hidden] { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .input .spin { animation: none; border-top-color: var(--line-strong); } }
+.status { font-size: 13px; color: var(--ink-muted); min-height: 20px; }
+.status.err { color: var(--danger); }
+.status b { font-weight: 600; }
+
+.results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.results li { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 56px; padding: 8px 0 8px 8px; border-bottom: 1px solid var(--line); }
+.results li:hover, .results li:focus-within { background: var(--green-soft); }
+.results li.chosen { background: var(--green-soft); }
+.results .t { display: grid; gap: 2px; min-width: 0; }
+.results .t strong { font-weight: 600; font-size: 16px; line-height: 1.25; }
+.results .t small { font-size: 13px; color: var(--ink-muted); }
+.results .fade { opacity: .55; }
+.hint { font-size: 13px; color: var(--ink-faint); }
+
+.btn { font: 500 15px var(--sans); height: 44px; padding: 0 18px; border-radius: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.btn-secondary { background: transparent; border: 1px solid var(--ink); color: var(--ink); }
+.btn-secondary:hover { background: var(--green-soft); }
+.btn-primary { background: var(--green); color: #fff; border: 1px solid var(--green); border-radius: 999px; height: 48px; padding: 0 22px; font-weight: 500; }
+.btn-primary:hover { background: var(--green-dark); }
+.btn-quiet { background: transparent; border: 0; color: var(--ink-muted); padding: 0 8px; height: 36px; }
+.btn-quiet.accent { color: var(--green); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+.chosen-work { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: start; border: 1px solid var(--line-strong); background: var(--paper-raised); padding: 14px 16px; }
+.chosen-work .lbl { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.chosen-work .ttl { font-size: 19px; font-weight: 600; line-height: 1.25; }
+.chosen-work .cmp { color: var(--ink-muted); }
+.chosen-work .link { font: 500 12.5px var(--mono); color: var(--ink-faint); word-break: break-all; margin-top: 4px; }
+.prov { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--green); margin-top: 6px; }
+.prov::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+
+.drop { border: 1px dashed var(--line-strong); background: var(--paper-raised); padding: 22px 20px; display: grid; gap: 10px; justify-items: center; text-align: center; }
+.drop.hot { border-color: var(--green); background: var(--green-soft); border-style: solid; }
+.drop .mark { width: 36px; height: 44px; background: #fff; border: 1px solid var(--line-strong); position: relative; }
+.drop .mark::after { content: 'PDF'; position: absolute; inset: auto 0 6px; font: 600 9px var(--sans); color: var(--ink-muted); text-align: center; }
+.drop .mark.dash { border-style: dashed; background: transparent; }
+.drop p { color: var(--ink-muted); }
+.drop p.match { color: var(--green); font-weight: 500; }
+.drop .fn { font: 500 12.5px var(--mono); color: var(--ink); word-break: break-all; }
+
+.banner { border: 1px solid var(--line-strong); background: var(--paper-raised); padding: 12px 16px; color: var(--ink-muted); display: grid; gap: 4px; }
+.banner.err { border-color: var(--danger); background: var(--danger-soft); color: var(--ink); }
+.banner .h { font-weight: 600; color: var(--ink); }
+
+/* side-by-side state variants */
+.variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.variants .device .screen { gap: 14px; }
+.variant-name { font-size: 13px; font-weight: 600; color: var(--ink-muted); padding: 10px 16px; border-bottom: 1px solid var(--line); }
+
+/* demo controls under frame 1 */
+.demo-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; font-size: 13px; color: var(--ink-muted); }
+.demo-controls label { display: inline-flex; gap: 6px; align-items: center; }
+.demo-log { font: 500 12.5px/1.6 var(--mono); color: var(--ink-muted); background: var(--paper-raised); border: 1px solid var(--line); padding: 10px 12px; min-height: 64px; max-height: 120px; overflow: auto; white-space: pre-wrap; }
+.demo-log b { color: var(--green); font-weight: 600; }
+.demo-log i { color: var(--danger); font-style: normal; }
+
+.ipad-note { font-size: 13px; color: var(--ink-faint); }
+.ext { vertical-align: -2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="intro">
+    <p class="meta">Noted · Score intake · Concept for review · 2026-10-01</p>
+    <h1>IMSLP hand-off: search in Noted, download on IMSLP, PDF back in the draft</h1>
+    <p>Only the IMSLP connection inside the <strong>Source</strong> step changes. The local work catalogue and its refresh job go away; the search field queries IMSLP directly through the Noted API. Choosing a work opens its IMSLP page in a new tab, where edition choice, the disclaimer and the download stay. The draft waits in Noted for the file.</p>
+    <p class="meta">Companion plan: <code>docs/product/imslp-live-search-plan.md</code>. The first frame is interactive so the debounce and limit behaviour can be felt, not just read.</p>
+  </header>
+
+  <section class="journey" aria-label="Journey">
+    <div><span class="n">1</span><strong>Type a title or composer</strong><span class="where">Noted · Source step</span></div>
+    <div><span class="n">2</span><strong>Tap the work</strong><span class="where">Noted stores link, prefills, opens tab</span></div>
+    <div class="imslp"><span class="n">3</span><strong>Choose edition, download</strong><span class="where">IMSLP in Safari · their wait and disclaimer</span></div>
+    <div><span class="n">4</span><strong>Add the PDF to the waiting draft</strong><span class="where">Noted · Add, drop, or Send to Noted</span></div>
+  </section>
+
+  <!-- ───────────────────────── Frame 1 ───────────────────────── -->
+  <section class="frame" id="search">
+    <div class="frame-head"><span class="k">Frame 1</span><h2>Search as you type</h2></div>
+    <div class="frame-body">
+      <div class="device" aria-label="Noted on iPad, Source step, IMSLP search">
+        <div class="masthead"><span class="word">Noted</span><span class="user" aria-hidden="true"></span></div>
+        <div class="screen">
+          <h1 style="font-size:30px">Add a score</h1>
+          <div class="steps"><span class="on">Source</span><span class="rule"></span><span>Pages</span><span class="rule"></span><span>Details</span></div>
+          <div class="panel">
+            <h3>Find a score on IMSLP</h3>
+            <p class="lead">Search by title, composer, or both. Choosing a work opens it on IMSLP, where you pick the edition and download the PDF.</p>
+            <label class="field" for="q"><span>Title or composer</span>
+              <span class="input"><input id="q" type="search" placeholder="Debussy Clair de lune" autocomplete="off" spellcheck="false"><span class="spin" id="spin" hidden aria-hidden="true"></span></span>
+            </label>
+            <p class="status" id="status" role="status" aria-live="polite">Type at least two characters.</p>
+            <ul class="results" id="results" aria-label="IMSLP work results"></ul>
+            <p class="hint" id="hint" hidden>Showing IMSLP's top matches. Add the composer to narrow a common title.</p>
+            <details>
+              <summary class="hint" style="cursor:pointer">Have a work link already?</summary>
+              <label class="field" style="margin-top:12px" for="lnk"><span>IMSLP work link</span><span class="input"><input id="lnk" type="url" placeholder="https://imslp.org/wiki/…"></span></label>
+            </details>
+            <div class="actions">
+              <button class="btn btn-secondary" type="button">Add downloaded PDF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p><span class="tag">Try it</span>Type into the field. Requests fire 350 ms after the last keystroke, never per keystroke. Enter searches at once.</p>
+        <div class="demo-controls">
+          <label><input type="checkbox" id="sim502"> Simulate IMSLP 502</label>
+          <label><input type="checkbox" id="simSlow"> Slow network (1.5 s)</label>
+          <label><input type="checkbox" id="simLimit"> Hit the per-user limit</label>
+        </div>
+        <div class="demo-log" id="log" aria-label="Request log">—</div>
+        <ul>
+          <li>Minimum 2 characters. Below that: no request, results cleared, idle hint shown.</li>
+          <li>Identical consecutive query is skipped; the last 20 queries are cached in the page so backspacing is instant.</li>
+          <li>A newer keystroke cancels the in-flight request; a stale response is ignored.</li>
+          <li>Server side: per-user 2 req/s burst 4, outbound 5 req/s to IMSLP, 20-minute cache, circuit breaker after 3 upstream failures. See the plan.</li>
+          <li>The work-link field and <em>Add downloaded PDF</em> are always available. Search failing never blocks intake.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── Frame 2 ───────────────────────── -->
+  <section class="frame" id="select">
+    <div class="frame-head"><span class="k">Frame 2</span><h2>Tap the work: link stored, details prefilled, IMSLP opens</h2></div>
+    <div class="frame-body">
+      <div class="device">
+        <div class="masthead"><span class="word">Noted</span><span class="user" aria-hidden="true"></span></div>
+        <div class="screen">
+          <div class="steps"><span class="on">Source</span><span class="rule"></span><span>Pages</span><span class="rule"></span><span>Details</span></div>
+          <div class="panel">
+            <h3>Find a score on IMSLP</h3>
+            <div class="chosen-work">
+              <div>
+                <p class="lbl">Chosen work</p>
+                <p class="ttl">Clair de lune</p>
+                <p class="cmp">Debussy, Claude</p>
+                <p class="link">https://imslp.org/wiki/Clair_de_lune_(Debussy,_Claude)</p>
+                <p class="prov">Title and composer filled from IMSLP</p>
+              </div>
+              <button class="btn btn-quiet" type="button">Change</button>
+            </div>
+            <div class="banner">
+              <p class="h">IMSLP opened in a new tab</p>
+              <p>Pick the edition there and download its PDF. IMSLP shows a short wait unless you are a member. Then come back here and add the file.</p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-secondary" type="button">Open on IMSLP <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></button>
+              <button class="btn btn-secondary" type="button">Add downloaded PDF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <ul>
+          <li>One tap on a result does three things in the same click handler: <code>metadata.sourceUrl = work.url</code>, prefill via the existing <code>prefillIMSLPField</code> rules, then <code>window.open(url, '_blank', 'noopener,noreferrer')</code>. Running inside the user gesture avoids popup blocking on iPad Safari.</li>
+          <li>Manually edited title or composer is kept (existing <code>IMSLPAutoFill</code> ownership rules). The green provenance line only appears for fields IMSLP filled.</li>
+          <li><em>Change</em> returns focus to the search field with the previous query restored from the page cache.</li>
+          <li><em>Open on IMSLP</em> stays for re-opening the tab. There is no edition list in Noted; the IMSLP page is the edition list.</li>
+          <li>The draft persists at this point, so leaving the tab and coming back later resumes here.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── Frame 3 ───────────────────────── -->
+  <section class="frame" id="return">
+    <div class="frame-head"><span class="k">Frame 3</span><h2>Back from IMSLP: the draft is waiting for the file</h2></div>
+    <div class="frame-body">
+      <div class="device">
+        <div class="masthead"><span class="word">Noted</span><span class="user" aria-hidden="true"></span></div>
+        <div class="screen">
+          <div class="steps"><span class="on">Source</span><span class="rule"></span><span>Pages</span><span class="rule"></span><span>Details</span></div>
+          <div class="panel">
+            <div class="chosen-work">
+              <div>
+                <p class="lbl">Chosen work</p>
+                <p class="ttl">Clair de lune</p>
+                <p class="cmp">Debussy, Claude</p>
+                <p class="prov">Title and composer filled from IMSLP</p>
+              </div>
+              <button class="btn btn-quiet" type="button">Change</button>
+            </div>
+            <div class="drop hot" id="dropHot">
+              <span class="mark" aria-hidden="true"></span>
+              <p class="fn">IMSLP01240-Debussy_-_Suite_bergamasque_-_3_Clair_de_lune.pdf</p>
+              <p class="match">Matches the chosen work. Release to add it.</p>
+            </div>
+            <div class="actions">
+              <button class="btn btn-secondary" type="button">Add downloaded PDF</button>
+              <span class="ipad-note">On iPad this opens Files; Safari saves to Downloads.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <ul>
+          <li>The panel becomes a drop target while a work is chosen (desktop drag from the Downloads shelf). Dropping routes through the same code path as the file input.</li>
+          <li>Filenames from IMSLP start with the file number (<code>IMSLP01240-…</code>). When it is present, Noted can confirm the match against the chosen work; the check is informational and never blocks adding a file.</li>
+          <li>After the file is added, the existing flow continues unchanged: Pages (reorder, crop, extract) then Details.</li>
+          <li><span class="tag">Follow-up</span>On iPad the fastest path is the Share sheet from Safari's PDF viewer to a <em>Send to Noted</em> shortcut, which posts the file to the waiting draft. That needs a per-user token and a token-scoped endpoint, and is a separate issue. This frame is designed so its copy can later add "or share it from Safari with Send to Noted".</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── Frame 4 ───────────────────────── -->
+  <section class="frame" id="states">
+    <div class="frame-head"><span class="k">Frame 4</span><h2>When IMSLP is slow, down, or you search too fast</h2></div>
+    <div class="variants">
+      <div class="device">
+        <p class="variant-name">Upstream 5xx / timeout / breaker open → <code>unavailable</code></p>
+        <div class="screen">
+          <label class="field"><span>Title or composer</span><span class="input"><input type="search" value="Chopin Nocturne" readonly></span></label>
+          <p class="status err">IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.</p>
+          <details open><summary class="hint">Have a work link already?</summary>
+            <label class="field" style="margin-top:12px"><span>IMSLP work link</span><span class="input"><input type="url" placeholder="https://imslp.org/wiki/…" readonly></span></label></details>
+          <div class="actions"><button class="btn btn-secondary" type="button">Add downloaded PDF</button></div>
+        </div>
+      </div>
+      <div class="device">
+        <p class="variant-name">Per-user limit → HTTP 429 → <code>throttled</code></p>
+        <div class="screen">
+          <label class="field"><span>Title or composer</span><span class="input"><input type="search" value="Rachmaninoff Prelude" readonly></span></label>
+          <p class="status">You're searching quickly. Results will catch up in a moment.</p>
+          <ul class="results">
+            <li class="fade"><span class="t"><strong>Preludes, Op.23</strong><small>Rachmaninoff, Sergei</small></span><button class="btn btn-secondary" type="button" disabled>Open on IMSLP</button></li>
+            <li class="fade"><span class="t"><strong>Prelude in C-sharp minor, Op.3 No.2</strong><small>Rachmaninoff, Sergei</small></span><button class="btn btn-secondary" type="button" disabled>Open on IMSLP</button></li>
+          </ul>
+        </div>
+      </div>
+      <div class="device">
+        <p class="variant-name">No matches → <code>ready</code>, empty</p>
+        <div class="screen">
+          <label class="field"><span>Title or composer</span><span class="input"><input type="search" value="Debusy Claire de loon" readonly></span></label>
+          <p class="status">No works match. Check the spelling, try the composer alone, or paste a work link.</p>
+          <details><summary class="hint">Have a work link already?</summary></details>
+          <div class="actions"><button class="btn btn-secondary" type="button">Add downloaded PDF</button></div>
+        </div>
+      </div>
+    </div>
+    <aside class="notes">
+      <ul>
+        <li>Previous results stay visible (faded) during <code>throttled</code>; they are replaced when the next request succeeds. For <code>unavailable</code> the list is cleared because it may be stale across the breaker's 60 s window; the same query is retried once, quietly, after 30 s, and Enter retries at once.</li>
+        <li>No state removes the link field or the upload button. The only recurring server log line is the circuit breaker opening or closing.</li>
+      </ul>
+    </aside>
+  </section>
+
+  <!-- ───────────────────────── Phone ───────────────────────── -->
+  <section class="frame" id="phone">
+    <div class="frame-head"><span class="k">Phone</span><h2>Same panel at phone width</h2></div>
+    <div class="frame-body">
+      <div class="device phone">
+        <div class="masthead"><span class="word">Noted</span><span class="user" aria-hidden="true"></span></div>
+        <div class="screen">
+          <div class="steps"><span class="on">Source</span><span class="rule"></span><span>Pages</span><span class="rule"></span><span>Details</span></div>
+          <div class="panel">
+            <h3>Find a score on IMSLP</h3>
+            <label class="field"><span>Title or composer</span><span class="input"><input type="search" value="satie gymnop" readonly></span></label>
+            <ul class="results">
+              <li><span class="t"><strong>3 Gymnopédies</strong><small>Satie, Erik</small></span><button class="btn btn-secondary" type="button">Open</button></li>
+              <li><span class="t"><strong>Gymnopédie No.1 (arr. piano 4 hands)</strong><small>Satie, Erik</small></span><button class="btn btn-secondary" type="button">Open</button></li>
+              <li><span class="t"><strong>5 Gymnopédies</strong><small>Beneking, Stephan</small></span><button class="btn btn-secondary" type="button">Open</button></li>
+            </ul>
+            <div class="actions"><button class="btn btn-secondary" type="button" style="width:100%;justify-content:center">Add downloaded PDF</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <ul>
+          <li>Rows stay 56 px minimum; the button label shortens to <em>Open</em> under 420 px. Title wraps, composer stays on one line and truncates.</li>
+          <li>Phone capture is a separate Source choice and is unchanged.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  // Canned works standing in for IMSLP's generator=search response (title already split).
+  var WORKS = [
+    ['Clair de lune', 'Debussy, Claude'], ['Suite bergamasque, CD 82', 'Debussy, Claude'],
+    ['Clair de lune (song)', 'Debussy, Claude'], ['Clair de lune, Op.13', "Indy, Vincent d'"],
+    ['Clair de lune, Op.104', 'Lemare, Edwin Henry'], ['Clair de lune', 'Saint-Saëns, Camille'],
+    ['Au clair de la lune, Op.19', 'Hérold, Ferdinand'], ['3 Gymnopédies', 'Satie, Erik'],
+    ['6 Gnossiennes', 'Satie, Erik'], ['5 Gymnopédies', 'Beneking, Stephan'],
+    ['Nocturnes, Op.9', 'Chopin, Frédéric'], ['Nocturnes, Op.27', 'Chopin, Frédéric'],
+    ['Preludes, Op.23', 'Rachmaninoff, Sergei'], ['Prelude in C-sharp minor, Op.3 No.2', 'Rachmaninoff, Sergei'],
+    ['Quasi valse, Op.47', 'Scriabin, Aleksandr'], ['Arabesques, CD 74', 'Debussy, Claude'],
+    ['Rêverie, CD 76', 'Debussy, Claude'], ['Prelude and Fugue in C major, BWV 846', 'Bach, Johann Sebastian'],
+    ['Goldberg-Variationen, BWV 988', 'Bach, Johann Sebastian'], ['Kinderszenen, Op.15', 'Schumann, Robert']
+  ];
+  var q = document.getElementById('q'), spin = document.getElementById('spin'), status = document.getElementById('status'),
+      results = document.getElementById('results'), hint = document.getElementById('hint'), log = document.getElementById('log');
+  var sim502 = document.getElementById('sim502'), simSlow = document.getElementById('simSlow'), simLimit = document.getElementById('simLimit');
+  var DEBOUNCE = 350, timer = null, seq = 0, lastSent = '', cache = new Map(), lines = [];
+
+  function logLine(s) { lines.push(s); if (lines.length > 6) lines.shift(); log.innerHTML = lines.join('\n'); log.scrollTop = log.scrollHeight; }
+  function norm(s) { return s.trim().replace(/\s+/g, ' ').toLowerCase(); }
+  function esc(s) { return s.replace(/[&<>"]/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+
+  function setStatus(text, err) { status.textContent = text; status.className = 'status' + (err ? ' err' : ''); }
+  function render(list) {
+    results.innerHTML = list.map(function (w) {
+      return '<li><span class="t"><strong>' + esc(w[0]) + '</strong><small>' + esc(w[1]) + '</small></span>' +
+        '<button class="btn btn-secondary" type="button" aria-label="Open ' + esc(w[0]) + ' by ' + esc(w[1]) + ' on IMSLP">Open on IMSLP ' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></button></li>';
+    }).join('');
+    hint.hidden = list.length === 0;
+  }
+  function fakeSearch(query) {
+    var terms = norm(query).split(' ');
+    return WORKS.filter(function (w) { var hay = (w[0] + ' ' + w[1]).toLowerCase(); return terms.every(function (t) { return hay.indexOf(t) >= 0; }); }).slice(0, 10);
+  }
+
+  function search(raw, immediate) {
+    var query = raw.trim();
+    if (query.length < 2) { clearTimeout(timer); seq++; spin.hidden = true; results.innerHTML = ''; hint.hidden = true; setStatus('Type at least two characters.'); return; }
+    var key = norm(query);
+    if (key === lastSent && !immediate) return;
+    lastSent = key;
+    var mine = ++seq;
+    if (cache.has(key)) { logLine('cache hit  "' + query + '"'); render(cache.get(key)); setStatus(cache.get(key).length ? '' : 'No works match. Check the spelling, try the composer alone, or paste a work link.'); return; }
+    spin.hidden = false; setStatus('Searching IMSLP…');
+    logLine((immediate ? 'enter  ' : 'debounce ') + 'GET /api/imslp/works?q=' + encodeURIComponent(query));
+    var delay = simSlow.checked ? 1500 : 300;
+    setTimeout(function () {
+      if (mine !== seq) { logLine('  ignored stale response for "' + query + '"'); return; }
+      spin.hidden = true;
+      if (simLimit.checked) { logLine('  <i>429 Too Many Requests</i> Retry-After: 1'); setStatus("You're searching quickly. Results will catch up in a moment."); results.querySelectorAll('li').forEach(function (li) { li.classList.add('fade'); }); return; }
+      if (sim502.checked) { logLine('  <i>upstream 502</i> → status unavailable'); results.innerHTML = ''; hint.hidden = true; setStatus('IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.', true); return; }
+      var list = fakeSearch(query);
+      cache.set(key, list); if (cache.size > 20) cache.delete(cache.keys().next().value);
+      logLine('  <b>200</b> ' + list.length + ' works');
+      render(list); setStatus(list.length ? '' : 'No works match. Check the spelling, try the composer alone, or paste a work link.');
+    }, delay);
+  }
+
+  q.addEventListener('input', function () { clearTimeout(timer); var v = q.value; timer = setTimeout(function () { search(v, false); }, DEBOUNCE); });
+  q.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); search(q.value, true); } });
+  results.addEventListener('click', function (e) {
+    var li = e.target.closest('li'); if (!li) return;
+    results.querySelectorAll('li').forEach(function (x) { x.classList.remove('chosen'); }); li.classList.add('chosen');
+    logLine('select → store link, prefill, window.open(work.url)');
+    document.getElementById('select').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+})();
+</script>
+</body>
+</html>
