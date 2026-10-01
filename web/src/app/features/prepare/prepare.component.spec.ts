@@ -481,6 +481,32 @@ describe('PrepareComponent', () => {
       );
     });
 
+    it('ignores an older response that resolves after a newer one', () => {
+      const component = fixture.componentInstance;
+      const nocturne = {
+        title: 'Nocturne',
+        composer: 'Sample, Bea',
+        url: 'https://imslp.org/wiki/Nocturne_(Sample,_Bea)',
+      };
+      const older = new Subject<IMSLPSearch>();
+      const newer = new Subject<IMSLPSearch>();
+      api.searchIMSLP.mockReturnValueOnce(older).mockReturnValueOnce(newer);
+      type(component, 'Prelude');
+      vi.advanceTimersByTime(350);
+      type(component, 'Nocturne');
+      vi.advanceTimersByTime(350);
+      expect(api.searchIMSLP).toHaveBeenCalledTimes(2);
+
+      newer.next({ status: 'ready', results: [nocturne] });
+      older.next({ status: 'unavailable', results: [] });
+      older.next({ status: 'ready', results: [prelude] });
+      older.error(new Error('late failure'));
+      fixture.detectChanges();
+      expect(component.imslpStatus()).toBe('ready');
+      expect(component.imslpResults()).toEqual([nocturne]);
+      expect(text()).not.toContain('IMSLP is slow right now');
+    });
+
     it('opens the chosen work on IMSLP, prefills, persists and offers Change', async () => {
       const component = fixture.componentInstance;
       component.draft.set({
