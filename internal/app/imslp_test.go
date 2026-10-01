@@ -178,9 +178,9 @@ func TestIMSLPSearchQueriesGeneratorSearch(t *testing.T) {
 	query := got.URL.Query()
 	for key, want := range map[string]string{
 		"action": "query", "format": "json", "formatversion": "2",
-		"list": "search", "srsearch": "debussy clair de lune", "srnamespace": "0", "srlimit": "10", "srwhat": "text",
+		"list": "search", "srsearch": "debussy* clair* de lune*", "srnamespace": "0", "srlimit": "10", "srwhat": "title",
 		"generator": "search",
-		"gsrsearch": "debussy clair de lune", "gsrnamespace": "0", "gsrlimit": "10", "gsrwhat": "text",
+		"gsrsearch": "debussy* clair* de lune*", "gsrnamespace": "0", "gsrlimit": "10", "gsrwhat": "title",
 		"redirects": "1", "prop": "info", "inprop": "url",
 	} {
 		if query.Get(key) != want {
@@ -189,6 +189,74 @@ func TestIMSLPSearchQueriesGeneratorSearch(t *testing.T) {
 	}
 	if got.URL.Path != "/api.php" || !strings.HasPrefix(got.UserAgent(), "Noted/") {
 		t.Fatalf("request %s with agent %q", got.URL.Path, got.UserAgent())
+	}
+}
+
+func TestIMSLPSearchTermsUsePrefixWildcards(t *testing.T) {
+	for query, want := range map[string]string{
+		"satie gymnop":               "satie* gymnop*",
+		"chopin no":                  "chopin* no",
+		"rachmaninoff prelude op.23": "rachmaninoff* prelude* op.23*",
+		"gymnopédies":                "gymnopédies*",
+		"d'indy":                     "d'indy*",
+		"édu":                        "édu",
+		`"clair" +de* ~lune (x) <y>`: "clair* de lune* x y",
+		"-debussy --moon -to":        "debussy* moon* to",
+		"( ) * -":                    "",
+	} {
+		if got := imslpSearchTerms(query); got != want {
+			t.Errorf("imslpSearchTerms(%q) = %q, want %q", query, got, want)
+		}
+	}
+}
+
+func TestIMSLPSearchFallsBackToTextWhenTitlesMatchNothing(t *testing.T) {
+	clock := newFakeClock()
+	s, upstream := testIMSLPSearcher(t, clock, nil)
+	var mu sync.Mutex
+	var modes []string
+	upstream.set(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		mu.Lock()
+		modes = append(modes, query.Get("srwhat")+"/"+query.Get("gsrwhat"))
+		mu.Unlock()
+		if query.Get("srwhat") == "title" && strings.Contains(query.Get("srsearch"), "moonlight") {
+			replyJSON(`{"query":{"search":[]}}`)(w, r)
+			return
+		}
+		replyJSON(clairDeLunePage)(w, r)
+	})
+	result := mustSearch(t, s, "beethoven moonlight")
+	if result.Status != IMSLPStatusReady || len(result.Results) != 1 {
+		t.Fatalf("fallback result: %+v", result)
+	}
+	if !reflect.DeepEqual(modes, []string{"title/title", "text/text"}) {
+		t.Fatalf("request modes = %v", modes)
+	}
+	mustSearch(t, s, "Beethoven  Moonlight")
+	if upstream.hits.Load() != 2 {
+		t.Fatalf("fallback result was not cached: hits=%d", upstream.hits.Load())
+	}
+	clock.Advance(20 * time.Minute)
+	mustSearch(t, s, "beethoven moonlight")
+	if upstream.hits.Load() != 4 {
+		t.Fatalf("expired fallback result was not refreshed: hits=%d", upstream.hits.Load())
+	}
+
+	modes = nil
+	mustSearch(t, s, "clair de lune")
+	if !reflect.DeepEqual(modes, []string{"title/title"}) {
+		t.Fatalf("a title match still fell back: %v", modes)
+	}
+}
+
+func TestIMSLPSearchWithoutTermsSendsNothing(t *testing.T) {
+	s, upstream := testIMSLPSearcher(t, newFakeClock(), nil)
+	if result := mustSearch(t, s, "( )"); result.Status != IMSLPStatusReady || len(result.Results) != 0 {
+		t.Fatalf("operator-only query: %+v", result)
+	}
+	if upstream.hits.Load() != 0 {
+		t.Fatalf("operator-only query reached IMSLP: hits=%d", upstream.hits.Load())
 	}
 }
 
@@ -333,12 +401,13 @@ func TestIMSLPSearchCachesNormalisedQueries(t *testing.T) {
 	}
 	clock.Advance(5*time.Minute - time.Second)
 	mustSearch(t, s, "debusy claire de loon")
-	if upstream.hits.Load() != 3 {
+	// An empty title search also tried text mode: two requests per lookup.
+	if upstream.hits.Load() != 4 {
 		t.Fatalf("negative result was not cached: hits=%d", upstream.hits.Load())
 	}
 	clock.Advance(time.Second)
 	mustSearch(t, s, "debusy claire de loon")
-	if upstream.hits.Load() != 4 {
+	if upstream.hits.Load() != 6 {
 		t.Fatalf("negative result outlived its TTL: hits=%d", upstream.hits.Load())
 	}
 }

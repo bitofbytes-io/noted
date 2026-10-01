@@ -215,28 +215,66 @@ func (s *imslpSearcher) search(ctx context.Context, userID, query string) (IMSLP
 	}
 }
 
+// lookup searches work titles first. Title search misses nicknames that live only
+// in the page text ("Moonlight"), so an empty title result costs one more
+// request in text mode. Both requests pass the outbound limiter and breaker.
 func (s *imslpSearcher) lookup(query string) IMSLPSearch {
 	unavailable := IMSLPSearch{Status: IMSLPStatusUnavailable, Results: []IMSLPWork{}}
 	if works, ok := s.cached(query); ok {
 		return IMSLPSearch{Status: IMSLPStatusReady, Results: works}
 	}
+	works := []IMSLPWork{}
+	if terms := imslpSearchTerms(query); terms != "" {
+		var ok bool
+		works, ok = s.attempt(terms, "title")
+		if ok && len(works) == 0 {
+			works, ok = s.attempt(terms, "text")
+		}
+		if !ok {
+			return unavailable
+		}
+	}
+	s.store(query, works)
+	return IMSLPSearch{Status: IMSLPStatusReady, Results: works}
+}
+
+func (s *imslpSearcher) attempt(terms, what string) ([]IMSLPWork, bool) {
 	probe, ok := s.admit()
 	if !ok {
-		return unavailable
+		return nil, false
 	}
 	release, ok := s.acquireOutbound()
 	if !ok {
 		s.abandonProbe(probe)
-		return unavailable
+		return nil, false
 	}
 	defer release()
-	works, retryAfter, err := s.fetch(query)
+	works, retryAfter, err := s.fetch(terms, what)
 	s.record(probe, err, retryAfter)
-	if err != nil {
-		return unavailable
+	return works, err == nil
+}
+
+// MediaWiki 1.18 hands srsearch to MySQL boolean full-text search, where these
+// characters are operators.
+var imslpSearchOperators = strings.NewReplacer(`"`, "", "*", "", "+", "", "~", "", "<", "", ">", "", "(", "", ")", "")
+
+// imslpSearchTerms turns a typed query into prefix matches so a half-typed word
+// still finds works ("satie gymnop" finds 3 Gymnopédies). IMSLP's index ignores
+// a wildcard on prefixes shorter than four characters ("deb*" matches nothing),
+// so those stay whole words.
+func imslpSearchTerms(query string) string {
+	terms := []string{}
+	for _, token := range strings.Fields(query) {
+		token = strings.TrimLeft(imslpSearchOperators.Replace(token), "-")
+		if token == "" {
+			continue
+		}
+		if utf8.RuneCountInString(token) >= 4 {
+			token += "*"
+		}
+		terms = append(terms, token)
 	}
-	s.store(query, works)
-	return IMSLPSearch{Status: IMSLPStatusReady, Results: works}
+	return strings.Join(terms, " ")
 }
 
 func (s *imslpSearcher) allowUser(userID string) bool {
@@ -380,7 +418,7 @@ func (s *imslpSearcher) store(key string, works []IMSLPWork) {
 
 // fetch reads only IMSLP's MediaWiki search API, never edition or file pages.
 // Errors carry no URL, so the breaker log line never includes a user's query.
-func (s *imslpSearcher) fetch(query string) ([]IMSLPWork, time.Duration, error) {
+func (s *imslpSearcher) fetch(terms, what string) ([]IMSLPWork, time.Duration, error) {
 	// list=search returns IMSLP's ranking; generator=search returns the same
 	// hits as pages with redirects collapsed and their canonical fullurl.
 	params := url.Values{
@@ -388,16 +426,16 @@ func (s *imslpSearcher) fetch(query string) ([]IMSLPWork, time.Duration, error) 
 		"format":        {"json"},
 		"formatversion": {"2"},
 		"list":          {"search"},
-		"srsearch":      {query},
+		"srsearch":      {terms},
 		"srnamespace":   {"0"},
 		"srlimit":       {"10"},
-		"srwhat":        {"text"},
+		"srwhat":        {what},
 		"srprop":        {""},
 		"generator":     {"search"},
-		"gsrsearch":     {query},
+		"gsrsearch":     {terms},
 		"gsrnamespace":  {"0"},
 		"gsrlimit":      {"10"},
-		"gsrwhat":       {"text"},
+		"gsrwhat":       {what},
 		"redirects":     {"1"},
 		"prop":          {"info"},
 		"inprop":        {"url"},

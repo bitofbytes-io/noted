@@ -33,7 +33,10 @@ even though only the worklist endpoint is documented on `IMSLP:API`.
 
 | Endpoint | Result |
 | --- | --- |
-| `api.php?action=query&generator=search&gsrsearch=Debussy Clair de lune&gsrnamespace=0&gsrlimit=8&redirects=1&prop=info&inprop=url` | 200 in ~0.15 s. First hit `Clair de lune (Debussy, Claude)`, redirects collapsed, `fullurl` returned as protocol-relative `//imslp.org/wiki/...`. Handles composer-first queries. |
+| `api.php?action=query&generator=search&gsrsearch=Debussy Clair de lune&gsrnamespace=0&gsrlimit=8&redirects=1&prop=info&inprop=url` | 200 in ~0.15 s. Redirects collapsed, `fullurl` returned as protocol-relative `//imslp.org/wiki/...`. Handles composer-first queries. IMSLP runs MediaWiki 1.18.1: `formatversion=2` is ignored, `query.pages` is an object keyed by page id **sorted by title**, with no `index`. The apparent "first hit" was alphabetical, not rank. |
+| `list=search&srsearch=...` alongside `generator=search` | One HTTP request; `query.search` gives IMSLP's rank order, `query.redirects` maps ranked redirect titles onto the collapsed pages. Used for ranking. |
+| `srwhat`/`gsrwhat` = `text` vs `title` | Both match whole words only (`satie gymnop` → nothing). `text` ranks exact titles low (`Debussy Clair de lune` puts the work 4th); `title` ranks well but misses nicknames not in the title (`beethoven* moonlight*` → 0, `bach* well* tempered*` → 0). |
+| Prefix wildcard `*` in `title` mode | `satie* gymnop*` → 3 Gymnopédies first; `rachmaninoff* prelude* op.23*` → 10 Preludes, Op.23; `Debussy* Clair* de lune*` → Clair de lune (Debussy) in the top 2; `chopin* noct*` → Nocturnes. Prefixes under four characters match nothing with `*` (`deb*`, `noc*` → 0) but match as whole words without it (`chopin no*` → 5). |
 | `api.php?action=opensearch&search=Debussy Clair` | 200 but empty. Prefix-only on title; fails composer-first queries. **Not used.** |
 | `api.php?action=query&list=search&srsearch=...` | Works, but returns redirect pages as separate rows (`Clair de Lune (Debussy, Claude)` and `Clair de lune - piano (...)`). `generator=search` + `redirects=1` is cleaner. |
 | Response headers | `cache-control: public, max-age=1200`. No CORS header, so the browser cannot call it directly; the Go API proxies. |
@@ -79,9 +82,14 @@ Server fetches
 
 ```
 https://imslp.org/api.php?action=query&format=json&formatversion=2
-  &generator=search&gsrsearch=<q>&gsrnamespace=0&gsrlimit=10&gsrwhat=text
+  &list=search&srsearch=<terms>&srnamespace=0&srlimit=10&srwhat=title&srprop=
+  &generator=search&gsrsearch=<terms>&gsrnamespace=0&gsrlimit=10&gsrwhat=title
   &redirects=1&prop=info&inprop=url
 ```
+
+where `<terms>` is the query with prefix wildcards, and a zero-work title
+result is retried once with `srwhat=text&gsrwhat=text` (as implemented; see
+Implementation notes; the reviewed plan used `gsrwhat=text` only).
 
 and maps each page to `{title, composer, url}`:
 
@@ -259,10 +267,19 @@ proceed on a branch from `main`.
   two searches on IMSLP's side) and ranks the generator pages by it, mapping
   ranked redirect titles through `query.redirects`. The parser still accepts
   the `formatversion=2` array shape if IMSLP upgrades.
-- `gsrwhat=text` ranks some exact titles low (for "Debussy Clair de lune" the
-  work is fourth, after Préludes and Suite bergamasque); `gsrwhat=title` ranks it
-  first but misses set-titled works such as "10 Preludes, Op.23". Kept `text`
-  as planned; worth revisiting with real use.
+- Search runs in title mode (`srwhat=title`, `gsrwhat=title`) on a rewritten
+  query: split on whitespace, MySQL boolean operators (`" * + ~ < > ( )` and a
+  leading `-`) removed, and `*` appended to every token of four or more
+  characters; shorter tokens stay whole words. This replaces the planned
+  `gsrwhat=text`, which only matched whole words and ranked exact titles low.
+- When title mode finds no works, one further request runs in text mode with
+  the same terms, and the final result is cached under the same key. Both
+  requests pass the outbound limiter and the breaker, so an empty title result
+  costs two upstream requests.
+- Known limitation: nicknames that are not in the page title ("Moonlight",
+  "Well-Tempered") depend on the text fallback, whose ranking is weaker.
+- Known limitation: works whose composer field is a single name, such as
+  "Greensleeves (Anonymous)", are dropped by the "(Last, First)" rule.
 - A downloaded file's IMSLP number cannot be matched to a work without a
   ReverseLookup call, and browsers hide file names until drop. The drop target
   shows "Release to add" while dragging; after the drop it shows the filename and
