@@ -15,6 +15,11 @@
   font-size: 17px;
 }
 
+/* The spinner sits where the native clear button would; hide that while searching. */
+.imslp-input.searching input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .imslp-spinner {
   position: absolute;
   top: 50%;
@@ -148,6 +153,7 @@
 }
 
 .chosen-title {
+  color: var(--ink);
   font-size: 19px;
   font-weight: 600;
   line-height: 1.25;

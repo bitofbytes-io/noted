@@ -229,7 +229,7 @@
               </p>
               <label class="field imslp-query">
                 <span>Title or composer</span>
-                <span class="imslp-input">
+                <span class="imslp-input" [class.searching]="imslpStatus() === 'searching'">
                   <input
                     #imslpSearchInput
                     type="search"
