@@ -42,7 +42,6 @@ func main() {
 	}
 	service := app.NewService(pool, store, cfg.MaxUploadBytes)
 	go service.RunImportCleanup(ctx)
-	go service.RunIMSLPCatalog(ctx)
 	server := &http.Server{
 		Addr: net.JoinHostPort(cfg.ListenHost, cfg.Port),
 		Handler: httpapi.NewRouter(

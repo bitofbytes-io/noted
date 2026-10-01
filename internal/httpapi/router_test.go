@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -43,6 +44,8 @@ type fakeBackend struct {
 	readerState  app.ReaderState
 	readerError  error
 	imslpQuery   string
+	imslpUserID  string
+	imslpErr     error
 }
 
 func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool) ([]app.Piece, error) {
@@ -96,8 +99,11 @@ func (fake *fakeBackend) PutReaderState(_ context.Context, _, _ string, state ap
 	fake.readerState = state
 	return state, fake.readerError
 }
-func (fake *fakeBackend) SearchIMSLP(_ context.Context, query string) (app.IMSLPSearch, error) {
-	fake.imslpQuery = query
+func (fake *fakeBackend) SearchIMSLP(_ context.Context, userID, query string) (app.IMSLPSearch, error) {
+	fake.imslpUserID, fake.imslpQuery = userID, query
+	if fake.imslpErr != nil {
+		return app.IMSLPSearch{}, fake.imslpErr
+	}
 	return app.IMSLPSearch{Status: "ready", Results: []app.IMSLPWork{{Title: "Prelude", Composer: "Example, Ada", URL: "https://imslp.org/wiki/Prelude_(Example,_Ada)"}}}, nil
 }
 
@@ -113,9 +119,20 @@ func TestIMSLPWorkSearchRequiresValidQueryAndReturnsWork(t *testing.T) {
 	}
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/imslp/works?q=Prelude", nil))
-	if response.Code != http.StatusOK || fake.imslpQuery != "Prelude" ||
+	if response.Code != http.StatusOK || fake.imslpQuery != "Prelude" || fake.imslpUserID != testUserID ||
 		!strings.Contains(response.Body.String(), `"status":"ready"`) {
 		t.Fatalf("work search: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestIMSLPWorkSearchMapsPerUserLimitTo429(t *testing.T) {
+	fake := &fakeBackend{imslpErr: fmt.Errorf("search: %w", app.ErrIMSLPThrottled)}
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/imslp/works?q=Prelude", nil))
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "1" ||
+		!strings.Contains(response.Body.String(), `"status":"throttled"`) ||
+		!strings.Contains(response.Body.String(), `"results":[]`) {
+		t.Fatalf("throttled search: %d %v %s", response.Code, response.Header(), response.Body.String())
 	}
 }
 
