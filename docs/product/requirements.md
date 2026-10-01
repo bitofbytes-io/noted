@@ -101,7 +101,11 @@ page extraction/order/replacement, one applied edge selection with natural-aspec
 fitting, manual straightening, paper strength, optional margins, original comparison and reset.
 Assisted IMSLP intake retains an HTTPS work link and lets the user choose and
 download the edition on IMSLP before uploading; no automatic edition list or
-backend download proxy is included.
+backend download proxy is included. Work search queries IMSLP directly through
+the API as the user types; there is no local catalogue. Choosing a work stores
+its link, prefills title and composer and opens it on IMSLP, and the downloaded
+PDF can be added with the file picker or dropped onto the IMSLP panel. See
+`imslp-live-search-plan.md`.
 
 Originals needed by the current saved manifest or an open draft remain private.
 Superseded, unreferenced files enter a durable deletion queue; drafts expire after

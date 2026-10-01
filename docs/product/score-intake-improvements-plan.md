@@ -174,6 +174,10 @@ Make this behavior visible before replacing an existing score.
 
 ### 3. IMSLP intake
 
+Update 2026-10-01: the local IMSLP work catalogue (a weekly crawl into
+PostgreSQL) was removed. Work search now queries IMSLP live through the API; see
+[`imslp-live-search-plan.md`](imslp-live-search-plan.md).
+
 Implement the supported source-resolution path, edition selection, editable metadata,
 source identity, preview, and download/upload fallback. Keep representative parser
 fixtures rights-safe and clearly identify when metadata cannot be determined.

@@ -1,6 +1,6 @@
 # IMSLP live search and hand-off
 
-Status: Reviewed and approved 2026-10-01. Implementation in progress.
+Status: Implemented on feat/imslp-live-search; review pending.
 Date: 2026-10-01
 Mockup: [`../design/concepts/imslp-live-search/imslp-flow.html`](../design/concepts/imslp-live-search/imslp-flow.html)
 
@@ -249,3 +249,21 @@ token UI (follow-up issue), any change to the Pages or Details steps.
 
 Review outcome (2026-10-01): all five confirmed as written. Implementation may
 proceed on a branch from `main`.
+
+## Implementation notes (2026-10-01)
+
+- IMSLP runs MediaWiki 1.18.1. It ignores `formatversion=2`: `query.pages` is
+  an object keyed by page id, sorted by title, with no `index` field. The
+  earlier "first hit" probe was that title order, not IMSLP's rank. The request
+  therefore also asks for `list=search` with the same terms (one HTTP request,
+  two searches on IMSLP's side) and ranks the generator pages by it, mapping
+  ranked redirect titles through `query.redirects`. The parser still accepts
+  the `formatversion=2` array shape if IMSLP upgrades.
+- `gsrwhat=text` ranks some exact titles low (for "Debussy Clair de lune" the
+  work is fourth, after Préludes and Suite bergamasque); `gsrwhat=title` ranks it
+  first but misses set-titled works such as "10 Preludes, Op.23". Kept `text`
+  as planned; worth revisiting with real use.
+- A downloaded file's IMSLP number cannot be matched to a work without a
+  ReverseLookup call, and browsers hide file names until drop. The drop target
+  shows "Release to add" while dragging; after the drop it shows the filename and
+  an informational line comparing the filename with the chosen composer.
