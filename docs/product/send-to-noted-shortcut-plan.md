@@ -304,6 +304,11 @@ Where the implementation departs from, or settles, the text above:
   opens on Pages, as noted above. Kept, and pinned by a spec. If the user goes
   Back to Source, the IMSLP panel shows its "Waiting for your PDF" text because
   `imslpAdded` is per visit. Left unchanged.
+- **Live check (2026-10-01).** Against the real IMSLP, `02733` matched a waiting
+  draft for `Quasi_valse,_Op.47_(Scriabin,_Aleksandr)` exactly. `01240`
+  resolves to *Ich bin vergnügt mit meinem Glücke, BWV 84 (Bach)*, so the
+  Clair de lune filename used above and in the mockup is only an example; the
+  tests keep it against a fake ReverseLookup.
 - **Open-after-sending** is a `Yes`/`No` text import question: import questions
   attach to action parameters and cannot be a toggle.
 - **Docs.** README has no configuration table, so `SHORTCUT_INSTALL_URL` is

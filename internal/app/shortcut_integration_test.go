@@ -86,6 +86,8 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		return len(drafts)
 	}
 	const clair = "https://imslp.org/wiki/Clair_de_lune_(Debussy,_Claude)"
+	// The plan's illustrative filename. On the real IMSLP, file 01240 is a Bach
+	// cantata; the fake ReverseLookup above maps it to Clair de lune.
 	const clairFile = "IMSLP01240-Debussy_-_Suite_bergamasque_-_3_Clair_de_lune.pdf"
 
 	// Waiting drafts: the other user's, an older and a newer one of the owner's,
