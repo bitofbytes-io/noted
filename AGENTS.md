@@ -30,8 +30,9 @@ MusicXML product. It is historical context only.
 - Library search covers title and composer; favorites are a filter.
 - The reader has page and auto-scroll modes and persists per-piece state.
 - Score intake now includes private preparation drafts, original PDF/JPEG/PNG
-  retention, page organization/correction, phone capture, assisted IMSLP links
-  and live IMSLP work search.
+  retention, page organization/correction, phone capture, assisted IMSLP links,
+  live IMSLP work search and Send to Noted shortcut intake (per-user bearer
+  token, one route).
   The tool proof was manually approved before app implementation.
 - Practice, metronome, lessons, OMR, MusicXML, playback, annotations, direct IMSLP
   download automation, curved-page correction, photo stitching, sharing, and

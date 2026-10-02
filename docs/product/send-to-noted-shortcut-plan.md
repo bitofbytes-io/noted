@@ -1,6 +1,6 @@
 # Send to Noted: iOS Shortcut intake
 
-Status: Approved 2026-10-01 (one token per user, Account dialog off the masthead). Implementation starting.
+Status: Implemented on feat/send-to-noted; review pending.
 Date: 2026-10-01
 Mockup: [`../design/concepts/send-to-noted/send-to-noted.html`](../design/concepts/send-to-noted/send-to-noted.html)
 Builds on: [`imslp-live-search-plan.md`](imslp-live-search-plan.md)
@@ -262,3 +262,51 @@ on iOS Safari), server-side IMSLP download, Android.
 3. Any PDF is accepted, not only IMSLP downloads.
 4. The Shortcut opens the draft after sending by default (toggle at install).
 5. Matching requires an exact work-link match on a draft with no PDF yet.
+
+## Implementation notes (for review)
+
+Where the implementation departs from, or settles, the text above:
+
+- **Error text is the notification.** The Shortcut shows the server's `error`
+  as the notification body, so the 401 body is "This shortcut was turned off.
+  Set it up again in Noted." rather than "shortcut token is not valid". The
+  other errors are also full sentences: 415, 413, 429 (draft limit; also the
+  per-user rate limit, with its own text and `Retry-After`), and 503. A PDF
+  that cannot be read stays a 400 with the validation message.
+- **Response adds `headline` and `message`.** Shortcuts cannot reliably branch
+  on a JSON boolean or drop an empty composer, so the 201 response also carries
+  the notification title ("Clair de lune — Debussy, Claude", or just the title
+  when there is no composer) and body ("Added to the waiting draft." / "New
+  draft created."). The planned fields are unchanged.
+- **Owner check.** The bearer middleware also requires the token's owner to be
+  allowed in the current auth mode: the allow-list in Google mode, the
+  `DEV_USER_EMAIL` learner in development. A malformed header (anything but 43
+  base64url characters) is refused without a database lookup.
+- **`last_used_at`** is updated by a separate statement keyed on the token
+  hash, after authentication. It runs in the request rather than a goroutine:
+  a failure is logged and ignored, and a use racing a Replace never marks the
+  new token.
+- **Lookup accounting.** 200 and 404 from ReverseLookup are healthy "no work"
+  answers. A redirect that is not a `(Last, First)` work page counts as an
+  upstream failure toward the breaker, like api.php's browser-check redirect.
+  Only found works are cached (24 h, LRU 500, separate from the search
+  cache), so a transient miss is not remembered.
+- **Robustness.** Bytes are checked before any lookup or draft: an image named
+  `.pdf` is a 415. The match retries once if the waiting draft changed between
+  the query and the upload. A new draft whose upload fails is deleted, so no
+  empty draft is left. At 20 open drafts, a waiting draft still receives its
+  file; only creating a new one is refused.
+- **Filename title.** With no work, the draft is created empty and the existing
+  first-upload rule names it from the filename stem. As on the Prepare screen,
+  that title is owned as an automatic value, so choosing a work later replaces
+  it. There is no IMSLP link or composer.
+- **Prepare screen.** A draft opened at `/prepare/<id>` that already has pages
+  opens on Pages, as noted above. Kept, and pinned by a spec. If the user goes
+  Back to Source, the IMSLP panel shows its "Waiting for your PDF" text because
+  `imslpAdded` is per visit. Left unchanged.
+- **Open-after-sending** is a `Yes`/`No` text import question: import questions
+  attach to action parameters and cannot be a toggle.
+- **Docs.** README has no configuration table, so `SHORTCUT_INSTALL_URL` is
+  documented in the configuration prose and `.env.example`. requirements.md had
+  no Safety section, so the token's scope is a list under the score intake
+  extension.
