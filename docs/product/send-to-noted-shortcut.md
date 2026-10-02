@@ -34,6 +34,11 @@ the Shortcut.
 On IMSLP, open the download so Safari shows the PDF. Tap **Share**, then
 **Send to Noted**. You can also share any PDF from the Files app.
 
+If the notification says the draft is called "PDF document" and its pages are
+blank, Safari shared the page rather than the file and the Shortcut printed it.
+The Shortcut must accept URLs and download the file (step 8.1 below). Until
+then, save the PDF to Files first and share it from there.
+
 When it works, you see a notification like one of these, and then Noted opens
 the draft (unless you answered `No` above):
 
@@ -77,8 +82,14 @@ In the shortcut's details (the ⓘ button at the bottom of the editor):
 
 ### Actions
 
-1. **Receive** `PDFs` input from `Share Sheet`.
-   - Tap the input type and leave only **PDFs** selected.
+1. **Receive** `PDFs` and `URLs` input from `Share Sheet`.
+   - Tap the input type and leave **only PDFs and URLs** selected. Safari's
+     built-in PDF viewer does not share the file: it shares the page's URL.
+     With **Apps** or **Safari web pages** selected instead, Shortcuts
+     converts the page by printing it, and Noted receives a small file named
+     "PDF document" with blank pages. Accepting URLs lets the Shortcut
+     download the real file itself (step 8.1); the Files app still shares
+     PDFs directly.
    - **If there's no input**: `Stop and Respond`.
 2. **Text**: `paste-your-token-here`
 3. **Set Variable** `Token` to the **Text** above.
@@ -87,24 +98,45 @@ In the shortcut's details (the ⓘ button at the bottom of the editor):
 6. **Text**: `Yes`
 7. **Set Variable** `Open after sending` to the **Text** above.
 8. **Repeat with Each** item in `Shortcut Input`. Inside the repeat:
-   1. **Get Contents of URL**
-      - URL: `Noted` variable, then type `/api/shortcut/import`
-        (no space between them).
+   1. Turn a shared link into the file:
+      - **Get URLs from** `Repeat Item`.
+      - **Set Variable** `Link` to `URLs`. Use `Link` below rather than the
+        magic variable: the editor shows several different outputs as a bare
+        "URL", and picking the wrong one silently takes the Otherwise branch.
+      - **If** `Link` **has any value** (Safari shared a link):
+        - **Get Contents of URL**: `Link`, method `GET`, nothing else
+          changed. This downloads the PDF on the iPad.
+        - **Get Component of URL**: `Path` of `Link`; **Split Text** by `/`;
+          **Get Item from List**: `Last Item`. This is the IMSLP filename.
+        - **Set Name** of the downloaded *Contents of URL* to that item, with
+          **Don't Include File Extension** off.
+        - **Set Variable** `File` to the renamed file.
+      - **Otherwise** (Files shared a PDF): **Set Variable** `File` to
+        `Repeat Item`.
+      - **End If**.
+   2. **URL**: the `Noted` variable, then type `/api/shortcut/import`
+      directly after it (no space). A separate **URL** action is required:
+      putting the variable straight into *Get Contents of URL* fails with
+      "couldn't convert from Rich Text to URL".
+   3. **Get Contents of URL**, with the **URL** from the action above.
       - Tap **Show More**.
       - Method: `POST`.
       - Headers: add one. Key `Authorization`; value: type `Bearer` and a
         space, then the `Token` variable.
       - Request Body: `Form`. Add a field, choose **File**, key `file`,
-        value `Repeat Item`.
-   2. **If** `Contents of URL` **does not have any value**:
+        value the `File` variable. The key is the plain text `file`; the
+        variable goes in the value slot (it says *Choose* until set). A
+        variable dropped into the key leaves the value empty, and Noted
+        answers "Send the PDF as the form field named file.".
+   4. **If** `Contents of URL` **does not have any value**:
       - **Show Notification**: title `Noted`, body `Noted isn't reachable.`
       - **Stop This Shortcut**.
-   3. **End If**.
-   4. **Get Dictionary Value**: `Value` for key `error` in `Contents of URL`.
+   5. **End If**.
+   6. **Get Dictionary Value**: `Value` for key `error` in `Contents of URL`.
       **Set Variable** `Error` to it.
-   5. **If** `Error` **has any value**:
+   7. **If** `Error` **has any value**:
       - **Show Notification**: title `Noted`, body the `Error` variable.
-   6. **Otherwise**:
+   8. **Otherwise**:
       - **Get Dictionary Value** `headline` in `Contents of URL`;
         **Set Variable** `Headline`.
       - **Get Dictionary Value** `message` in `Contents of URL`;
@@ -118,7 +150,7 @@ In the shortcut's details (the ⓘ button at the bottom of the editor):
           variable (no space).
         - **Open URLs**.
       - **End If**.
-   7. **End If**.
+   9. **End If**.
 9. **End Repeat**.
 
 The API also returns `title`, `composer`, `matched`, `draftId` and `filename`.
@@ -164,6 +196,10 @@ automated tests can't do them.
    downloading keeps the name.
 
 ### Publishing
+
+An iCloud link is a snapshot of the Shortcut at the time it was shared.
+After any edit, share it again, copy the new link, and update
+`SHORTCUT_INSTALL_URL`; the old link keeps installing the old version.
 
 1. In Shortcuts, long-press **Send to Noted** → **Share** → **Copy iCloud
    Link**. The link starts `https://www.icloud.com/shortcuts/`.
