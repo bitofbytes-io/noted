@@ -157,7 +157,7 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
             <h3>Send to Noted</h3>
             <ol class="steps">
               <li><a href="#">Get the Shortcut</a> on this iPad.</li>
-              <li>When Shortcuts asks for your Noted token, paste this:</li>
+              <li>Tap Add Shortcut, then open it in Shortcuts and paste this into the first text box:</li>
             </ol>
             <div class="token"><code>pR8xQ2nVf7Lw0mKaZc4HtYe9BjUs1GdNoI3vXb6Fq5E</code><button class="btn btn-secondary" type="button">Copy</button></div>
             <ol class="steps" start="3"><li>Tap Done. Share any PDF with <strong>Send to Noted</strong>.</li></ol>
@@ -217,7 +217,7 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
       </div>
     </div>
     <div class="notes"><ul>
-      <li>Install asks three import questions: token (required), Noted address (default filled), and the open-after-sending toggle (default on). The user never edits the Shortcut's actions.</li>
+      <li>Install adds the Shortcut as is (import questions are unreliable on current iOS, so the template has none). The installer opens it once and pastes the token into the first text box; the Noted address and the open-after-sending text keep their defaults.</li>
       <li>When the toggle is on, the Shortcut opens <code>https://noted.bitofbytes.io/prepare/&lt;draftId&gt;</code> after the notification, which resumes the draft with the PDF attached and Continue enabled.</li>
       <li>Error notifications carry the server's <code>error</code> text: turned-off token (401), not a PDF (415), too large (413), draft limit (429), unreachable (network).</li>
     </ul></div>

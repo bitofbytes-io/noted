@@ -350,7 +350,9 @@
           @if (createdToken(); as created) {
             <ol class="shortcut-steps">
               <li><a href="/send-to-noted.shortcut" download>Get the Shortcut</a> on this iPad.</li>
-              <li>When Shortcuts asks for your Noted token, paste this:</li>
+              <li>
+                Tap Add Shortcut, then open it in Shortcuts and paste this into the first text box:
+              </li>
             </ol>
             <div class="shortcut-token">
               <code #tokenText class="tabular">{{ created.token }}</code>

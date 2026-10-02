@@ -35,9 +35,11 @@ downloads, the Shortcut's own on-device download when Safari shares a link.
 - Since iOS 15, a `.shortcut` file imports only when signed. `shortcuts sign
   --mode anyone --input X.shortcut --output X-signed.shortcut` on macOS
   signs it for any installer. Opening a signed file from Safari or Files
-  opens Shortcuts' Add Shortcut screen, which runs the import questions.
-- Import questions prompt for values on install; the template holds
-  `paste-your-token-here` and the default Noted address.
+  opens Shortcuts' Add Shortcut screen.
+- Import questions are not used: on current iOS the Add Shortcut button hangs
+  after answering them (verified on the iPad 2026-10-01; Skip Setup works).
+  The template holds `paste-your-token-here`, and the installer pastes the
+  token into that Text action after adding the Shortcut.
 - The template contains no secret: it is safe to commit and to serve to
   anyone who can load the UI.
 
@@ -67,12 +69,6 @@ downloads, the Shortcut's own on-device download when Safari shares a link.
   is still shown; nothing breaks) until the file is committed.
 - Safety: the recipe says plainly never to share the personal copy by iCloud
   link, because the link carries the token.
-
-### Import questions in the template
-
-1. **Your Noted token** (required; the Text action with the placeholder).
-2. **Noted address** (default `https://noted.bitofbytes.io`).
-3. **Open Noted after sending** (default `Yes`).
 
 ## 2. Always a new draft
 

@@ -346,7 +346,9 @@ describe('LibraryComponent account dialog', () => {
     expect(template.getAttribute('href')).toBe('/send-to-noted.shortcut');
     expect(template.hasAttribute('download')).toBe(true);
     expect(template.target).toBe('');
-    expect(text()).toContain('When Shortcuts asks for your Noted token, paste this:');
+    expect(text()).toContain(
+      'Tap Add Shortcut, then open it in Shortcuts and paste this into the first text box:',
+    );
     expect(text()).toContain('Tap Done. Share any PDF with Send to Noted.');
     expect(text()).toContain(
       'You won’t see this token again. If you lose it, come back and tap Replace.',

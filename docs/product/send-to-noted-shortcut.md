@@ -21,13 +21,16 @@ maintainer).
    opens.
 2. Under **Send to Noted**, tap **Set up on this iPad**.
 3. Tap **Get the Shortcut**. Safari downloads `Send to Noted.shortcut`; open
-   it from Safari's downloads (or Files → Downloads). Shortcuts opens and asks
-   three questions:
-   - **Your Noted token**: go back to Noted, tap **Copy**, and paste it here.
-   - **Noted address**: leave `https://noted.bitofbytes.io` as it is.
-   - **Open Noted after sending**: leave `Yes`, or type `No` if you only want
-     the notification.
-4. Tap **Add Shortcut**, then close the Account dialog in Noted.
+   it from Safari's downloads (or Files → Downloads). Shortcuts shows the
+   actions; tap **Add Shortcut**.
+4. In Noted tap **Copy**. In Shortcuts open **Send to Noted** and paste the
+   token over `paste-your-token-here` in the first text box. The next two
+   text boxes are the Noted address (leave it) and `Yes` for opening Noted
+   after sending (type `No` if you only want the notification). Tap Done.
+
+The template has no import questions on purpose: Shortcuts' install-time
+questions hang on current iOS (tapping Add Shortcut after answering does
+nothing), so the token is pasted into the action instead.
 
 Noted shows the token only once. If you lose it, open the Account dialog, tap
 **Replace**, and install the Shortcut again with the new token. To add the
@@ -229,27 +232,17 @@ to the actions, on a Mac signed in to the same iCloud account:
      `fields.shortcut.value.downloadURL` is the unsigned plist; download it
      as `template.shortcut`.
 3. Check it holds the placeholder and no token:
-   `plutil -p template.shortcut | grep -n paste-your-token-here`, and confirm
-   that actions 0, 2 and 4 are the three **Text** actions (token, address,
-   `Yes`).
-4. Add the import questions:
-
-   ```sh
-   plutil -replace WFWorkflowImportQuestions -json '[
-     {"ActionIndex":0,"Category":"Parameter","ParameterKey":"WFTextActionText","Text":"Your Noted token","DefaultValue":""},
-     {"ActionIndex":2,"Category":"Parameter","ParameterKey":"WFTextActionText","Text":"Noted address","DefaultValue":"https://noted.bitofbytes.io"},
-     {"ActionIndex":4,"Category":"Parameter","ParameterKey":"WFTextActionText","Text":"Open Noted after sending (Yes or No)","DefaultValue":"Yes"}
-   ]' template.shortcut
-   ```
-
-5. Sign it for anyone and replace the committed file:
+   `plutil -p template.shortcut | grep -n paste-your-token-here`, and that
+   `WFWorkflowImportQuestions` is empty (do not add any; they hang on
+   install).
+4. Sign it for anyone and replace the committed file:
 
    ```sh
    shortcuts sign --mode anyone --input template.shortcut \
      --output web/public/send-to-noted.shortcut
    ```
 
-6. Commit the signed file (it contains no secret), deploy the UI, and run the
+5. Commit the signed file (it contains no secret), deploy the UI, and run the
    checks above. Installed copies keep working; only new installs get the new
    version. Delete the duplicate in Shortcuts.
 
