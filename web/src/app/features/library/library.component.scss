@@ -16,16 +16,30 @@
   gap: 16px;
 }
 
+/* On a narrow screen the name gives way (ellipsis) before the Add piece pill. */
+.masthead-actions {
+  min-width: 0;
+}
+
+.masthead-actions .btn-primary {
+  flex: none;
+}
+
 .masthead-account {
   gap: 4px;
   min-width: 0;
+}
+
+.dev-chip {
+  flex: none;
 }
 
 /* The display name is the masthead's one account control: quiet, with a dotted
    rule so it reads as tappable beside the single green action. */
 .account-button {
   max-width: 24ch;
-  min-width: 0;
+  min-width: var(--tap-min);
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -43,9 +57,16 @@
   font-weight: 500;
 }
 
+@media (max-width: 360px) {
+  .dev-chip {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
   .account-button {
     max-width: 12ch;
+    padding: 0 6px;
   }
 
   .masthead-actions {
