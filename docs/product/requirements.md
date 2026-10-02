@@ -106,10 +106,11 @@ the API as the user types; there is no local catalogue. Choosing a work stores
 its link, prefills title and composer and opens it on IMSLP, and the downloaded
 PDF can be added with the file picker or dropped onto the IMSLP panel. See
 `imslp-live-search-plan.md`. On an iPad, the Send to Noted iOS Shortcut shares a
-PDF from Safari's PDF viewer or Files straight into Noted. An IMSLP download
-goes into the newest open draft for that work that has no PDF yet. Otherwise
-it starts a new draft, prefilled from the work when IMSLP names one. See
-`send-to-noted-shortcut-plan.md` and `send-to-noted-shortcut.md`.
+PDF from Safari's PDF viewer or Files straight into Noted. Send to Noted creates
+a new draft from a shared PDF, prefilled from the work when IMSLP names one; it
+never fills an existing draft. Noted serves the signed Shortcut template at
+`/send-to-noted.shortcut`. See `send-to-noted-shortcut-plan.md`,
+`send-to-noted-simplifications-plan.md` and `send-to-noted-shortcut.md`.
 
 Safety of the Send to Noted token:
 
@@ -117,14 +118,16 @@ Safety of the Send to Noted token:
   off from the Account dialog. The token is shown once, and only its SHA-256
   is stored.
 - The token authenticates exactly one route, `POST /api/shortcut/import`, which
-  can only create or fill a draft for the token's owner. It cannot read, list,
+  can only create a new draft for the token's owner. It cannot read, list,
   finalize or delete anything, and no other route accepts it. That route
   accepts no session cookie, and development mode still requires the token.
 - The owner must still be allowed to use Noted (allow-listed in Google mode,
   the seeded learner in development). Signing out does not revoke the token;
   Turn off does, and deleting the user removes it.
 - Imports are limited to 10 per user per minute. The log records one line per
-  import (user and whether it matched), never the filename or the token.
+  import (the user), never the filename or the token. The template file holds
+  only a placeholder token; a personal Shortcut's iCloud link carries the
+  token and must never be shared.
 
 Originals needed by the current saved manifest or an open draft remain private.
 Superseded, unreferenced files enter a durable deletion queue; drafts expire after

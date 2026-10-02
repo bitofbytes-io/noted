@@ -32,7 +32,8 @@ MusicXML product. It is historical context only.
 - Score intake now includes private preparation drafts, original PDF/JPEG/PNG
   retention, page organization/correction, phone capture, assisted IMSLP links,
   live IMSLP work search and Send to Noted shortcut intake (per-user bearer
-  token, one route).
+  token, one route; each shared PDF creates a new draft; the signed template
+  is served at `/send-to-noted.shortcut`).
   The tool proof was manually approved before app implementation.
 - Practice, metronome, lessons, OMR, MusicXML, playback, annotations, direct IMSLP
   download automation, curved-page correction, photo stitching, sharing, and

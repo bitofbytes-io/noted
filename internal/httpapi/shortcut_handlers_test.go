@@ -25,8 +25,6 @@ import (
 	"github.com/bitofbytes-io/noted/internal/config"
 )
 
-const testInstallURL = "https://www.icloud.com/shortcuts/example"
-
 // fakeShortcutAuth keeps shortcut tokens as their hashes, as the database does.
 type fakeShortcutAuth struct {
 	fakeAuthenticator
@@ -114,7 +112,7 @@ func (fake *fakeShortcutBackend) ShortcutImport(_ context.Context, userID, filen
 	}
 	return app.ShortcutImport{
 		DraftID: "d1", DraftPath: "/prepare/d1", Title: "Clair de lune", Composer: "Debussy, Claude",
-		Matched: true, Filename: filename,
+		Filename: filename, Headline: "Clair de lune — Debussy, Claude", Message: "New draft created.",
 	}, nil
 }
 
@@ -123,7 +121,6 @@ func shortcutRouter(backend Backend, authenticator Authenticator, mode string, m
 		AppEnv: "test", AuthMode: mode, DevUserEmail: "learner@noted.local",
 		AllowedEmails:  []string{"learner@noted.local"},
 		MaxUploadBytes: maxUploadBytes, AllowedOrigin: testAllowedOrigin,
-		ShortcutInstallURL: testInstallURL,
 	})
 }
 
@@ -155,12 +152,12 @@ func createToken(t *testing.T, router http.Handler) string {
 	t.Helper()
 	response := serve(router, httptest.NewRequest(http.MethodPost, "/api/account/shortcut-token", nil))
 	var created struct {
-		Token      string    `json:"token"`
-		CreatedAt  time.Time `json:"createdAt"`
-		InstallURL string    `json:"installUrl"`
+		Token     string    `json:"token"`
+		CreatedAt time.Time `json:"createdAt"`
 	}
+	// The Shortcut is a static template now; the response carries no install link.
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &created) != nil ||
-		len(created.Token) != 43 || created.CreatedAt.IsZero() || created.InstallURL != testInstallURL ||
+		len(created.Token) != 43 || created.CreatedAt.IsZero() || strings.Contains(response.Body.String(), "installUrl") ||
 		response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("create token: %d %v %s", response.Code, response.Header(), response.Body.String())
 	}
@@ -355,11 +352,15 @@ func TestShortcutImportChecksTheFileAndMapsErrors(t *testing.T) {
 	}
 	for key, want := range map[string]any{
 		"draftId": "d1", "draftPath": "/prepare/d1", "title": "Clair de lune",
-		"composer": "Debussy, Claude", "matched": true, "filename": "IMSLP01240-Debussy.pdf",
+		"composer": "Debussy, Claude", "filename": "IMSLP01240-Debussy.pdf",
+		"headline": "Clair de lune — Debussy, Claude", "message": "New draft created.",
 	} {
 		if result[key] != want {
 			t.Errorf("%s = %v, want %v", key, result[key], want)
 		}
+	}
+	if _, ok := result["matched"]; ok {
+		t.Errorf("response still has matched: %v", result)
 	}
 	if backend.filename != "IMSLP01240-Debussy.pdf" || backend.body != "%PDF-1.7 bytes" || backend.userID != testUserID {
 		t.Fatalf("backend received %q %q for %q", backend.filename, backend.body, backend.userID)
@@ -426,7 +427,7 @@ func TestShortcutImportLogsTheUseButNeverTheFileOrToken(t *testing.T) {
 	}
 	line := logs.String()
 	if strings.Count(line, "shortcut import accepted") != 1 || !strings.Contains(line, testUserID) ||
-		!strings.Contains(line, "matched=true") {
+		strings.Contains(line, "matched") {
 		t.Fatalf("missing accepted-import log: %q", line)
 	}
 	if strings.Contains(line, "Secret_title") || strings.Contains(line, "IMSLP01240") || strings.Contains(line, token) {

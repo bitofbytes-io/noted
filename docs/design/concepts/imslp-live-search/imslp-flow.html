@@ -156,7 +156,7 @@ a { color: var(--green); }
     <div><span class="n">1</span><strong>Type a title or composer</strong><span class="where">Noted · Source step</span></div>
     <div><span class="n">2</span><strong>Tap the work</strong><span class="where">Noted stores link, prefills, opens tab</span></div>
     <div class="imslp"><span class="n">3</span><strong>Choose edition, download</strong><span class="where">IMSLP in Safari · their wait and disclaimer</span></div>
-    <div><span class="n">4</span><strong>Add the PDF to the waiting draft</strong><span class="where">Noted · Add, drop, or Send to Noted</span></div>
+    <div><span class="n">4</span><strong>Add the PDF to the waiting draft</strong><span class="where">Noted · Add downloaded PDF, or drop it</span></div>
   </section>
 
   <!-- ───────────────────────── Frame 1 ───────────────────────── -->
@@ -281,11 +281,11 @@ a { color: var(--green); }
       </div>
       <aside class="notes">
         <ul>
-          <li>Before a file arrives the panel reads: "Waiting for your PDF. Drop it here, use Add downloaded PDF, or share it from Safari with Send to Noted."</li>
+          <li>Before a file arrives the panel reads: "Waiting for your PDF. Drop it here, or use Add downloaded PDF."</li>
           <li>The panel becomes a drop target while a work is chosen (desktop drag from the Downloads shelf). Dropping routes through the same code path as the file input.</li>
           <li>Filenames from IMSLP start with the file number (<code>IMSLP01240-…</code>). When it is present, Noted can confirm the match against the chosen work; the check is informational and never blocks adding a file.</li>
           <li>After the file is added, the existing flow continues unchanged: Pages (reorder, crop, extract) then Details.</li>
-          <li><span class="tag">Follow-up</span>On iPad the fastest path is the Share sheet from Safari's PDF viewer to a <em>Send to Noted</em> shortcut, which posts the file to the waiting draft. It uses a per-user token and a token-scoped endpoint (see <code>docs/product/send-to-noted-shortcut-plan.md</code>), and the waiting copy above now names it.</li>
+          <li><span class="tag">Follow-up</span>Send to Noted (Share sheet from Safari's PDF viewer, see <code>docs/product/send-to-noted-shortcut-plan.md</code>) is for starting on IMSLP in Safari, and always creates a new draft. It never fills this waiting draft, so this panel does not mention it (<code>docs/product/send-to-noted-simplifications-plan.md</code>).</li>
         </ul>
       </aside>
     </div>

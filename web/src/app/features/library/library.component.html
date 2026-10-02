@@ -349,17 +349,10 @@
         @case ('created') {
           @if (createdToken(); as created) {
             <ol class="shortcut-steps">
+              <li><a href="/send-to-noted.shortcut" download>Get the Shortcut</a> on this iPad.</li>
               <li>
-                @if (created.installUrl) {
-                  <a [href]="created.installUrl" target="_blank" rel="noopener noreferrer"
-                    >Install the Shortcut</a
-                  >
-                  on this iPad.
-                } @else {
-                  The Shortcut link will be added here.
-                }
+                Tap Add Shortcut, then open it in Shortcuts and paste this into the first text box:
               </li>
-              <li>When Shortcuts asks for your Noted token, paste this:</li>
             </ol>
             <div class="shortcut-token">
               <code #tokenText class="tabular">{{ created.token }}</code>
@@ -426,6 +419,10 @@
               </div>
             </div>
           }
+          <p class="shortcut-again">
+            <a href="/send-to-noted.shortcut" download>Get the Shortcut again</a>
+            <span>You’ll need your token; if you don’t have it, tap Replace.</span>
+          </p>
         }
       }
       @if (shortcutError()) {

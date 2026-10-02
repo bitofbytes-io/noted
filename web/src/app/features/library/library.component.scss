@@ -545,6 +545,20 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+/* For a second device: quiet, because the token is not shown again. */
+.shortcut-again {
+  display: grid;
+  gap: 2px;
+  font-size: var(--text-meta);
+  color: var(--ink-muted);
+}
+
+.shortcut-again a {
+  color: inherit;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
 .shortcut-confirm {
   display: grid;
   gap: 10px;

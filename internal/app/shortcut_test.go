@@ -56,14 +56,13 @@ func TestShortcutResultNotification(t *testing.T) {
 	}
 	for _, test := range []struct {
 		draft             ImportDraft
-		matched           bool
 		headline, message string
 	}{
-		{draft("Clair de lune", "Debussy, Claude"), true, "Clair de lune — Debussy, Claude", "Added to the waiting draft."},
-		{draft("Bach - Prelude", ""), false, "Bach - Prelude", "New draft created."},
-		{draft("", ""), false, "Untitled score", "New draft created."},
+		{draft("Clair de lune", "Debussy, Claude"), "Clair de lune — Debussy, Claude", "New draft created."},
+		{draft("Bach - Prelude", ""), "Bach - Prelude", "New draft created."},
+		{draft("", ""), "Untitled score", "New draft created."},
 	} {
-		got := shortcutResult(test.draft, "score.pdf", test.matched)
+		got := shortcutResult(test.draft, "score.pdf")
 		if got.Headline != test.headline || got.Message != test.message || got.DraftPath != "/prepare/d1" {
 			t.Errorf("%+v → %q / %q", test.draft.Metadata, got.Headline, got.Message)
 		}

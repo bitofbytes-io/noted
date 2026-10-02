@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 )
 
 // TestIntegrationShortcutImportEndToEnd sends a PDF through the real router,
-// token store, import service and local asset store. IMSLP matching is covered
+// token store, import service and local asset store. IMSLP prefill is covered
 // in internal/app, so this file name has no IMSLP number.
 func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 	url := os.Getenv("NOTED_TEST_DATABASE_URL")
@@ -49,18 +50,17 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 
 	response := serve(router, httptest.NewRequest(http.MethodPost, "/api/account/shortcut-token", nil))
 	var created struct {
-		Token      string  `json:"token"`
-		InstallURL *string `json:"installUrl"`
+		Token string `json:"token"`
 	}
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &created) != nil ||
-		len(created.Token) != 43 || created.InstallURL == nil || *created.InstallURL != "" {
+		len(created.Token) != 43 || strings.Contains(response.Body.String(), "installUrl") {
 		t.Fatalf("create token: %d %s", response.Code, response.Body.String())
 	}
 
 	response = serve(router, shortcutUpload(created.Token, "Prelude - Example.pdf", "application/pdf", string(pdf)))
 	var result app.ShortcutImport
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &result) != nil ||
-		result.Matched || result.Title != "Prelude - Example" || result.DraftPath != "/prepare/"+result.DraftID {
+		result.Message != "New draft created." || result.Title != "Prelude - Example" || result.DraftPath != "/prepare/"+result.DraftID {
 		t.Fatalf("import: %d %s", response.Code, response.Body.String())
 	}
 	response = serve(router, httptest.NewRequest(http.MethodGet, "/api/imports/"+result.DraftID+"/", nil))

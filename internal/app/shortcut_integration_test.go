@@ -90,26 +90,13 @@ func TestIntegrationShortcutImport(t *testing.T) {
 	// cantata; the fake ReverseLookup above maps it to Clair de lune.
 	const clairFile = "IMSLP01240-Debussy_-_Suite_bergamasque_-_3_Clair_de_lune.pdf"
 
-	// Waiting drafts: the other user's, an older and a newer one of the owner's,
-	// and a newest one that edits a saved piece. Only the owner's piece-less
-	// drafts may receive the file, newest first.
+	// Open drafts for the same work: the other user's, one of the owner's with
+	// no file yet, and one that edits a saved piece. None of them is touched;
+	// every shared PDF starts a new draft.
 	if _, err = s.CreateImport(ctx, other, CreateImport{SourceURL: clair}); err != nil {
 		t.Fatal(err)
 	}
-	older, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: clair})
-	if err != nil {
-		t.Fatal(err)
-	}
-	newer, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: clair})
-	if err != nil {
-		t.Fatal(err)
-	}
-	title, composer := "Clair de lune", "Debussy, Claude"
-	newer.Metadata.Title, newer.Metadata.Composer = title, composer
-	newer, err = s.UpdateImport(ctx, owner, newer.ID, UpdateImport{
-		Revision: newer.Revision, Metadata: newer.Metadata,
-		IMSLPAutoFill: IMSLPAutoFill{Title: &title, Composer: &composer}, Manifest: newer.Manifest,
-	})
+	existing, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: clair})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,21 +108,25 @@ func TestIntegrationShortcutImport(t *testing.T) {
 	if err != nil || pieceDraft.Metadata.SourceURL != clair {
 		t.Fatalf("piece draft: %+v %v", pieceDraft.Metadata, err)
 	}
+	before := openDrafts(owner)
 
+	title, composer := "Clair de lune", "Debussy, Claude"
 	result, err := send(s, clairFile, pdf)
-	if err != nil || !result.Matched || result.DraftID != newer.ID || result.DraftPath != "/prepare/"+newer.ID ||
-		result.Title != title || result.Composer != composer || result.Filename != clairFile ||
-		result.Headline != "Clair de lune — Debussy, Claude" || result.Message != "Added to the waiting draft." {
-		t.Fatalf("waiting draft: %+v %v", result, err)
+	if err != nil || result.DraftID == existing.ID || result.DraftID == pieceDraft.ID ||
+		result.DraftPath != "/prepare/"+result.DraftID || result.Title != title || result.Composer != composer ||
+		result.Filename != clairFile || result.Headline != "Clair de lune — Debussy, Claude" || result.Message != "New draft created." {
+		t.Fatalf("IMSLP file: %+v %v", result, err)
 	}
-	attached, err := s.GetImport(ctx, owner, newer.ID)
-	if err != nil || len(attached.Sources) != 1 || attached.Sources[0].Filename != clairFile ||
-		attached.Sources[0].MIME != "application/pdf" || len(attached.Manifest.Pages) != attached.Sources[0].PageCount ||
-		attached.Metadata.Title != title || attached.IMSLPAutoFill.Title == nil {
-		t.Fatalf("attached draft: %+v %v", attached, err)
+	created, err := s.GetImport(ctx, owner, result.DraftID)
+	if err != nil || created.Metadata.SourceURL != clair || len(created.Sources) != 1 ||
+		created.Sources[0].Filename != clairFile || created.Sources[0].MIME != "application/pdf" ||
+		len(created.Manifest.Pages) != created.Sources[0].PageCount ||
+		created.IMSLPAutoFill.Title == nil || *created.IMSLPAutoFill.Title != title ||
+		created.IMSLPAutoFill.Composer == nil || *created.IMSLPAutoFill.Composer != composer {
+		t.Fatalf("new draft from an IMSLP file: %+v %v", created, err)
 	}
 	// The stored object is the uploaded file, read back through the asset store.
-	_, reader, err := s.ImportSource(ctx, owner, newer.ID, attached.Sources[0].ID)
+	_, reader, err := s.ImportSource(ctx, owner, created.ID, created.Sources[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,28 +136,21 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		t.Fatalf("stored source differs from the upload: %d bytes, %v", len(stored), err)
 	}
 
-	// The newer draft has its PDF now, so the next copy goes to the older one.
-	if result, err = send(s, clairFile, pdf); err != nil || !result.Matched || result.DraftID != older.ID {
-		t.Fatalf("older waiting draft: %+v %v", result, err)
+	// A second copy starts a second draft rather than filling the first.
+	second, err := send(s, clairFile, pdf)
+	if err != nil || second.DraftID == result.DraftID || second.DraftID == existing.ID || second.Title != title {
+		t.Fatalf("second copy: %+v %v", second, err)
 	}
-	// Every waiting draft has a PDF: a new prefilled draft starts.
-	result, err = send(s, clairFile, pdf)
-	if err != nil || result.Matched || result.DraftID == newer.ID || result.DraftID == older.ID ||
-		result.DraftID == pieceDraft.ID || result.Title != title || result.Composer != composer {
-		t.Fatalf("drafts with sources were matched: %+v %v", result, err)
-	}
-	created, err := s.GetImport(ctx, owner, result.DraftID)
-	if err != nil || created.Metadata.SourceURL != clair || len(created.Sources) != 1 ||
-		created.IMSLPAutoFill.Title == nil || *created.IMSLPAutoFill.Title != title ||
-		created.IMSLPAutoFill.Composer == nil || *created.IMSLPAutoFill.Composer != composer {
-		t.Fatalf("new draft from a waiting work: %+v %v", created, err)
+	if got := openDrafts(owner); got != before+2 {
+		t.Fatalf("open drafts = %d, want %d", got, before+2)
 	}
 	if lookups["1240"] != 1 {
 		t.Fatalf("the cached file number was looked up %d times", lookups["1240"])
 	}
-	for _, id := range []string{pieceDraft.ID} {
-		if d, err := s.GetImport(ctx, owner, id); err != nil || len(d.Sources) != 0 {
-			t.Fatalf("a piece's draft received the file: %+v %v", d.Sources, err)
+	for _, want := range []ImportDraft{existing, pieceDraft} {
+		d, err := s.GetImport(ctx, owner, want.ID)
+		if err != nil || len(d.Sources) != 0 || d.Revision != want.Revision {
+			t.Fatalf("an existing draft for the work changed: %+v %v", d, err)
 		}
 	}
 	others, err := s.ListImports(ctx, other)
@@ -174,9 +158,9 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		t.Fatalf("another user's draft changed: %+v %v", others, err)
 	}
 
-	// No waiting draft: new draft with the work's link, title, composer and IMSLP provenance.
+	// Another work: new draft with its link, title, composer and IMSLP provenance.
 	result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf)
-	if err != nil || result.Matched || result.Title != quasiValse.Title || result.Composer != quasiValse.Composer ||
+	if err != nil || result.Title != quasiValse.Title || result.Composer != quasiValse.Composer ||
 		result.Headline != "Quasi valse, Op.47 — Scriabin, Aleksandr" || result.Message != "New draft created." {
 		t.Fatalf("new work: %+v %v", result, err)
 	}
@@ -186,13 +170,14 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		t.Fatalf("prefilled draft: %+v %v", created, err)
 	}
 
-	// No work: titled from the filename, with no link and no composer.
+	// No work (an unknown IMSLP number or any other PDF): titled from the
+	// filename, with no link and no composer.
 	for filename, want := range map[string]string{
 		"IMSLP99999-Unknown_piece.pdf": "IMSLP99999-Unknown_piece",
 		"Bach - Prelude in C.pdf":      "Bach - Prelude in C",
 	} {
 		result, err = send(s, filename, pdf)
-		if err != nil || result.Matched || result.Title != want || result.Composer != "" || result.Headline != want {
+		if err != nil || result.Title != want || result.Composer != "" || result.Headline != want || result.Message != "New draft created." {
 			t.Fatalf("%s: %+v %v", filename, result, err)
 		}
 		created, err = s.GetImport(ctx, owner, result.DraftID)
@@ -201,43 +186,7 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		}
 	}
 
-	// A waiting draft with empty fields takes the work's title and composer as
-	// IMSLP values; a value the user typed is never replaced.
-	empty, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: quasiValse.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf)
-	if err != nil || !result.Matched || result.DraftID != empty.ID || result.Title != quasiValse.Title ||
-		result.Composer != quasiValse.Composer || result.Headline != "Quasi valse, Op.47 — Scriabin, Aleksandr" {
-		t.Fatalf("empty waiting draft: %+v %v", result, err)
-	}
-	filled, err := s.GetImport(ctx, owner, empty.ID)
-	if err != nil || filled.IMSLPAutoFill.Title == nil || *filled.IMSLPAutoFill.Title != quasiValse.Title ||
-		filled.IMSLPAutoFill.Composer == nil || *filled.IMSLPAutoFill.Composer != quasiValse.Composer {
-		t.Fatalf("prefill provenance on a waiting draft: %+v %v", filled.IMSLPAutoFill, err)
-	}
-	typed, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: quasiValse.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	typed, err = s.UpdateImport(ctx, owner, typed.ID, UpdateImport{
-		Revision: typed.Revision, Metadata: PieceInput{Title: "My Scriabin", SourceURL: quasiValse.URL},
-		IMSLPAutoFill: IMSLPAutoFill{TitleEdited: true}, Manifest: typed.Manifest,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf); err != nil || !result.Matched || result.DraftID != typed.ID {
-		t.Fatalf("typed waiting draft: %+v %v", result, err)
-	}
-	filled, err = s.GetImport(ctx, owner, typed.ID)
-	if err != nil || filled.Metadata.Title != "My Scriabin" || filled.IMSLPAutoFill.Title != nil || !filled.IMSLPAutoFill.TitleEdited ||
-		filled.Metadata.Composer != quasiValse.Composer || filled.IMSLPAutoFill.Composer == nil {
-		t.Fatalf("a typed title was replaced or the empty composer was not filled: %+v %+v %v", filled.Metadata, filled.IMSLPAutoFill, err)
-	}
-
-	before := openDrafts(owner)
+	before = openDrafts(owner)
 	if _, err = send(s, "IMSLP02733-photo.pdf", jpeg); !errors.Is(err, ErrNotPDF) {
 		t.Fatalf("image sent as a PDF: %v", err)
 	}
@@ -250,9 +199,8 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		t.Fatalf("a failed import left drafts behind: %d → %d", before, got)
 	}
 
-	// At 20 open drafts nothing new starts, but a waiting draft still gets its file.
-	waiting, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: quasiValse.URL})
-	if err != nil {
+	// At 20 open drafts nothing new starts, even for a work with an open draft.
+	if _, err = s.CreateImport(ctx, owner, CreateImport{SourceURL: quasiValse.URL}); err != nil {
 		t.Fatal(err)
 	}
 	for openDrafts(owner) < 20 {
@@ -260,11 +208,10 @@ func TestIntegrationShortcutImport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err = send(s, "Bach - Invention.pdf", pdf); !errors.Is(err, ErrDraftLimit) || !errors.Is(err, ErrImportLimit) {
-		t.Fatalf("21st draft: %v", err)
-	}
-	if result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf); err != nil || !result.Matched || result.DraftID != waiting.ID {
-		t.Fatalf("waiting draft at the draft limit: %+v %v", result, err)
+	for _, filename := range []string{"Bach - Invention.pdf", "IMSLP02733-Scriabin_-_Quasi_valse.pdf"} {
+		if _, err = send(s, filename, pdf); !errors.Is(err, ErrDraftLimit) || !errors.Is(err, ErrImportLimit) {
+			t.Fatalf("21st draft from %s: %v", filename, err)
+		}
 	}
 	if got := openDrafts(owner); got != 20 {
 		t.Fatalf("open drafts = %d, want 20", got)

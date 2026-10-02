@@ -83,9 +83,7 @@ func (h *Handler) createShortcutToken(w http.ResponseWriter, r *http.Request) {
 		handleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"token": token, "createdAt": createdAt, "installUrl": h.config.ShortcutInstallURL,
-	})
+	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "createdAt": createdAt})
 }
 
 func (h *Handler) deleteShortcutToken(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +213,7 @@ func (h *Handler) shortcutImport(w http.ResponseWriter, r *http.Request) {
 		handleError(w, err)
 	default:
 		// Never log the filename: it names the user's score.
-		slog.Info("shortcut import accepted", "user", user.ID, "matched", result.Matched)
+		slog.Info("shortcut import accepted", "user", user.ID)
 		writeJSON(w, http.StatusCreated, result)
 	}
 }

@@ -67,6 +67,8 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
 .token code { font-size: 14px; padding: 10px 12px; word-break: break-all; border-color: var(--line-strong); background: #fff; }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink); }
 .warn { font-size: 13px; color: var(--danger); }
+.again { display: grid; gap: 2px; font-size: 13px; color: var(--ink-muted); }
+.again a { color: inherit; text-decoration-style: dotted; text-underline-offset: 3px; }
 .confirm { border: 1px solid var(--line-strong); padding: 12px 14px; display: grid; gap: 10px; background: var(--paper); }
 .confirm p { color: var(--ink); }
 .masthead-demo { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border: 1px solid var(--line-strong); background: var(--paper); max-width: 720px; }
@@ -106,16 +108,16 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
 
   <header class="intro">
     <p class="meta">Noted · Score intake · Concept for review · 2026-10-01</p>
-    <h1>Send to Noted: share a PDF from Safari straight into the waiting draft</h1>
-    <p>Two new pieces. An <strong>Account</strong> dialog off the masthead where each user sets up (or turns off) their one Shortcut token, and an iOS Shortcut that posts the shared PDF to Noted with that token. Noted attaches the file to the draft already waiting for that IMSLP work, or starts a new prefilled draft.</p>
-    <p class="meta">Companion plan: <code>docs/product/send-to-noted-shortcut-plan.md</code></p>
+    <h1>Send to Noted: share a PDF from Safari straight into a new draft</h1>
+    <p>Two new pieces. An <strong>Account</strong> dialog off the masthead where each user sets up (or turns off) their one Shortcut token, and an iOS Shortcut that posts the shared PDF to Noted with that token. Each shared PDF starts a new draft, prefilled when the filename names an IMSLP work. The Shortcut is a signed template Noted serves at <code>/send-to-noted.shortcut</code>.</p>
+    <p class="meta">Companion plans: <code>docs/product/send-to-noted-shortcut-plan.md</code>, amended 2026-10-01 by <code>docs/product/send-to-noted-simplifications-plan.md</code> (no draft matching, no iCloud link)</p>
   </header>
 
   <section class="journey" aria-label="Journey">
-    <div><span class="n">1</span><strong>Set up once</strong><span class="where">Noted · Account dialog → token + install link</span></div>
-    <div class="ios"><span class="n">2</span><strong>Install the Shortcut</strong><span class="where">iPad · paste the token when asked</span></div>
+    <div><span class="n">1</span><strong>Set up once</strong><span class="where">Noted · Account dialog → token + Get the Shortcut</span></div>
+    <div class="ios"><span class="n">2</span><strong>Add the Shortcut</strong><span class="where">iPad · open the template, paste the token when asked</span></div>
     <div class="ios"><span class="n">3</span><strong>Share → Send to Noted</strong><span class="where">Safari PDF viewer or Files</span></div>
-    <div><span class="n">4</span><strong>Draft gets the PDF</strong><span class="where">Noted · notification, opens the draft</span></div>
+    <div><span class="n">4</span><strong>New draft with the PDF</strong><span class="where">Noted · notification, opens the draft</span></div>
   </section>
 
   <!-- Masthead -->
@@ -154,8 +156,8 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
           <div class="section">
             <h3>Send to Noted</h3>
             <ol class="steps">
-              <li><a href="#">Install the Shortcut</a> on this iPad.</li>
-              <li>When Shortcuts asks for your Noted token, paste this:</li>
+              <li><a href="#">Get the Shortcut</a> on this iPad.</li>
+              <li>Tap Add Shortcut, then open it in Shortcuts and paste this into the first text box:</li>
             </ol>
             <div class="token"><code>pR8xQ2nVf7Lw0mKaZc4HtYe9BjUs1GdNoI3vXb6Fq5E</code><button class="btn btn-secondary" type="button">Copy</button></div>
             <ol class="steps" start="3"><li>Tap Done. Share any PDF with <strong>Send to Noted</strong>.</li></ol>
@@ -176,6 +178,7 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
               <p>Replace the token? The Shortcut on your iPad stops working until you paste the new one.</p>
               <div class="actions"><button class="btn btn-secondary" type="button">Replace token</button><button class="btn btn-quiet" type="button">Cancel</button></div>
             </div>
+            <p class="again"><a href="#">Get the Shortcut again</a><span>You’ll need your token; if you don’t have it, tap Replace.</span></p>
           </div>
           <div class="section"><div class="actions"><button class="btn btn-quiet" type="button">Sign out</button></div></div>
         </div>
@@ -185,7 +188,7 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
       <li>The token is 43 characters (32 random bytes, base64url). Noted stores only its SHA-256, like <code>user_sessions.token_hash</code>. Copy uses the clipboard API and falls back to selecting the text.</li>
       <li>Replace and Turn off confirm inline (the dialog shows the confirm block in C); there is no <code>confirm()</code>. Replace = delete + create in one transaction, then the dialog goes to state B.</li>
       <li>Sign out does not touch the token; the Shortcut is tied to the device, not the session. Turning it off is the only way to invalidate it.</li>
-      <li>The install link is <code>SHORTCUT_INSTALL_URL</code>. When unset, step 1 reads "The Shortcut link will be added here" and the rest still works.</li>
+      <li><em>Get the Shortcut</em> downloads <code>/send-to-noted.shortcut</code>, a signed template with a placeholder token; Shortcuts asks for the real token on import. There is no iCloud link: a personal Shortcut's link carries its token. <em>Get the Shortcut again</em> in C is for a second device.</li>
     </ul></div>
   </section>
 
@@ -208,13 +211,13 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
       </div>
       <div class="ios" aria-label="Notification">
         <p class="t">NOTIFICATION</p>
-        <div class="notif"><strong>Clair de lune — Debussy, Claude</strong><span>Added to the waiting draft.</span><small>Send to Noted · now</small></div>
+        <div class="notif"><strong>Clair de lune — Debussy, Claude</strong><span>New draft created.</span><small>Send to Noted · now</small></div>
         <div class="notif"><strong>Prelude and Fugue in C major, BWV 846 — Bach, Johann Sebastian</strong><span>New draft created.</span><small>Send to Noted · earlier</small></div>
         <div class="notif"><strong>Noted</strong><span>This shortcut was turned off. Set it up again in Noted.</span><small>Send to Noted</small></div>
       </div>
     </div>
     <div class="notes"><ul>
-      <li>Install asks three import questions: token (required), Noted address (default filled), and the open-after-sending toggle (default on). The user never edits the Shortcut's actions.</li>
+      <li>Install adds the Shortcut as is (import questions are unreliable on current iOS, so the template has none). The installer opens it once and pastes the token into the first text box; the Noted address and the open-after-sending text keep their defaults.</li>
       <li>When the toggle is on, the Shortcut opens <code>https://noted.bitofbytes.io/prepare/&lt;draftId&gt;</code> after the notification, which resumes the draft with the PDF attached and Continue enabled.</li>
       <li>Error notifications carry the server's <code>error</code> text: turned-off token (401), not a PDF (415), too large (413), draft limit (429), unreachable (network).</li>
     </ul></div>
@@ -227,14 +230,13 @@ code { font: 500 12.5px/1.4 var(--mono); background: var(--paper-raised); border
       <div><span class="d">1</span><span>Bearer token → user. Size and PDF checks, same as the normal upload.</span></div>
       <div><span class="d">2</span><span>Filename starts with <code>IMSLP&lt;number&gt;-</code>?</span></div>
       <div class="in"><span class="d">→</span><span><b>Yes.</b> <code>Special:ReverseLookup/&lt;number&gt;</code> → 302 → work page URL (cached 24 h; shares the IMSLP limiter and breaker).</span></div>
-      <div class="in2"><span class="d">→</span><span>User has an open draft with that work link and <b>no PDF yet</b>? <span class="out">Attach. matched: true</span></span></div>
-      <div class="in2"><span class="d">→</span><span>Otherwise: <span class="out">new draft with link, title and composer prefilled (IMSLP provenance). matched: false</span></span></div>
+      <div class="in2"><span class="d">→</span><span>Found: <span class="out">new draft with link, title and composer prefilled (IMSLP provenance).</span> Existing drafts for the work are never touched.</span></div>
       <div class="in"><span class="d">→</span><span><b>No</b>, or lookup failed: <span class="out">new draft titled from the filename, no provenance.</span></span></div>
-      <div><span class="d">3</span><span>Upload through the existing draft-source path. Reply <code>201 {draftId, draftPath, title, composer, matched}</code>.</span></div>
+      <div><span class="d">3</span><span>Upload through the existing draft-source path. Reply <code>201 {draftId, draftPath, title, composer, filename, headline, message}</code>; <code>message</code> is always "New draft created."</span></div>
     </div>
     <div class="notes"><ul>
-      <li>The lookup never fails the import; a missed match just means a new draft. The user can still delete a stray draft from the library, and drafts expire after seven idle days.</li>
-      <li>Per-user limit: 10 imports a minute. One info log line per accepted import (user id, matched), never the filename.</li>
+      <li>The lookup never fails the import; without a work the draft is titled from the filename. The user can delete a stray draft from the library, and drafts expire after seven idle days.</li>
+      <li>Per-user limit: 10 imports a minute. One info log line per accepted import (user id), never the filename.</li>
     </ul></div>
   </section>
 

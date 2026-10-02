@@ -38,3 +38,19 @@ for asset in /pdfjs/pdf.worker.min.mjs /pdfjs/pdf.min.mjs /intake/processing-wor
   [ "$expected" = "$actual" ] || { echo "$asset bytes did not match" >&2; exit 1; }
   echo "$asset: JavaScript MIME and asset checksum verified"
 done
+
+# The Send to Noted template downloads as a file named for Shortcuts, with the
+# security headers the server block sets everywhere else.
+shortcut=/send-to-noted.shortcut
+headers=$(curl -fsSI "$base_url$shortcut" | tr -d '\r')
+header() {
+  printf '%s\n' "$headers" | awk -v name="$1" 'tolower($1) == tolower(name) ":" { sub(/^[^:]*:[ \t]*/, ""); print }'
+}
+[ "$(header Content-Type)" = "application/octet-stream" ] || { echo "$shortcut returned unexpected Content-Type: $(header Content-Type)" >&2; exit 1; }
+[ "$(header Content-Disposition)" = 'attachment; filename="Send to Noted.shortcut"' ] || { echo "$shortcut returned unexpected Content-Disposition: $(header Content-Disposition)" >&2; exit 1; }
+[ "$(header X-Content-Type-Options)" = "nosniff" ] || { echo "$shortcut is missing X-Content-Type-Options" >&2; exit 1; }
+[ "$(header Referrer-Policy)" = "same-origin" ] || { echo "$shortcut is missing Referrer-Policy" >&2; exit 1; }
+expected=$(docker exec "$container" sha256sum "/usr/share/nginx/html$shortcut" | awk '{print $1}')
+actual=$(curl -fsS "$base_url$shortcut" | shasum -a 256 | awk '{print $1}')
+[ "$expected" = "$actual" ] || { echo "$shortcut bytes did not match" >&2; exit 1; }
+echo "$shortcut: Content-Type, Content-Disposition, security headers and checksum verified"
