@@ -201,6 +201,42 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		}
 	}
 
+	// A waiting draft with empty fields takes the work's title and composer as
+	// IMSLP values; a value the user typed is never replaced.
+	empty, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: quasiValse.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf)
+	if err != nil || !result.Matched || result.DraftID != empty.ID || result.Title != quasiValse.Title ||
+		result.Composer != quasiValse.Composer || result.Headline != "Quasi valse, Op.47 — Scriabin, Aleksandr" {
+		t.Fatalf("empty waiting draft: %+v %v", result, err)
+	}
+	filled, err := s.GetImport(ctx, owner, empty.ID)
+	if err != nil || filled.IMSLPAutoFill.Title == nil || *filled.IMSLPAutoFill.Title != quasiValse.Title ||
+		filled.IMSLPAutoFill.Composer == nil || *filled.IMSLPAutoFill.Composer != quasiValse.Composer {
+		t.Fatalf("prefill provenance on a waiting draft: %+v %v", filled.IMSLPAutoFill, err)
+	}
+	typed, err := s.CreateImport(ctx, owner, CreateImport{SourceURL: quasiValse.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err = s.UpdateImport(ctx, owner, typed.ID, UpdateImport{
+		Revision: typed.Revision, Metadata: PieceInput{Title: "My Scriabin", SourceURL: quasiValse.URL},
+		IMSLPAutoFill: IMSLPAutoFill{TitleEdited: true}, Manifest: typed.Manifest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf); err != nil || !result.Matched || result.DraftID != typed.ID {
+		t.Fatalf("typed waiting draft: %+v %v", result, err)
+	}
+	filled, err = s.GetImport(ctx, owner, typed.ID)
+	if err != nil || filled.Metadata.Title != "My Scriabin" || filled.IMSLPAutoFill.Title != nil || !filled.IMSLPAutoFill.TitleEdited ||
+		filled.Metadata.Composer != quasiValse.Composer || filled.IMSLPAutoFill.Composer == nil {
+		t.Fatalf("a typed title was replaced or the empty composer was not filled: %+v %+v %v", filled.Metadata, filled.IMSLPAutoFill, err)
+	}
+
 	before := openDrafts(owner)
 	if _, err = send(s, "IMSLP02733-photo.pdf", jpeg); !errors.Is(err, ErrNotPDF) {
 		t.Fatalf("image sent as a PDF: %v", err)

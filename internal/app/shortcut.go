@@ -71,7 +71,7 @@ func (s *Service) ShortcutImport(ctx context.Context, owner, filename string, re
 			if err != nil {
 				return ShortcutImport{}, err
 			}
-			d, err := s.attachSource(ctx, owner, id, filename, revision, source)
+			d, err := s.attachSource(ctx, owner, id, filename, revision, source, work)
 			if errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) {
 				continue
 			}
@@ -91,7 +91,7 @@ func (s *Service) ShortcutImport(ctx context.Context, owner, filename string, re
 		return ShortcutImport{}, err
 	}
 	// Without a work the title comes from the filename, as for any first upload.
-	attached, err := s.attachSource(ctx, owner, d.ID, filename, d.Revision, source)
+	attached, err := s.attachSource(ctx, owner, d.ID, filename, d.Revision, source, nil)
 	if err != nil {
 		// Do not leave an empty draft behind for a file that never arrived.
 		_ = s.DeleteImport(context.WithoutCancel(ctx), owner, d.ID)
