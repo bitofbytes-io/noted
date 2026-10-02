@@ -49,3 +49,23 @@ func TestShortcutImportRefusesNonPDFBeforeAnyLookup(t *testing.T) {
 		t.Errorf("oversize: %v", err)
 	}
 }
+
+func TestShortcutResultNotification(t *testing.T) {
+	draft := func(title, composer string) ImportDraft {
+		return ImportDraft{ID: "d1", Metadata: PieceInput{Title: title, Composer: composer}}
+	}
+	for _, test := range []struct {
+		draft             ImportDraft
+		matched           bool
+		headline, message string
+	}{
+		{draft("Clair de lune", "Debussy, Claude"), true, "Clair de lune — Debussy, Claude", "Added to the waiting draft."},
+		{draft("Bach - Prelude", ""), false, "Bach - Prelude", "New draft created."},
+		{draft("", ""), false, "Untitled score", "New draft created."},
+	} {
+		got := shortcutResult(test.draft, "score.pdf", test.matched)
+		if got.Headline != test.headline || got.Message != test.message || got.DraftPath != "/prepare/d1" {
+			t.Errorf("%+v → %q / %q", test.draft.Metadata, got.Headline, got.Message)
+		}
+	}
+}

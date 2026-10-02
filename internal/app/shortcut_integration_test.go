@@ -122,7 +122,8 @@ func TestIntegrationShortcutImport(t *testing.T) {
 
 	result, err := send(s, clairFile, pdf)
 	if err != nil || !result.Matched || result.DraftID != newer.ID || result.DraftPath != "/prepare/"+newer.ID ||
-		result.Title != title || result.Composer != composer || result.Filename != clairFile {
+		result.Title != title || result.Composer != composer || result.Filename != clairFile ||
+		result.Headline != "Clair de lune — Debussy, Claude" || result.Message != "Added to the waiting draft." {
 		t.Fatalf("waiting draft: %+v %v", result, err)
 	}
 	attached, err := s.GetImport(ctx, owner, newer.ID)
@@ -173,7 +174,8 @@ func TestIntegrationShortcutImport(t *testing.T) {
 
 	// No waiting draft: new draft with the work's link, title, composer and IMSLP provenance.
 	result, err = send(s, "IMSLP02733-Scriabin_-_Quasi_valse.pdf", pdf)
-	if err != nil || result.Matched || result.Title != quasiValse.Title || result.Composer != quasiValse.Composer {
+	if err != nil || result.Matched || result.Title != quasiValse.Title || result.Composer != quasiValse.Composer ||
+		result.Headline != "Quasi valse, Op.47 — Scriabin, Aleksandr" || result.Message != "New draft created." {
 		t.Fatalf("new work: %+v %v", result, err)
 	}
 	created, err = s.GetImport(ctx, owner, result.DraftID)
@@ -188,7 +190,7 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		"Bach - Prelude in C.pdf":      "Bach - Prelude in C",
 	} {
 		result, err = send(s, filename, pdf)
-		if err != nil || result.Matched || result.Title != want || result.Composer != "" {
+		if err != nil || result.Matched || result.Title != want || result.Composer != "" || result.Headline != want {
 			t.Fatalf("%s: %+v %v", filename, result, err)
 		}
 		created, err = s.GetImport(ctx, owner, result.DraftID)

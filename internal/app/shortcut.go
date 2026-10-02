@@ -15,6 +15,8 @@ import (
 var ErrNotPDF = errors.New("only PDF files can be sent")
 
 // ShortcutImport reports where a PDF sent from the iOS Shortcut landed.
+// Headline and Message are the notification the Shortcut shows as is, so its
+// copy lives here, under test, rather than in Shortcut actions.
 type ShortcutImport struct {
 	DraftID   string `json:"draftId"`
 	DraftPath string `json:"draftPath"`
@@ -22,6 +24,8 @@ type ShortcutImport struct {
 	Composer  string `json:"composer"`
 	Matched   bool   `json:"matched"`
 	Filename  string `json:"filename"`
+	Headline  string `json:"headline"`
+	Message   string `json:"message"`
 }
 
 // AllowShortcutImport applies the per-user Send to Noted limit (10 a minute).
@@ -118,14 +122,26 @@ func (s *Service) waitingDraft(ctx context.Context, owner, workURL string) (stri
 }
 
 func shortcutResult(d ImportDraft, filename string, matched bool) ShortcutImport {
-	return ShortcutImport{
+	result := ShortcutImport{
 		DraftID:   d.ID,
 		DraftPath: "/prepare/" + d.ID,
 		Title:     d.Metadata.Title,
 		Composer:  d.Metadata.Composer,
 		Matched:   matched,
 		Filename:  filename,
+		Headline:  d.Metadata.Title,
+		Message:   "New draft created.",
 	}
+	if result.Headline == "" {
+		result.Headline = "Untitled score"
+	}
+	if result.Composer != "" {
+		result.Headline += " — " + result.Composer
+	}
+	if matched {
+		result.Message = "Added to the waiting draft."
+	}
+	return result
 }
 
 // userLimiter is a token bucket per user with idle buckets swept away, like the
