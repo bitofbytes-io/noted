@@ -187,15 +187,15 @@ gets the file three ways:
    [`send-to-noted-shortcut-plan.md`](send-to-noted-shortcut-plan.md) and the
    recipe in [`send-to-noted-shortcut.md`](send-to-noted-shortcut.md)). iOS Shortcut
    receives the PDF from the Share sheet (Safari's PDF viewer or Files) and
-   POSTs it with a per-user bearer token to a new endpoint that attaches the
-   file to the user's most recent open draft whose work link matches the
-   IMSLP file number in the filename (`IMSLP02733-...pdf` →
-   `Special:ReverseLookup/02733`), or creates a new prefilled draft when
-   nothing matches. Needs: per-user token issue/revoke UI (Noted is
+   POSTs it with a per-user bearer token to a new endpoint that creates a new
+   draft, prefilled from the work named by the IMSLP file number in the
+   filename (`IMSLP02733-...pdf` → `Special:ReverseLookup/02733`). It never
+   fills an existing draft (amended 2026-10-01, see
+   [`send-to-noted-simplifications-plan.md`](send-to-noted-simplifications-plan.md)). Needs: per-user token issue/revoke UI (Noted is
    multi-user, so learnd's single shared token does not transfer), a
    token-scoped import endpoint, the ReverseLookup resolver with the same
-   limiter/breaker as search. Design it so the Source step's "Waiting for your
-   PDF" state can later say "or share it from Safari with Send to Noted".
+   limiter/breaker as search. The Source step's "Waiting for your PDF" state
+   does not mention it, since it would start a different draft.
 
 Members of IMSLP skip the 15 s wait; that is a user choice, not a Noted
 feature.

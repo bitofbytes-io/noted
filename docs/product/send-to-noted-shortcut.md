@@ -1,23 +1,28 @@
 # Send to Noted: building the iOS Shortcut
 
-Status: Recipe for the published Shortcut. The API it calls is implemented;
-the Shortcut itself is assembled by hand on the iPad and published from there.
-Plan: [`send-to-noted-shortcut-plan.md`](send-to-noted-shortcut-plan.md)
+Status: Recipe for the Shortcut and its template. The API it calls is
+implemented. The Shortcut is assembled by hand on the iPad; Noted serves a
+signed template of it, with a placeholder token, at `/send-to-noted.shortcut`.
+Plans: [`send-to-noted-shortcut-plan.md`](send-to-noted-shortcut-plan.md),
+amended by [`send-to-noted-simplifications-plan.md`](send-to-noted-simplifications-plan.md)
 
 **Send to Noted** puts a PDF from Safari's PDF viewer or the Files app into
-Noted from the Share sheet. If you already chose that IMSLP work in a Noted
-draft, the PDF goes into that draft. Otherwise Noted starts a new draft, filling
-in the title and composer when the file is an IMSLP download.
+Noted from the Share sheet. Each PDF starts a new draft, with the title and
+composer filled in when the file is an IMSLP download. (If you started in
+Noted's IMSLP search, use **Add downloaded PDF** on that draft instead.)
 
 This page has two parts: setting the Shortcut up once (for each person), and
-the action list for building and publishing it (once, by the maintainer).
+the action list for building it and regenerating the template (by the
+maintainer).
 
 ## Setting it up on your iPad
 
 1. In Noted, tap your name at the top of the library. The **Account** dialog
    opens.
 2. Under **Send to Noted**, tap **Set up on this iPad**.
-3. Tap **Install the Shortcut**. Shortcuts opens and asks three questions:
+3. Tap **Get the Shortcut**. Safari downloads `Send to Noted.shortcut`; open
+   it from Safari's downloads (or Files → Downloads). Shortcuts opens and asks
+   three questions:
    - **Your Noted token**: go back to Noted, tap **Copy**, and paste it here.
    - **Noted address**: leave `https://noted.bitofbytes.io` as it is.
    - **Open Noted after sending**: leave `Yes`, or type `No` if you only want
@@ -25,7 +30,10 @@ the action list for building and publishing it (once, by the maintainer).
 4. Tap **Add Shortcut**, then close the Account dialog in Noted.
 
 Noted shows the token only once. If you lose it, open the Account dialog, tap
-**Replace**, and install the Shortcut again with the new token. **Turn off**
+**Replace**, and install the Shortcut again with the new token. To add the
+Shortcut to a second device, use **Get the Shortcut again** in the Account
+dialog; you need your token for it, so if you don't have it, tap **Replace**
+and paste the new token on both devices. **Turn off**
 stops the Shortcut from sending anything. Signing out of Noted does not affect
 the Shortcut.
 
@@ -44,7 +52,6 @@ the draft (unless you answered `No` above):
 
 | Notification title | Text |
 | --- | --- |
-| Clair de lune — Debussy, Claude | Added to the waiting draft. |
 | Quasi valse, Op.47 — Scriabin, Aleksandr | New draft created. |
 | Bach - Prelude in C | New draft created. |
 
@@ -66,7 +73,7 @@ When something goes wrong, the notification is titled **Noted** and says why:
 If the iPad has no connection at all, iOS may stop the Shortcut with its own
 alert (for example "The request timed out") before the last row can appear.
 
-## Building and publishing the Shortcut
+## Building the Shortcut and its template
 
 Build it on the iPad in the Shortcuts app. Text in **bold** is the exact
 action name to search for; `code` is text to type. Variables are made with
@@ -153,15 +160,17 @@ In the shortcut's details (the ⓘ button at the bottom of the editor):
    9. **End If**.
 9. **End Repeat**.
 
-The API also returns `title`, `composer`, `matched`, `draftId` and `filename`.
+The API also returns `title`, `composer`, `draftId` and `filename`.
 The Shortcut doesn't need them: `headline` and `message` are the notification,
 already written by Noted.
 
 ### Import questions
 
-In the shortcut's details, open **Setup** (on older iOS versions:
-**⋯ → Import Questions**) and add three questions, each tied to one **Text**
-action above:
+The template asks three questions on install, each tied to one **Text**
+action above. They are added to the template file when it is regenerated (see
+below); in the plist they are the `WFWorkflowImportQuestions` entries for
+action indices 0, 2 and 4, because **Receive** is a workflow setting rather
+than an action.
 
 | Action | Question | Default answer |
 | --- | --- | --- |
@@ -169,21 +178,27 @@ action above:
 | Step 4 (`https://noted.bitofbytes.io`) | `Noted address` | `https://noted.bitofbytes.io` |
 | Step 6 (`Yes`) | `Open Noted after sending (Yes or No)` | `Yes` |
 
-The token question must have an empty default, so the published Shortcut
-carries nobody's token. Before sharing, check that the step 2 Text in your own
-copy is still the placeholder, or set it back to `paste-your-token-here`.
+The token question must have an empty default, so the template carries
+nobody's token.
 
-### Checks before publishing
+**Never share your own copy of the Shortcut by iCloud link.** An iCloud link is
+a snapshot of the Shortcut's actions, including the Text action holding your
+token: anyone who installs it can send files into your Noted. Give people the
+Account dialog's **Get the Shortcut** link instead. If a personal link was
+shared, tap **Replace** in Noted.
+
+### Checks after regenerating the template
 
 Run these on the iPad with your own token. They need a real device, so the
 automated tests can't do them.
 
-1. Share an IMSLP download (filename starting `IMSLP`, then digits and `-`)
-   from Safari's PDF viewer while a Noted draft is waiting for that work.
-   Expect "Added to the waiting draft." and the draft opening on its Pages
-   step with the PDF.
-2. Share the same work's PDF again. Expect "New draft created." with the title
-   and composer filled in.
+1. In Noted's Account dialog, tap **Get the Shortcut** (or **Get the Shortcut
+   again**). Expect Shortcuts to open the template's Add Shortcut screen and
+   ask the three questions above; paste your token.
+2. Share an IMSLP download (filename starting `IMSLP`, then digits and `-`)
+   from Safari's PDF viewer. Expect "New draft created." with the title and
+   composer filled in, and the draft opening on its Pages step with the PDF.
+   Share it again: expect a second new draft.
 3. Share a PDF from Files that is not from IMSLP. Expect a new draft titled from
    the filename.
 4. Share a photo or other non-PDF from Files: the Shortcut shouldn't be offered.
@@ -195,25 +210,58 @@ automated tests can't do them.
    draft titled from whatever name Safari gave it. Sharing from Files after
    downloading keeps the name.
 
-### Publishing
+### Regenerating the template
 
-An iCloud link is a snapshot of the Shortcut at the time it was shared.
-After any edit, share it again, copy the new link, and update
-`SHORTCUT_INSTALL_URL`; the old link keeps installing the old version.
+Noted serves `web/public/send-to-noted.shortcut` as `/send-to-noted.shortcut`.
+It is a signed copy of the Shortcut above with the placeholder token. Since iOS
+15 a `.shortcut` file imports only when signed. Regenerate it after any change
+to the actions, on a Mac signed in to the same iCloud account:
 
-1. In Shortcuts, long-press **Send to Noted** → **Share** → **Copy iCloud
-   Link**. The link starts `https://www.icloud.com/shortcuts/`.
-2. Set `SHORTCUT_INSTALL_URL` to that link in the API's configuration and
-   redeploy. Until then, the Account dialog says "The Shortcut link will be
-   added here." and everything else works.
-3. If you change the Shortcut later, publish it again and update
-   `SHORTCUT_INSTALL_URL`. Installed copies keep working, because the API
-   does not change.
+1. In Shortcuts, duplicate **Send to Noted**. In the duplicate, set step 2's
+   **Text** back to `paste-your-token-here`. The duplicate's name does not
+   matter: the installed Shortcut takes its name from the served file name,
+   `Send to Noted.shortcut`.
+2. Get the duplicate's unsigned plist, either way:
+   - On the Mac, once the duplicate has synced: **File → Export**.
+   - From iCloud: share **the duplicate only** (it holds no token) with
+     **Copy iCloud Link**, take the ID after `/shortcuts/`, and fetch
+     `https://www.icloud.com/shortcuts/api/records/<id>`. Its
+     `fields.shortcut.value.downloadURL` is the unsigned plist; download it
+     as `template.shortcut`.
+3. Check it holds the placeholder and no token:
+   `plutil -p template.shortcut | grep -n paste-your-token-here`, and confirm
+   that actions 0, 2 and 4 are the three **Text** actions (token, address,
+   `Yes`).
+4. Add the import questions:
+
+   ```sh
+   plutil -replace WFWorkflowImportQuestions -json '[
+     {"ActionIndex":0,"Category":"Parameter","ParameterKey":"WFTextActionText","Text":"Your Noted token","DefaultValue":""},
+     {"ActionIndex":2,"Category":"Parameter","ParameterKey":"WFTextActionText","Text":"Noted address","DefaultValue":"https://noted.bitofbytes.io"},
+     {"ActionIndex":4,"Category":"Parameter","ParameterKey":"WFTextActionText","Text":"Open Noted after sending (Yes or No)","DefaultValue":"Yes"}
+   ]' template.shortcut
+   ```
+
+5. Sign it for anyone and replace the committed file:
+
+   ```sh
+   shortcuts sign --mode anyone --input template.shortcut \
+     --output web/public/send-to-noted.shortcut
+   ```
+
+6. Commit the signed file (it contains no secret), deploy the UI, and run the
+   checks above. Installed copies keep working; only new installs get the new
+   version. Delete the duplicate in Shortcuts.
+
+The UI container serves the file with `Content-Type: application/octet-stream`
+(iOS goes by the `.shortcut` extension; there is no registered MIME type) and
+`Content-Disposition: attachment; filename="Send to Noted.shortcut"`.
+`make test-ui-container-mime` checks both.
 
 ## What the token can do
 
-The token opens one thing: `POST /api/shortcut/import`, which creates or fills
-a draft for its owner. It cannot read, list, finish or delete pieces or drafts,
+The token opens one thing: `POST /api/shortcut/import`, which creates a new
+draft for its owner. It cannot read, list, finish or delete pieces or drafts,
 and Noted's other pages and routes don't accept it. Noted stores only a hash of
 the token, never the token itself. Each person has at most one token. Replace
 and Turn off take effect immediately.

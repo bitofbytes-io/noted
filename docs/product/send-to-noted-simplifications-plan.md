@@ -1,6 +1,6 @@
 # Send to Noted: template file and no draft matching
 
-Status: Plan for review. Nothing implemented.
+Status: Implemented on feat/send-to-noted-template; review pending.
 Date: 2026-10-01
 Builds on: [`send-to-noted-shortcut-plan.md`](send-to-noted-shortcut-plan.md)
 
@@ -134,3 +134,20 @@ multiple tokens.
 2. Matching removed entirely rather than kept behind a toggle.
 3. The Prepare panel no longer mentions Send to Noted.
 4. "Get the Shortcut again" stays in the active state for a second device.
+
+## Implementation notes (for review)
+
+- **Content type.** The template is served as `application/octet-stream`,
+  not `application/x-shortcut`: `.shortcut` has no registered MIME type and
+  iOS goes by the extension. The `location = /send-to-noted.shortcut` block
+  in `Docker/ui/nginx.conf` repeats `X-Content-Type-Options` and
+  `Referrer-Policy`, because an `add_header` in a location replaces the
+  server-level ones. `make test-ui-container-mime` checks the type, the
+  `Content-Disposition`, both security headers and the bytes.
+- **The template was committed before the code**, so the dialog needs no
+  404 handling; its spec checks only the `href` and `download` attribute.
+- **Draft limit.** With no waiting draft to fill, an import at 20 open drafts
+  is always refused (429), IMSLP download or not.
+- `home_swarm/noted-stack.yml` still needs `SHORTCUT_INSTALL_URL` removed
+  (separate PR there). The API ignores the variable now, so the order of the
+  two deploys does not matter.

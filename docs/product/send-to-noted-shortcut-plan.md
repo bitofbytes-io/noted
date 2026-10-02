@@ -5,6 +5,15 @@ Date: 2026-10-01
 Mockup: [`../design/concepts/send-to-noted/send-to-noted.html`](../design/concepts/send-to-noted/send-to-noted.html)
 Builds on: [`imslp-live-search-plan.md`](imslp-live-search-plan.md)
 
+> **Amended 2026-10-01** by
+> [`send-to-noted-simplifications-plan.md`](send-to-noted-simplifications-plan.md).
+> Two parts of this plan are withdrawn and struck through below:
+> **matching a waiting draft** (the Shortcut now always creates a new draft;
+> the response has no `matched`), and **the iCloud install link** (a personal
+> Shortcut's iCloud link carries its token; Noted serves a signed template at
+> `/send-to-noted.shortcut` instead, and `SHORTCUT_INSTALL_URL` and
+> `installUrl` are gone).
+
 ## Outcome and context
 
 After the live-search work, the IMSLP flow is: search in Noted → tap the work
@@ -15,13 +24,14 @@ friction, and on the iPad they are the slowest part.
 
 This plan removes them. From Safari's PDF viewer (or Files), the user taps
 Share → **Send to Noted**. An iOS Shortcut posts the PDF to Noted with a
-per-user bearer token. Noted attaches it to the draft that is already waiting
-for that work, or creates a new prefilled draft when nothing is waiting. The
+per-user bearer token. ~~Noted attaches it to the draft that is already waiting
+for that work, or creates a new prefilled draft when nothing is waiting.~~
+Noted creates a new draft, prefilled when IMSLP names the work. The
 user gets a notification naming the piece and can open the draft directly.
 
 Boundaries that do not change: Noted never downloads from IMSLP; the file
 comes from the user's browser. One PDF per piece. Drafts expire after seven
-idle days. Everything the token can do is limited to creating or filling a
+idle days. Everything the token can do is limited to creating ~~or filling~~ a
 draft for its own user.
 
 ## Verified facts
@@ -57,7 +67,8 @@ See the mockup for each frame.
 2. With no token: one secondary button, **Set up on this iPad**.
 3. Tapping it creates the token. The dialog now shows, once:
    - the token in a monospace box with a **Copy** button;
-   - an **Install the Shortcut** link (the published iCloud link, from config);
+   - ~~an **Install the Shortcut** link (the published iCloud link, from config);~~
+     a **Get the Shortcut** link to the signed template (amended);
    - three steps: Install → when Shortcuts asks, paste the token → Done.
    - "You won't see this token again. If you lose it, tap Replace."
 4. Closing the dialog discards the plaintext. Reopening shows the active state:
@@ -68,9 +79,9 @@ See the mockup for each frame.
 1. On IMSLP in Safari the download opens in the PDF viewer. Share → **Send to
    Noted**. (Also from Files, for any PDF.)
 2. The Shortcut posts the file. Noted answers within the upload time with
-   `{draftId, draftPath, title, composer, matched}`.
-3. The Shortcut shows a notification: "Clair de lune — Debussy, Claude. Added to
-   the waiting draft." or "… New draft created." A Shortcut toggle
+   `{draftId, draftPath, title, composer}` (~~`matched`~~ withdrawn).
+3. The Shortcut shows a notification: ~~"Clair de lune — Debussy, Claude. Added to
+   the waiting draft." or~~ "… New draft created." A Shortcut toggle
    (`Open Noted after sending`, default on) then opens
    `https://<noted host>/prepare/<draftId>` in Safari, which resumes the draft on
    the Source step with the PDF attached and **Continue** enabled.
@@ -99,7 +110,7 @@ transaction. Turn off = delete. `down` drops the table.
 | Route | Behaviour |
 | --- | --- |
 | `GET /api/account/shortcut-token` | `{active: bool, createdAt, lastUsedAt}`; never the token. |
-| `POST /api/account/shortcut-token` | Creates or replaces. Returns `{token, createdAt, installUrl}` once. `installUrl` comes from config `SHORTCUT_INSTALL_URL` (empty allowed; the UI then hides the link and says the Shortcut link will follow). |
+| `POST /api/account/shortcut-token` | Creates or replaces. Returns `{token, createdAt}` once. ~~`installUrl` comes from config `SHORTCUT_INSTALL_URL` (empty allowed; the UI then hides the link and says the Shortcut link will follow).~~ |
 | `DELETE /api/account/shortcut-token` | Removes it. 204. |
 
 Token: `randomToken()` (32 bytes, base64url, 43 chars). Store `tokenHash`.
@@ -132,19 +143,19 @@ Multipart with one `file` part. Same `MaxBytesReader`, size and PDF checks as
    user). Cache number→URL for 24 h (LRU 500) and share the outbound limiter
    and breaker from `imslpSearcher` (extend it with `resolveFile(number)`;
    keep the search path untouched).
-3. Match: the user's newest draft `WHERE user_id=$1 AND NOT finalized AND
+3. ~~Match: the user's newest draft `WHERE user_id=$1 AND NOT finalized AND
    piece_id IS NULL AND metadata->>'sourceUrl' = $2` that has **no sources
    yet**. Attach the PDF through `UploadImportSource` with that draft's
-   current revision. `matched: true`.
-4. Otherwise create a draft (`CreateImport{SourceURL: workURL}`), prefill
+   current revision. `matched: true`.~~ (Withdrawn: no matching.)
+4. ~~Otherwise~~ Create a draft (`CreateImport{SourceURL: workURL}`), prefill
    `Metadata.Title`/`Composer` from the `(Last, First)` parse and set
    `IMSLPAutoFill.Title/Composer` to the same values (server-side equivalent of
    the client's `prefillIMSLPField`; add a small `imslpWorkName(title)` helper
    in `internal/app`, shared with `parseIMSLPSearch`). No work → title from the
    filename stem (same rule the Prepare screen uses for filename prefill), no
-   provenance. Then upload. `matched: false`.
+   provenance. Then upload. ~~`matched: false`.~~
 5. Respond 201 `{draftId, draftPath: "/prepare/<id>", title, composer,
-   matched, filename}`.
+   filename}` (~~`matched`~~ withdrawn).
 
 Errors: 401 token; 413 size; 415 not a PDF (`application/pdf` or `.pdf`,
 same check as the drop target); 429 if the user has 20 active drafts
@@ -152,8 +163,8 @@ same check as the drop target); 429 if the user has 20 active drafts
 for all, because the Shortcut shows the message.
 
 Rate limit: 10 shortcut imports per user per minute (token bucket like the
-search one). Log one info line per accepted import with user id and whether
-it matched; never the filename.
+search one). Log one info line per accepted import with user id ~~and whether
+it matched~~; never the filename.
 
 ### Removal / cleanup interplay
 
@@ -178,7 +189,7 @@ cascades the token.
   text. The token box uses tabular monospace, wraps, 43 chars.
 - `last used` renders "today", "yesterday", or a date; "never" when null.
 - Model: `ShortcutToken {active, createdAt, lastUsedAt}` and
-  `ShortcutTokenCreated {token, createdAt, installUrl}`.
+  `ShortcutTokenCreated {token, createdAt}` (~~`installUrl`~~ withdrawn).
 - Prepare screen: when a draft opened at `/prepare/<id>` already has a source
   and the IMSLP panel state exists, nothing new is required; `imslpAdded` is a
   per-visit signal, so the panel shows the chosen work with **Continue**
@@ -200,17 +211,21 @@ written by the implementer) with the exact action list so it can be rebuilt:
    *Get Contents of URL*: POST `<base>/api/shortcut/import`, Headers
    `Authorization: Bearer <token>`, Request Body **Form**, field `file` =
    Repeat Item.
-   *Get Dictionary Value* `title`, `composer`, `matched`, `draftPath`, `error`.
+   *Get Dictionary Value* `title`, `composer`, ~~`matched`,~~ `draftPath`, `error`.
    *If* `error` has any value → *Show Notification* "Noted: <error>".
-   *Otherwise* → *Show Notification* "<title> — <composer>. <Added to the
-   waiting draft | New draft created>." and, if the **Open Noted after
+   *Otherwise* → *Show Notification* "<title> — <composer>. ~~<Added to the
+   waiting draft | New draft created>~~ New draft created." and, if the **Open Noted after
    sending** toggle (a third import question, default Yes) → *Open URLs*
    `<base><draftPath>`.
-5. Publish via iCloud link; put the link in `SHORTCUT_INSTALL_URL`.
+5. ~~Publish via iCloud link; put the link in `SHORTCUT_INSTALL_URL`.~~
+   Amended: export a placeholder-token copy, add the import questions, sign
+   it with `shortcuts sign --mode anyone`, and commit it as
+   `web/public/send-to-noted.shortcut`. Never share a personal copy's iCloud
+   link: it carries the token.
 
 The implementer cannot build or publish the Shortcut; it writes the recipe
-and the API so Daniel can assemble it on the iPad in a few minutes. The
-Account dialog works without the install link.
+and the API so Daniel can assemble it on the iPad in a few minutes. ~~The
+Account dialog works without the install link.~~
 
 ## Tests
 
@@ -224,9 +239,10 @@ Go:
 - ReverseLookup resolver against `httptest.Server`: 302 to a work path →
   canonical URL; 302 elsewhere, 200, 404, timeout → no work; cache hit sends
   nothing; shares the breaker (open breaker → no work, no request).
-- Import endpoint: IMSLP filename with waiting draft → attached, `matched`;
-  with no waiting draft → new prefilled draft with provenance; draft with a
-  source already → not matched, new draft; non-IMSLP filename → draft titled
+- Import endpoint: ~~IMSLP filename with waiting draft → attached, `matched`;
+  with no waiting draft →~~ IMSLP filename → new prefilled draft with provenance; ~~draft with a
+  source already → not matched, new draft;~~ an open draft for the same work
+  is left untouched; non-IMSLP filename → draft titled
   from the stem; non-PDF → 415; oversize → 413; 20 active drafts → 429.
 - Integration: migration 000008 up/down; the full import against the real
   asset store path.
@@ -234,7 +250,8 @@ Go:
 Angular (`library.component.spec.ts`):
 
 - Masthead button opens the dialog; three states render the right controls.
-- Create shows the token once and the install link when present; closing
+- Create shows the token once and the ~~install link when present~~ **Get the
+  Shortcut** link to `/send-to-noted.shortcut`; closing
   and reopening shows the active state without the token.
 - Replace and Turn off need the inline confirm; API calls and resulting
   state.
@@ -246,7 +263,7 @@ Angular (`library.component.spec.ts`):
   and list the bearer-token scope under Safety.
 - `AGENTS.md`: boundaries line gains "Send to Noted shortcut intake (per-user
   bearer token, one route)".
-- `README.md`: `SHORTCUT_INSTALL_URL` in the configuration table.
+- ~~`README.md`: `SHORTCUT_INSTALL_URL` in the configuration table.~~
 - `imslp-live-search-plan.md`: point the follow-up paragraph here.
 
 ## Out of scope
@@ -261,7 +278,8 @@ on iOS Safari), server-side IMSLP download, Android.
    inside it.
 3. Any PDF is accepted, not only IMSLP downloads.
 4. The Shortcut opens the draft after sending by default (toggle at install).
-5. Matching requires an exact work-link match on a draft with no PDF yet.
+5. ~~Matching requires an exact work-link match on a draft with no PDF yet.~~
+   Withdrawn: no matching.
 
 ## Implementation notes (for review)
 
@@ -276,7 +294,7 @@ Where the implementation departs from, or settles, the text above:
 - **Response adds `headline` and `message`.** Shortcuts cannot reliably branch
   on a JSON boolean or drop an empty composer, so the 201 response also carries
   the notification title ("Clair de lune — Debussy, Claude", or just the title
-  when there is no composer) and body ("Added to the waiting draft." / "New
+  when there is no composer) and body (~~"Added to the waiting draft." /~~ "New
   draft created."). The planned fields are unchanged.
 - **Owner check.** The bearer middleware also requires the token's owner to be
   allowed in the current auth mode: the allow-list in Google mode, the
@@ -292,13 +310,14 @@ Where the implementation departs from, or settles, the text above:
   Only found works are cached (24 h, LRU 500, separate from the search
   cache), so a transient miss is not remembered.
 - **Robustness.** Bytes are checked before any lookup or draft: an image named
-  `.pdf` is a 415. The match retries once if the waiting draft changed between
-  the query and the upload. A new draft whose upload fails is deleted, so no
-  empty draft is left. At 20 open drafts, a waiting draft still receives its
-  file; only creating a new one is refused.
-- **Matched prefill (review follow-up).** When the waiting draft's title or
+  `.pdf` is a 415. ~~The match retries once if the waiting draft changed between
+  the query and the upload.~~ A new draft whose upload fails is deleted, so no
+  empty draft is left. ~~At 20 open drafts, a waiting draft still receives its
+  file; only creating a new one is refused.~~ At 20 open drafts the import is
+  refused.
+- ~~**Matched prefill (review follow-up).** When the waiting draft's title or
   composer is empty and not manually edited, attaching fills it from the work
-  as an IMSLP value; a typed value is never replaced.
+  as an IMSLP value; a typed value is never replaced.~~ (Withdrawn with matching.)
 - **Filename title.** With no work, the draft is created empty and the existing
   first-upload rule names it from the filename stem. As on the Prepare screen,
   that title is owned as an automatic value, so choosing a work later replaces
@@ -306,16 +325,16 @@ Where the implementation departs from, or settles, the text above:
 - **Prepare screen.** A draft opened at `/prepare/<id>` that already has pages
   opens on Pages, as noted above. Kept, and pinned by a spec. If the user goes
   Back to Source, the IMSLP panel shows its "Waiting for your PDF" text because
-  `imslpAdded` is per visit. Left unchanged. That text now also names Send to
-  Noted (review follow-up).
-- **Live check (2026-10-01).** Against the real IMSLP, `02733` matched a waiting
-  draft for `Quasi_valse,_Op.47_(Scriabin,_Aleksandr)` exactly. `01240`
+  `imslpAdded` is per visit. Left unchanged. ~~That text now also names Send to
+  Noted (review follow-up).~~ Amended: it no longer mentions Send to Noted.
+- **Live check (2026-10-01).** Against the real IMSLP, `02733` ~~matched a waiting
+  draft for~~ resolved to `Quasi_valse,_Op.47_(Scriabin,_Aleksandr)` exactly. `01240`
   resolves to *Ich bin vergnügt mit meinem Glücke, BWV 84 (Bach)*, so the
   Clair de lune filename used above and in the mockup is only an example; the
   tests keep it against a fake ReverseLookup.
 - **Open-after-sending** is a `Yes`/`No` text import question: import questions
   attach to action parameters and cannot be a toggle.
-- **Docs.** README has no configuration table, so `SHORTCUT_INSTALL_URL` is
-  documented in the configuration prose and `.env.example`. requirements.md had
+- **Docs.** ~~README has no configuration table, so `SHORTCUT_INSTALL_URL` is
+  documented in the configuration prose and `.env.example`.~~ (Removed.) requirements.md had
   no Safety section, so the token's scope is a list under the score intake
   extension.
