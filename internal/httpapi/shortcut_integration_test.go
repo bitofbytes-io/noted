@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,11 +50,10 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 
 	response := serve(router, httptest.NewRequest(http.MethodPost, "/api/account/shortcut-token", nil))
 	var created struct {
-		Token      string  `json:"token"`
-		InstallURL *string `json:"installUrl"`
+		Token string `json:"token"`
 	}
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &created) != nil ||
-		len(created.Token) != 43 || created.InstallURL == nil || *created.InstallURL != "" {
+		len(created.Token) != 43 || strings.Contains(response.Body.String(), "installUrl") {
 		t.Fatalf("create token: %d %s", response.Code, response.Body.String())
 	}
 

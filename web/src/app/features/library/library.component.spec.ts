@@ -333,7 +333,6 @@ describe('LibraryComponent account dialog', () => {
         {
           token: TOKEN,
           createdAt: new Date(2026, 9, 1, 9).toISOString(),
-          installUrl: 'https://www.icloud.com/shortcuts/example',
         },
       ],
     });
@@ -341,11 +340,12 @@ describe('LibraryComponent account dialog', () => {
     await click('Set up on this iPad');
     expect(api.createShortcutToken).toHaveBeenCalledTimes(1);
     expect(dialog.querySelector('.shortcut-token code')?.textContent).toBe(TOKEN);
-    const install = dialog.querySelector('.shortcut-steps a') as HTMLAnchorElement;
-    expect(install.textContent).toBe('Install the Shortcut');
-    expect(install.href).toBe('https://www.icloud.com/shortcuts/example');
-    expect(install.target).toBe('_blank');
-    expect(install.rel).toContain('noopener');
+    // The signed template Noted serves; Shortcuts asks for the token on import.
+    const template = dialog.querySelector('.shortcut-steps a') as HTMLAnchorElement;
+    expect(template.textContent).toBe('Get the Shortcut');
+    expect(template.getAttribute('href')).toBe('/send-to-noted.shortcut');
+    expect(template.hasAttribute('download')).toBe(true);
+    expect(template.target).toBe('');
     expect(text()).toContain('When Shortcuts asks for your Noted token, paste this:');
     expect(text()).toContain('Tap Done. Share any PDF with Send to Noted.');
     expect(text()).toContain(
@@ -364,20 +364,22 @@ describe('LibraryComponent account dialog', () => {
     expect(button('Turn off')).toBeDefined();
   });
 
-  it('says the Shortcut link will follow when none is configured', async () => {
-    const { dialog, click, open, text } = await setup({
-      created: [{ token: TOKEN, createdAt: '2026-10-01T09:00:00Z', installUrl: '' }],
+  it('offers the Shortcut again for a second device once set up', async () => {
+    const { dialog, open, text } = await setup({
+      token: { active: true, createdAt: '2026-10-01T09:00:00Z', lastUsedAt: null },
     });
     await open();
-    await click('Set up on this iPad');
-    expect(dialog.querySelector('.shortcut-steps a')).toBeNull();
-    expect(text()).toContain('The Shortcut link will be added here.');
-    expect(dialog.querySelector('.shortcut-token code')?.textContent).toBe(TOKEN);
+    const again = dialog.querySelector('.shortcut-again a') as HTMLAnchorElement;
+    expect(again.textContent).toBe('Get the Shortcut again');
+    expect(again.getAttribute('href')).toBe('/send-to-noted.shortcut');
+    expect(again.hasAttribute('download')).toBe(true);
+    expect(text()).toContain('You’ll need your token; if you don’t have it, tap Replace.');
+    expect(dialog.querySelector('.shortcut-token')).toBeNull();
   });
 
   it('discards the token when the dialog closes with Escape', async () => {
     const { dialog, click, open, render, text } = await setup({
-      created: [{ token: TOKEN, createdAt: '2026-10-01T09:00:00Z', installUrl: '' }],
+      created: [{ token: TOKEN, createdAt: '2026-10-01T09:00:00Z' }],
     });
     await open();
     await click('Set up on this iPad');
@@ -396,7 +398,7 @@ describe('LibraryComponent account dialog', () => {
         createdAt: new Date(2026, 9, 1, 9).toISOString(),
         lastUsedAt: new Date(2026, 9, 2, 20).toISOString(),
       },
-      created: [{ token: REPLACEMENT, createdAt: new Date().toISOString(), installUrl: '' }],
+      created: [{ token: REPLACEMENT, createdAt: new Date().toISOString() }],
     });
     await open();
     expect(text()).toContain('Set up on 1 Oct 2026 · last used yesterday');
@@ -453,7 +455,7 @@ describe('LibraryComponent account dialog', () => {
       configurable: true,
     });
     const { fixture, dialog, open, text, button } = await setup({
-      created: [{ token: TOKEN, createdAt: '2026-10-01T09:00:00Z', installUrl: '' }],
+      created: [{ token: TOKEN, createdAt: '2026-10-01T09:00:00Z' }],
     });
     const component = fixture.componentInstance;
     const settle = async () => {

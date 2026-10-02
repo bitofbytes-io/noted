@@ -29,9 +29,6 @@ type Config struct {
 	GoogleRedirect string
 	AllowedEmails  []string
 	SessionTTL     time.Duration
-	// ShortcutInstallURL is the published iCloud link to the Send to Noted
-	// Shortcut. Empty until it is published; the Account dialog then omits it.
-	ShortcutInstallURL string
 }
 
 func Load() (Config, error) {
@@ -77,8 +74,6 @@ func Load() (Config, error) {
 		GoogleRedirect: strings.TrimSpace(os.Getenv("AUTH_GOOGLE_REDIRECT_URL")),
 		AllowedEmails:  normalizeEmails(parseCSV(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS"))),
 		SessionTTL:     defaultSessionTTL,
-
-		ShortcutInstallURL: strings.TrimSpace(os.Getenv("SHORTCUT_INSTALL_URL")),
 	}
 	if raw := os.Getenv("MAX_UPLOAD_BYTES"); raw != "" {
 		size, err := strconv.ParseInt(raw, 10, 64)
@@ -126,11 +121,6 @@ func (c Config) Validate() error {
 	}
 	if c.AppEnv != "development" && c.AppEnv != "test" && c.AppEnv != "production" {
 		return fmt.Errorf("unsupported APP_ENV %q", c.AppEnv)
-	}
-	if c.ShortcutInstallURL != "" {
-		if err := validateAbsoluteURL("SHORTCUT_INSTALL_URL", c.ShortcutInstallURL, true); err != nil {
-			return err
-		}
 	}
 	if c.AuthMode == "development" {
 		if c.AppEnv == "production" {

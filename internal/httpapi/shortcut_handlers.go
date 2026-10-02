@@ -83,9 +83,7 @@ func (h *Handler) createShortcutToken(w http.ResponseWriter, r *http.Request) {
 		handleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"token": token, "createdAt": createdAt, "installUrl": h.config.ShortcutInstallURL,
-	})
+	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "createdAt": createdAt})
 }
 
 func (h *Handler) deleteShortcutToken(w http.ResponseWriter, r *http.Request) {

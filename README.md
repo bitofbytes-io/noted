@@ -60,10 +60,9 @@ sessions are opaque, database-backed, fixed at sign-in, and default to a
 90-day lifetime. Set `SESSION_TTL=12h` to roll back to the former 12-hour
 duration; a configured positive `SESSION_TTL` overrides the default.
 
-Optional `SHORTCUT_INSTALL_URL` is the published iCloud link to the Send to
-Noted iOS Shortcut (`https://` only). The Account dialog shows it as
-**Install the Shortcut** after a user creates their token. When it is unset,
-the dialog says the link will be added and token setup still works. See
+Send to Noted needs no configuration. The UI serves the signed Shortcut
+template, `web/public/send-to-noted.shortcut`, at `/send-to-noted.shortcut`;
+it holds a placeholder token and asks for the user's own on import. See
 [`docs/product/send-to-noted-shortcut.md`](docs/product/send-to-noted-shortcut.md).
 
 The ownership migration intentionally refuses to run while pre-authentication

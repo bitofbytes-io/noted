@@ -25,8 +25,6 @@ import (
 	"github.com/bitofbytes-io/noted/internal/config"
 )
 
-const testInstallURL = "https://www.icloud.com/shortcuts/example"
-
 // fakeShortcutAuth keeps shortcut tokens as their hashes, as the database does.
 type fakeShortcutAuth struct {
 	fakeAuthenticator
@@ -123,7 +121,6 @@ func shortcutRouter(backend Backend, authenticator Authenticator, mode string, m
 		AppEnv: "test", AuthMode: mode, DevUserEmail: "learner@noted.local",
 		AllowedEmails:  []string{"learner@noted.local"},
 		MaxUploadBytes: maxUploadBytes, AllowedOrigin: testAllowedOrigin,
-		ShortcutInstallURL: testInstallURL,
 	})
 }
 
@@ -155,12 +152,12 @@ func createToken(t *testing.T, router http.Handler) string {
 	t.Helper()
 	response := serve(router, httptest.NewRequest(http.MethodPost, "/api/account/shortcut-token", nil))
 	var created struct {
-		Token      string    `json:"token"`
-		CreatedAt  time.Time `json:"createdAt"`
-		InstallURL string    `json:"installUrl"`
+		Token     string    `json:"token"`
+		CreatedAt time.Time `json:"createdAt"`
 	}
+	// The Shortcut is a static template now; the response carries no install link.
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &created) != nil ||
-		len(created.Token) != 43 || created.CreatedAt.IsZero() || created.InstallURL != testInstallURL ||
+		len(created.Token) != 43 || created.CreatedAt.IsZero() || strings.Contains(response.Body.String(), "installUrl") ||
 		response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("create token: %d %v %s", response.Code, response.Header(), response.Body.String())
 	}

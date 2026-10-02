@@ -23,8 +23,6 @@ export interface ShortcutToken {
 export interface ShortcutTokenCreated {
   token: string;
   createdAt: string;
-  /** The published iCloud link to the Shortcut; empty until it is published. */
-  installUrl: string;
 }
 
 export interface PiecePdf {

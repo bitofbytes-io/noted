@@ -56,7 +56,7 @@ describe('ApiService shortcut token', () => {
     const created = firstValueFrom(api.createShortcutToken());
     const post = http.expectOne('/api/account/shortcut-token');
     expect(post.request.method).toBe('POST');
-    post.flush({ token: 't', createdAt: '2026-10-01T09:00:00Z', installUrl: '' });
+    post.flush({ token: 't', createdAt: '2026-10-01T09:00:00Z' });
     await expect(created).resolves.toMatchObject({ token: 't' });
 
     const removed = firstValueFrom(api.deleteShortcutToken(), { defaultValue: undefined });
