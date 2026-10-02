@@ -14,8 +14,9 @@ Two corrections after the first real use on the iPad.
    `SHORTCUT_INSTALL_URL`, hands the token to anyone who installs it. The link
    must not exist. Instead, Noted serves a **signed Shortcut template file**
    with the placeholder token; the person installing it is asked for their
-   own token on import. No iCloud, no deployment to change it, no secret in
-   it.
+   own token on import. No iCloud link and no secret in it. Replacing the
+   template is a normal UI commit and deploy; nothing in the swarm stack
+   changes.
 2. **Attaching to a waiting draft is a flow nobody uses.** Starting in Noted
    means using the in-app IMSLP search, which already stores the link and
    prefills; the download then comes in through *Add downloaded PDF* on the
