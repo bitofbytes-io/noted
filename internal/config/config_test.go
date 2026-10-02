@@ -266,3 +266,24 @@ func TestListenHostDefaultsToLoopbackOutsideProduction(t *testing.T) {
 		t.Fatalf("override ListenHost = %q %v", cfg.ListenHost, err)
 	}
 }
+
+func TestLoadShortcutInstallURLIsOptionalAndMustBeHTTPS(t *testing.T) {
+	t.Setenv("SHORTCUT_INSTALL_URL", "")
+	cfg, err := Load()
+	if err != nil || cfg.ShortcutInstallURL != "" {
+		t.Fatalf("unset install URL: %q, %v", cfg.ShortcutInstallURL, err)
+	}
+
+	t.Setenv("SHORTCUT_INSTALL_URL", " https://www.icloud.com/shortcuts/example ")
+	cfg, err = Load()
+	if err != nil || cfg.ShortcutInstallURL != "https://www.icloud.com/shortcuts/example" {
+		t.Fatalf("install URL: %q, %v", cfg.ShortcutInstallURL, err)
+	}
+
+	for _, invalid := range []string{"javascript:alert(1)", "http://www.icloud.com/shortcuts/example", "icloud.com/shortcuts/x"} {
+		t.Setenv("SHORTCUT_INSTALL_URL", invalid)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "SHORTCUT_INSTALL_URL") {
+			t.Fatalf("accepted install URL %q: %v", invalid, err)
+		}
+	}
+}

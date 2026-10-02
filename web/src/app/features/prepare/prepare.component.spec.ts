@@ -312,6 +312,45 @@ describe('PrepareComponent', () => {
     });
   });
 
+  it('opens a draft that arrived with its PDF, as from Send to Noted, on the Pages step', async () => {
+    const component = fixture.componentInstance;
+    vi.spyOn(component, 'renderPreview').mockResolvedValue();
+    const source = {
+      id: 'shared-pdf',
+      filename: 'IMSLP01240-Debussy_-_Clair_de_lune.pdf',
+      mime: 'application/pdf',
+      pageCount: 2,
+    } as ImportAsset;
+    const shared: ImportDraft = {
+      ...structuredClone(draft),
+      metadata: {
+        ...structuredClone(draft.metadata),
+        title: 'Clair de lune',
+        composer: 'Debussy, Claude',
+        sourceUrl: 'https://imslp.org/wiki/Clair_de_lune_(Debussy,_Claude)',
+      },
+      imslpAutoFill: { title: 'Clair de lune', composer: 'Debussy, Claude' },
+      sources: [source],
+      manifest: {
+        version: 1,
+        pages: [
+          { id: 'p1', sourceId: source.id, page: 0 },
+          { id: 'p2', sourceId: source.id, page: 1 },
+        ],
+      },
+    };
+    api.importDraft.mockReturnValue(of(structuredClone(shared)));
+    await component.load();
+    fixture.detectChanges();
+    expect(component.step()).toBe('pages');
+    expect(component.imslp).toBe(shared.metadata.sourceUrl);
+    expect(component.imslpAdded()).toEqual([]);
+    const next = [...fixture.nativeElement.querySelectorAll('footer .btn-primary')].find(
+      (button: HTMLButtonElement) => button.textContent?.includes('Continue'),
+    ) as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+  });
+
   it('updates pasted IMSLP work metadata when the work link changes after resume', async () => {
     const component = fixture.componentInstance;
     component.draft.set({
@@ -636,7 +675,9 @@ describe('PrepareComponent', () => {
       expect(fixture.nativeElement.querySelector('.chosen-title').textContent).toContain('Prelude');
       expect(text()).toContain('Title and composer filled from IMSLP');
       expect(text()).toContain('IMSLP opened in a new tab');
-      expect(text()).toContain('Waiting for your PDF');
+      expect(text().replace(/\s+/g, ' ')).toContain(
+        'Waiting for your PDF. Drop it here, use Add downloaded PDF, or share it from Safari with Send to Noted.',
+      );
       expect(fixture.nativeElement.querySelector('input[type="search"]')).toBeNull();
 
       const change = fixture.nativeElement.querySelector(

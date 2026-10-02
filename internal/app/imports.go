@@ -20,6 +20,15 @@ var ErrConflict = errors.New("draft changed; reload before saving")
 var ErrPieceChanged = errors.New("saved piece changed; your draft is retained. Start a new preparation from the current piece before saving")
 var ErrImportLimit = errors.New("import limit reached")
 
+// ErrDraftLimit is the ErrImportLimit case of too many open drafts, which Send to
+// Noted reports apart from file size.
+var ErrDraftLimit = fmt.Errorf("%w: 20 open drafts", ErrImportLimit)
+
+// ErrAssetStore wraps a failure to save an uploaded file in the asset store.
+var ErrAssetStore = errors.New("score storage is unavailable")
+
+const maxOpenDrafts = 20
+
 // MaxPreparedPages caps the pages in one preparation draft. A saved score with
 // more pages cannot be opened for preparation, so a draft never starts from a
 // partial copy that would replace the full PDF on an unchanged save.
@@ -167,6 +176,12 @@ func (s *Service) ListImports(ctx context.Context, owner string) ([]ImportDraft,
 	return drafts, rows.Err()
 }
 func (s *Service) CreateImport(ctx context.Context, owner string, input CreateImport) (ImportDraft, error) {
+	return s.createImport(ctx, owner, input, nil)
+}
+
+// createImport starts a draft. A work prefills the title and composer and owns
+// them as IMSLP values, as choosing that work on the Prepare screen does.
+func (s *Service) createImport(ctx context.Context, owner string, input CreateImport, work *IMSLPWork) (ImportDraft, error) {
 	if input.SourceURL != "" {
 		if err := ValidateIMSLP(input.SourceURL); err != nil {
 			return ImportDraft{}, err
@@ -181,10 +196,19 @@ func (s *Service) CreateImport(ctx context.Context, owner string, input CreateIm
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM import_drafts WHERE user_id=$1 AND NOT finalized AND updated_at>now()-interval '7 days'`, owner).Scan(&count); err != nil {
 		return ImportDraft{}, err
 	}
-	if count >= 20 {
-		return ImportDraft{}, ErrImportLimit
+	if count >= maxOpenDrafts {
+		return ImportDraft{}, ErrDraftLimit
 	}
 	d := ImportDraft{ID: uuid.NewString(), Manifest: EditManifest{Version: 1, Pages: []PageEdit{}}, Metadata: PieceInput{SourceURL: input.SourceURL}}
+	if work != nil && input.PieceID == "" {
+		// A value too long to save is left for the user rather than failing the draft.
+		if title := work.Title; len(title) <= 300 {
+			d.Metadata.Title, d.IMSLPAutoFill.Title = title, &title
+		}
+		if composer := work.Composer; len(composer) <= 300 {
+			d.Metadata.Composer, d.IMSLPAutoFill.Composer = composer, &composer
+		}
+	}
 	var sources []string
 	if input.PieceID != "" {
 		if _, err = uuid.Parse(input.PieceID); err != nil {
@@ -302,6 +326,22 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	if err != nil {
 		return ImportDraft{}, err
 	}
+	return s.attachSource(ctx, owner, id, filename, revision, validatedSource{data, mime, count, w, h}, nil)
+}
+
+// validatedSource is a file that already passed ValidateImportBytes.
+type validatedSource struct {
+	data          []byte
+	mime          string
+	pages         int
+	width, height int
+}
+
+// attachSource adds a validated file to a draft. A work fills only a title or
+// composer that is empty and not manually edited, owned as an IMSLP value;
+// it never replaces what the user typed.
+func (s *Service) attachSource(ctx context.Context, owner, id, filename string, revision int64, source validatedSource, work *IMSLPWork) (ImportDraft, error) {
+	data, mime, count, w, h := source.data, source.mime, source.pages, source.width, source.height
 	tx, err := s.importTx(ctx, owner)
 	if err != nil {
 		return ImportDraft{}, err
@@ -323,7 +363,7 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	}
 	object, err := s.store.Save(ctx, bytes.NewReader(data))
 	if err != nil {
-		return d, err
+		return d, fmt.Errorf("%w: %w", ErrAssetStore, err)
 	}
 	committed := false
 	defer func() {
@@ -343,6 +383,14 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	}
 	for n := 0; n < count && len(d.Manifest.Pages) < MaxPreparedPages; n++ {
 		d.Manifest.Pages = append(d.Manifest.Pages, PageEdit{ID: uuid.NewString(), SourceID: a.ID, Page: n})
+	}
+	if work != nil {
+		if title := work.Title; d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited && len(title) <= 300 {
+			d.Metadata.Title, d.IMSLPAutoFill.Title = title, &title
+		}
+		if composer := work.Composer; d.Metadata.Composer == "" && !d.IMSLPAutoFill.ComposerEdited && len(composer) <= 300 {
+			d.Metadata.Composer, d.IMSLPAutoFill.Composer = composer, &composer
+		}
 	}
 	if d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited {
 		d.Metadata.Title = strings.TrimSuffix(filename, ".pdf")

@@ -59,8 +59,13 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 	router.Get("/api/auth/google/callback", handler.googleCallback)
 	router.Get("/api/session", handler.session)
 	router.Delete("/api/session", handler.logout)
+	// Send to Noted: the only route a shortcut token opens, and it opens no other.
+	router.With(handler.shortcutUser).Post("/api/shortcut/import", handler.shortcutImport)
 	router.Group(func(router chi.Router) {
 		router.Use(handler.authenticatedUser)
+		router.Get("/api/account/shortcut-token", handler.shortcutTokenStatus)
+		router.Post("/api/account/shortcut-token", handler.createShortcutToken)
+		router.Delete("/api/account/shortcut-token", handler.deleteShortcutToken)
 		router.Get("/api/imslp/works", handler.searchIMSLPWorks)
 		router.Route("/api/imports", func(router chi.Router) {
 			router.Get("/", handler.listImports)

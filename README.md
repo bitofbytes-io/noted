@@ -60,6 +60,12 @@ sessions are opaque, database-backed, fixed at sign-in, and default to a
 90-day lifetime. Set `SESSION_TTL=12h` to roll back to the former 12-hour
 duration; a configured positive `SESSION_TTL` overrides the default.
 
+Optional `SHORTCUT_INSTALL_URL` is the published iCloud link to the Send to
+Noted iOS Shortcut (`https://` only). The Account dialog shows it as
+**Install the Shortcut** after a user creates their token. When it is unset,
+the dialog says the link will be added and token setup still works. See
+[`docs/product/send-to-noted-shortcut.md`](docs/product/send-to-noted-shortcut.md).
+
 The ownership migration intentionally refuses to run while pre-authentication
 pieces remain. Delete those pieces through the current UI first so `AssetStore`
 also removes their PDF objects; for disposable local data, `make db-reset`
@@ -104,6 +110,8 @@ that:
 - `GET/HEAD /api/pieces/{id}/pdf/download`
 - `GET/PUT /api/pieces/{id}/reader-state`
 - `GET /api/health`
+- `GET/POST/DELETE /api/account/shortcut-token`
+- `POST /api/shortcut/import` (shortcut bearer token only)
 - `GET /api/session`
 - `DELETE /api/session`
 - `GET /api/auth/google`
@@ -116,6 +124,9 @@ implementation is behind `assets.Store` so a future NFS-backed production
 deployment does not change handlers.
 All piece, PDF, and reader-state routes resolve the authenticated user
 server-side; another user's identifier is returned as not found.
+`POST /api/shortcut/import` is the only route that takes a Send to Noted
+bearer token. It accepts no session cookie, and no other route accepts the
+token.
 
 ## Deployment
 

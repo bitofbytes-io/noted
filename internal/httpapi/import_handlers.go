@@ -6,9 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"path"
 	"strconv"
-	"strings"
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/assets"
@@ -165,11 +163,7 @@ func (h *Handler) importUpload(w http.ResponseWriter, r *http.Request, final boo
 		writeJSON(w, 200, p)
 		return
 	}
-	filename := path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
-	if len(filename) > 255 || filename == "." {
-		filename = "Imported score"
-	}
-	d, err := b.UploadImportSource(r.Context(), currentUser(r).ID, id, filename, revision, reader)
+	d, err := b.UploadImportSource(r.Context(), currentUser(r).ID, id, importFilename(header), revision, reader)
 	if err != nil {
 		handleError(w, err)
 		return

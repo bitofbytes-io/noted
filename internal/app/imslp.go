@@ -22,7 +22,11 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-const imslpAPIURL = "https://imslp.org/api.php"
+const (
+	imslpAPIURL  = "https://imslp.org/api.php"
+	imslpWikiURL = "https://imslp.org/wiki/"
+	imslpAgent   = "Noted/1.0 (private score binder; live work search)"
+)
 
 const (
 	IMSLPStatusReady       = "ready"
@@ -48,6 +52,8 @@ type IMSLPSearch struct {
 // IMSLP. Zero fields take the defaults from docs/product/imslp-live-search-plan.md.
 type IMSLPSearchConfig struct {
 	BaseURL string
+	// WikiURL is the prefix for Special:ReverseLookup, used by Send to Noted.
+	WikiURL string
 	Client  *http.Client
 	Now     func() time.Time
 	Sleep   func(context.Context, time.Duration) error
@@ -68,11 +74,17 @@ type IMSLPSearchConfig struct {
 	BreakerFailures int
 	BreakerCooldown time.Duration
 	MaxRetryAfter   time.Duration
+
+	FileCacheSize int
+	FileCacheTTL  time.Duration
 }
 
 func (cfg IMSLPSearchConfig) withDefaults() IMSLPSearchConfig {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = imslpAPIURL
+	}
+	if cfg.WikiURL == "" {
+		cfg.WikiURL = imslpWikiURL
 	}
 	if cfg.Client == nil {
 		cfg.Client = &http.Client{Timeout: 5 * time.Second}
@@ -96,6 +108,8 @@ func (cfg IMSLPSearchConfig) withDefaults() IMSLPSearchConfig {
 	setDefault(&cfg.BreakerFailures, 3)
 	setDefault(&cfg.BreakerCooldown, 60*time.Second)
 	setDefault(&cfg.MaxRetryAfter, 60*time.Second)
+	setDefault(&cfg.FileCacheSize, 500)
+	setDefault(&cfg.FileCacheTTL, 24*time.Hour)
 	return cfg
 }
 
@@ -134,6 +148,10 @@ type imslpSearcher struct {
 	open      bool
 	openUntil time.Time
 	probing   bool
+
+	// files caches IMSLP file number → work for Send to Noted, apart from searches.
+	files       *list.List
+	fileEntries map[string]*list.Element
 }
 
 type imslpUserBucket struct {
@@ -147,10 +165,17 @@ type imslpCacheEntry struct {
 	expires time.Time
 }
 
+type imslpFileEntry struct {
+	number  string
+	work    IMSLPWork
+	expires time.Time
+}
+
 func newIMSLPSearcher(cfg IMSLPSearchConfig) *imslpSearcher {
 	cfg = cfg.withDefaults()
 	client := *cfg.Client
 	// A redirect from api.php means IMSLP's browser check, never search results.
+	// ReverseLookup answers with a redirect that is read, never followed.
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -161,6 +186,9 @@ func newIMSLPSearcher(cfg IMSLPSearchConfig) *imslpSearcher {
 		users:   map[string]*imslpUserBucket{},
 		cache:   list.New(),
 		entries: map[string]*list.Element{},
+
+		files:       list.New(),
+		fileEntries: map[string]*list.Element{},
 	}
 }
 
@@ -456,7 +484,7 @@ func (s *imslpSearcher) fetch(terms, what string) ([]IMSLPWork, time.Duration, e
 	if err != nil {
 		return nil, 0, errors.New("invalid IMSLP search request")
 	}
-	request.Header.Set("User-Agent", "Noted/1.0 (private score binder; live work search)")
+	request.Header.Set("User-Agent", imslpAgent)
 	request.Header.Set("Accept", "application/json")
 	response, err := s.client.Do(request)
 	if err != nil {
@@ -490,6 +518,16 @@ func (s *imslpSearcher) retryAfter(header string) time.Duration {
 // IMSLP work pages are titled "Work title (Last, First)", the same rule the
 // Prepare screen uses for a pasted work link.
 var imslpWorkTitle = regexp.MustCompile(`^(.*?)\s*\(([^()]+, [^()]+)\)$`)
+
+// imslpWorkName splits a work page title into the work and its composer
+// ("Last, First"). Pages not titled that way are not works.
+func imslpWorkName(title string) (work, composer string, ok bool) {
+	match := imslpWorkTitle.FindStringSubmatch(title)
+	if match == nil || strings.TrimSpace(match[1]) == "" {
+		return "", "", false
+	}
+	return strings.TrimSpace(match[1]), strings.TrimSpace(match[2]), true
+}
 
 type imslpPage struct {
 	NS      int             `json:"ns"`
@@ -569,8 +607,8 @@ func parseIMSLPSearch(body io.Reader) ([]IMSLPWork, error) {
 	})
 	seen := map[string]bool{}
 	for _, page := range pages {
-		match := imslpWorkTitle.FindStringSubmatch(page.Title)
-		if page.NS != 0 || len(page.Missing) > 0 || match == nil || strings.TrimSpace(match[1]) == "" {
+		title, composer, isWork := imslpWorkName(page.Title)
+		if page.NS != 0 || len(page.Missing) > 0 || !isWork {
 			continue
 		}
 		raw := page.FullURL
@@ -582,11 +620,7 @@ func parseIMSLPSearch(body io.Reader) ([]IMSLPWork, error) {
 			continue
 		}
 		seen[workURL] = true
-		works = append(works, IMSLPWork{
-			Title:    strings.TrimSpace(match[1]),
-			Composer: strings.TrimSpace(match[2]),
-			URL:      workURL,
-		})
+		works = append(works, IMSLPWork{Title: title, Composer: composer, URL: workURL})
 	}
 	return works, nil
 }

@@ -281,10 +281,11 @@ a { color: var(--green); }
       </div>
       <aside class="notes">
         <ul>
+          <li>Before a file arrives the panel reads: "Waiting for your PDF. Drop it here, use Add downloaded PDF, or share it from Safari with Send to Noted."</li>
           <li>The panel becomes a drop target while a work is chosen (desktop drag from the Downloads shelf). Dropping routes through the same code path as the file input.</li>
           <li>Filenames from IMSLP start with the file number (<code>IMSLP01240-…</code>). When it is present, Noted can confirm the match against the chosen work; the check is informational and never blocks adding a file.</li>
           <li>After the file is added, the existing flow continues unchanged: Pages (reorder, crop, extract) then Details.</li>
-          <li><span class="tag">Follow-up</span>On iPad the fastest path is the Share sheet from Safari's PDF viewer to a <em>Send to Noted</em> shortcut, which posts the file to the waiting draft. That needs a per-user token and a token-scoped endpoint, and is a separate issue. This frame is designed so its copy can later add "or share it from Safari with Send to Noted".</li>
+          <li><span class="tag">Follow-up</span>On iPad the fastest path is the Share sheet from Safari's PDF viewer to a <em>Send to Noted</em> shortcut, which posts the file to the waiting draft. It uses a per-user token and a token-scoped endpoint (see <code>docs/product/send-to-noted-shortcut-plan.md</code>), and the waiting copy above now names it.</li>
         </ul>
       </aside>
     </div>

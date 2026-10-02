@@ -10,20 +10,43 @@
 }
 
 .masthead-actions,
-.account {
+.masthead-account {
   display: flex;
   align-items: center;
   gap: 16px;
 }
 
-.account {
-  gap: 4px;
-  color: var(--ink-muted);
-  font-size: var(--text-meta);
+/* On a narrow screen the name gives way (ellipsis) before the Add piece pill. */
+.masthead-actions {
+  min-width: 0;
 }
 
-.account-name {
-  padding: 0 6px;
+.masthead-actions .btn-primary {
+  flex: none;
+}
+
+.masthead-account {
+  gap: 4px;
+  min-width: 0;
+}
+
+.dev-chip {
+  flex: none;
+}
+
+/* The display name is the masthead's one account control: quiet, with a dotted
+   rule so it reads as tappable beside the single green action. */
+.account-button {
+  max-width: 24ch;
+  min-width: var(--tap-min);
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  line-height: var(--tap-min);
+  text-decoration: underline dashed var(--line-strong);
+  text-underline-offset: 6px;
 }
 
 .dev-chip {
@@ -34,9 +57,16 @@
   font-weight: 500;
 }
 
-@media (max-width: 640px) {
-  .account-name {
+@media (max-width: 360px) {
+  .dev-chip {
     display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .account-button {
+    max-width: 12ch;
+    padding: 0 6px;
   }
 
   .masthead-actions {
@@ -391,6 +421,140 @@ h1 {
 
 .editor-actions .btn-primary:disabled {
   cursor: wait;
+}
+
+/* Account dialog */
+
+.account {
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(800px, calc(100dvh - 32px));
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+.account::backdrop {
+  background: rgb(26 26 26 / 45%);
+}
+
+.account-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.account-who {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.account-who h2 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.25;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.account-who small {
+  color: var(--ink-muted);
+  font-size: var(--text-meta);
+  overflow-wrap: anywhere;
+}
+
+.account-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.account-section:last-child {
+  padding-bottom: 0;
+}
+
+.account-section h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.account-section p {
+  margin: 0;
+}
+
+.account-note {
+  color: var(--ink-muted);
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-actions .btn-quiet:first-child {
+  margin-left: -10px;
+}
+
+.shortcut-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.shortcut-steps a {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.shortcut-token {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.shortcut-token code {
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  background: white;
+  font:
+    500 14px/1.4 ui-monospace,
+    'SF Mono',
+    Menlo,
+    monospace;
+  word-break: break-all;
+  user-select: all;
+}
+
+.shortcut-warning {
+  color: var(--danger);
+  font-size: var(--text-meta);
+}
+
+.shortcut-status {
+  font-variant-numeric: tabular-nums;
+}
+
+.shortcut-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+}
+
+.account .notice {
+  margin: 0;
 }
 
 @media (max-width: 800px) {

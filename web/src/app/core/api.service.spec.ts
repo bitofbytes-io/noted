@@ -38,3 +38,32 @@ describe('ApiService IMSLP search', () => {
     http.verify();
   });
 });
+
+describe('ApiService shortcut token', () => {
+  it('reads, creates and turns off the account token', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const api = TestBed.inject(ApiService);
+    const http = TestBed.inject(HttpTestingController);
+
+    const status = firstValueFrom(api.shortcutToken());
+    const get = http.expectOne('/api/account/shortcut-token');
+    expect(get.request.method).toBe('GET');
+    get.flush({ active: false, createdAt: null, lastUsedAt: null });
+    await expect(status).resolves.toEqual({ active: false, createdAt: null, lastUsedAt: null });
+
+    const created = firstValueFrom(api.createShortcutToken());
+    const post = http.expectOne('/api/account/shortcut-token');
+    expect(post.request.method).toBe('POST');
+    post.flush({ token: 't', createdAt: '2026-10-01T09:00:00Z', installUrl: '' });
+    await expect(created).resolves.toMatchObject({ token: 't' });
+
+    const removed = firstValueFrom(api.deleteShortcutToken(), { defaultValue: undefined });
+    const remove = http.expectOne('/api/account/shortcut-token');
+    expect(remove.request.method).toBe('DELETE');
+    remove.flush(null, { status: 204, statusText: 'No Content' });
+    await removed;
+    http.verify();
+  });
+});

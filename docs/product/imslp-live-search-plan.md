@@ -183,7 +183,9 @@ gets the file three ways:
    land in Downloads. On desktop it is the normal file picker.
 2. **Drop onto the draft** (this plan). Desktop: drag from the Downloads
    shelf onto the IMSLP panel.
-3. **Send to Noted shortcut** (follow-up, separate issue). iOS Shortcut
+3. **Send to Noted shortcut** (follow-up, now implemented: see
+   [`send-to-noted-shortcut-plan.md`](send-to-noted-shortcut-plan.md) and the
+   recipe in [`send-to-noted-shortcut.md`](send-to-noted-shortcut.md)). iOS Shortcut
    receives the PDF from the Share sheet (Safari's PDF viewer or Files) and
    POSTs it with a per-user bearer token to a new endpoint that attaches the
    file to the user's most recent open draft whose work link matches the
