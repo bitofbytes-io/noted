@@ -112,7 +112,7 @@ func (fake *fakeShortcutBackend) ShortcutImport(_ context.Context, userID, filen
 	}
 	return app.ShortcutImport{
 		DraftID: "d1", DraftPath: "/prepare/d1", Title: "Clair de lune", Composer: "Debussy, Claude",
-		Matched: true, Filename: filename,
+		Filename: filename, Headline: "Clair de lune — Debussy, Claude", Message: "New draft created.",
 	}, nil
 }
 
@@ -352,11 +352,15 @@ func TestShortcutImportChecksTheFileAndMapsErrors(t *testing.T) {
 	}
 	for key, want := range map[string]any{
 		"draftId": "d1", "draftPath": "/prepare/d1", "title": "Clair de lune",
-		"composer": "Debussy, Claude", "matched": true, "filename": "IMSLP01240-Debussy.pdf",
+		"composer": "Debussy, Claude", "filename": "IMSLP01240-Debussy.pdf",
+		"headline": "Clair de lune — Debussy, Claude", "message": "New draft created.",
 	} {
 		if result[key] != want {
 			t.Errorf("%s = %v, want %v", key, result[key], want)
 		}
+	}
+	if _, ok := result["matched"]; ok {
+		t.Errorf("response still has matched: %v", result)
 	}
 	if backend.filename != "IMSLP01240-Debussy.pdf" || backend.body != "%PDF-1.7 bytes" || backend.userID != testUserID {
 		t.Fatalf("backend received %q %q for %q", backend.filename, backend.body, backend.userID)
@@ -423,7 +427,7 @@ func TestShortcutImportLogsTheUseButNeverTheFileOrToken(t *testing.T) {
 	}
 	line := logs.String()
 	if strings.Count(line, "shortcut import accepted") != 1 || !strings.Contains(line, testUserID) ||
-		!strings.Contains(line, "matched=true") {
+		strings.Contains(line, "matched") {
 		t.Fatalf("missing accepted-import log: %q", line)
 	}
 	if strings.Contains(line, "Secret_title") || strings.Contains(line, "IMSLP01240") || strings.Contains(line, token) {

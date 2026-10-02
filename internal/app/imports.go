@@ -326,7 +326,7 @@ func (s *Service) UploadImportSource(ctx context.Context, owner, id, filename st
 	if err != nil {
 		return ImportDraft{}, err
 	}
-	return s.attachSource(ctx, owner, id, filename, revision, validatedSource{data, mime, count, w, h}, nil)
+	return s.attachSource(ctx, owner, id, filename, revision, validatedSource{data, mime, count, w, h})
 }
 
 // validatedSource is a file that already passed ValidateImportBytes.
@@ -337,10 +337,7 @@ type validatedSource struct {
 	width, height int
 }
 
-// attachSource adds a validated file to a draft. A work fills only a title or
-// composer that is empty and not manually edited, owned as an IMSLP value;
-// it never replaces what the user typed.
-func (s *Service) attachSource(ctx context.Context, owner, id, filename string, revision int64, source validatedSource, work *IMSLPWork) (ImportDraft, error) {
+func (s *Service) attachSource(ctx context.Context, owner, id, filename string, revision int64, source validatedSource) (ImportDraft, error) {
 	data, mime, count, w, h := source.data, source.mime, source.pages, source.width, source.height
 	tx, err := s.importTx(ctx, owner)
 	if err != nil {
@@ -383,14 +380,6 @@ func (s *Service) attachSource(ctx context.Context, owner, id, filename string, 
 	}
 	for n := 0; n < count && len(d.Manifest.Pages) < MaxPreparedPages; n++ {
 		d.Manifest.Pages = append(d.Manifest.Pages, PageEdit{ID: uuid.NewString(), SourceID: a.ID, Page: n})
-	}
-	if work != nil {
-		if title := work.Title; d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited && len(title) <= 300 {
-			d.Metadata.Title, d.IMSLPAutoFill.Title = title, &title
-		}
-		if composer := work.Composer; d.Metadata.Composer == "" && !d.IMSLPAutoFill.ComposerEdited && len(composer) <= 300 {
-			d.Metadata.Composer, d.IMSLPAutoFill.Composer = composer, &composer
-		}
 	}
 	if d.Metadata.Title == "" && !d.IMSLPAutoFill.TitleEdited {
 		d.Metadata.Title = strings.TrimSuffix(filename, ".pdf")
