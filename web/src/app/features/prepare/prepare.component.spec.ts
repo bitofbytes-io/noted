@@ -675,7 +675,9 @@ describe('PrepareComponent', () => {
       expect(fixture.nativeElement.querySelector('.chosen-title').textContent).toContain('Prelude');
       expect(text()).toContain('Title and composer filled from IMSLP');
       expect(text()).toContain('IMSLP opened in a new tab');
-      expect(text()).toContain('Waiting for your PDF');
+      expect(text().replace(/\s+/g, ' ')).toContain(
+        'Waiting for your PDF. Drop it here, use Add downloaded PDF, or share it from Safari with Send to Noted.',
+      );
       expect(fixture.nativeElement.querySelector('input[type="search"]')).toBeNull();
 
       const change = fixture.nativeElement.querySelector(

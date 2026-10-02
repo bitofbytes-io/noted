@@ -296,6 +296,9 @@ Where the implementation departs from, or settles, the text above:
   the query and the upload. A new draft whose upload fails is deleted, so no
   empty draft is left. At 20 open drafts, a waiting draft still receives its
   file; only creating a new one is refused.
+- **Matched prefill (review follow-up).** When the waiting draft's title or
+  composer is empty and not manually edited, attaching fills it from the work
+  as an IMSLP value; a typed value is never replaced.
 - **Filename title.** With no work, the draft is created empty and the existing
   first-upload rule names it from the filename stem. As on the Prepare screen,
   that title is owned as an automatic value, so choosing a work later replaces
@@ -303,7 +306,8 @@ Where the implementation departs from, or settles, the text above:
 - **Prepare screen.** A draft opened at `/prepare/<id>` that already has pages
   opens on Pages, as noted above. Kept, and pinned by a spec. If the user goes
   Back to Source, the IMSLP panel shows its "Waiting for your PDF" text because
-  `imslpAdded` is per visit. Left unchanged.
+  `imslpAdded` is per visit. Left unchanged. That text now also names Send to
+  Noted (review follow-up).
 - **Live check (2026-10-01).** Against the real IMSLP, `02733` matched a waiting
   draft for `Quasi_valse,_Op.47_(Scriabin,_Aleksandr)` exactly. `01240`
   resolves to *Ich bin vergnügt mit meinem Glücke, BWV 84 (Bach)*, so the
