@@ -100,10 +100,13 @@ In the shortcut's details (the ⓘ button at the bottom of the editor):
 8. **Repeat with Each** item in `Shortcut Input`. Inside the repeat:
    1. Turn a shared link into the file:
       - **Get URLs from** `Repeat Item`.
-      - **If** `URLs` **has any value** (Safari shared a link):
-        - **Get Contents of URL**: the `URLs` value, method `GET`, nothing
-          else changed. This downloads the PDF on the iPad.
-        - **Get Component of URL**: `Path` of `URLs`; **Split Text** by `/`;
+      - **Set Variable** `Link` to `URLs`. Use `Link` below rather than the
+        magic variable: the editor shows several different outputs as a bare
+        "URL", and picking the wrong one silently takes the Otherwise branch.
+      - **If** `Link` **has any value** (Safari shared a link):
+        - **Get Contents of URL**: `Link`, method `GET`, nothing else
+          changed. This downloads the PDF on the iPad.
+        - **Get Component of URL**: `Path` of `Link`; **Split Text** by `/`;
           **Get Item from List**: `Last Item`. This is the IMSLP filename.
         - **Set Name** of the downloaded *Contents of URL* to that item, with
           **Don't Include File Extension** off.
@@ -121,7 +124,10 @@ In the shortcut's details (the ⓘ button at the bottom of the editor):
       - Headers: add one. Key `Authorization`; value: type `Bearer` and a
         space, then the `Token` variable.
       - Request Body: `Form`. Add a field, choose **File**, key `file`,
-        value the `File` variable.
+        value the `File` variable. The key is the plain text `file`; the
+        variable goes in the value slot (it says *Choose* until set). A
+        variable dropped into the key leaves the value empty, and Noted
+        answers "Send the PDF as the form field named file.".
    4. **If** `Contents of URL` **does not have any value**:
       - **Show Notification**: title `Noted`, body `Noted isn't reachable.`
       - **Stop This Shortcut**.
@@ -190,6 +196,10 @@ automated tests can't do them.
    downloading keeps the name.
 
 ### Publishing
+
+An iCloud link is a snapshot of the Shortcut at the time it was shared.
+After any edit, share it again, copy the new link, and update
+`SHORTCUT_INSTALL_URL`; the old link keeps installing the old version.
 
 1. In Shortcuts, long-press **Send to Noted** → **Share** → **Copy iCloud
    Link**. The link starts `https://www.icloud.com/shortcuts/`.
