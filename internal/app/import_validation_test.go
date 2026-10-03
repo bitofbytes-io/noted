@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/bitofbytes-io/noted/internal/assets"
@@ -48,6 +49,47 @@ func TestPDFValidationDoesNotRequireAUserConfigDirectory(t *testing.T) {
 		t.Fatalf("pdfcpu config directory enabled: %q", model.ConfigPath)
 	}
 }
+
+// An unreadable PDF is the user's to fix, so it is a ValidationError, but its
+// message must not carry pdfcpu's wording; that stays on the cause for the log.
+func TestUnreadablePDFIsAValidationErrorWithoutPDFCPUDetail(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/fixtures/noted-valid-ccitt.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, broken := range map[string][]byte{
+		"truncated": data[:len(data)/2],
+		"garbage":   []byte("%PDF-1.7\nnot really a PDF"),
+	} {
+		_, _, _, _, err := ValidateImportBytes(broken)
+		var invalid *ValidationError
+		if !errors.As(err, &invalid) {
+			t.Fatalf("%s: %T %v, want a ValidationError", name, err, err)
+		}
+		if invalid.Error() != "PDF must be readable and unencrypted" || invalid.Cause == nil {
+			t.Fatalf("%s: message %q, cause %v", name, invalid.Error(), invalid.Cause)
+		}
+	}
+}
+
+func TestValidatorsReturnValidationErrors(t *testing.T) {
+	checksum := strings.Repeat("a", 64)
+	for name, err := range map[string]error{
+		"piece":        func() error { _, err := validatePiece(PieceInput{}); return err }(),
+		"reader state": ValidateReaderState(ReaderState{PDFChecksumSHA256: checksum, Mode: "page", ScrollPosition: -1, LastPage: 1, Zoom: 1, ScrollSpeed: 5}),
+		"IMSLP link":   ValidateIMSLP("http://example.test/wiki/x"),
+		"manifest":     validateManifest(EditManifest{Version: 2}, nil, true),
+		"photo-only":   validateManifest(EditManifest{Version: 1, Pages: []PageEdit{{ID: "8a0c7a1e-55f3-4d43-9a63-4b0f0c3f6b11", SourceID: "s", PaperCleanup: true}}}, []ImportAsset{{ID: "s", MIME: "application/pdf", PageCount: 1}}, true),
+		"page limit":   ErrTooManyPages,
+		"empty source": func() error { _, _, _, _, err := ValidateImportBytes(nil); return err }(),
+	} {
+		var invalid *ValidationError
+		if !errors.As(err, &invalid) {
+			t.Errorf("%s: %T %v, want a ValidationError", name, err, err)
+		}
+	}
+}
+
 func TestImportManifestValidation(t *testing.T) {
 	source := ImportAsset{ID: "25c675db-6d18-4d36-b9e1-2810a859b199", MIME: "image/jpeg", PageCount: 1}
 	base := PageEdit{ID: "d10a2d43-bde2-4249-b645-3f2e746c61ea", SourceID: source.ID, Page: 0}

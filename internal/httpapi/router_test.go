@@ -353,7 +353,7 @@ func TestCreateAndPatchPassListeningURL(t *testing.T) {
 }
 
 func TestCreateReturnsListeningURLValidationError(t *testing.T) {
-	fake := &fakeBackend{createErr: errors.New("listening URL must be an http or https URL")}
+	fake := &fakeBackend{createErr: &app.ValidationError{Message: "listening URL must be an http or https URL"}}
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/pieces/",
@@ -470,5 +470,31 @@ func TestTooManyPagesIsAValidationError(t *testing.T) {
 	handleError(response, app.ErrTooManyPages)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "up to 10 pages") {
 		t.Fatalf("page limit response: %d %s", response.Code, response.Body.String())
+	}
+}
+
+// The status comes from the error's type, never its wording.
+func TestValidationStatusFollowsErrorType(t *testing.T) {
+	for name, test := range map[string]struct {
+		err    error
+		status int
+		body   string
+	}{
+		"validation": {&app.ValidationError{Message: "title must be between 1 and 300 characters"}, 400,
+			`{"error":"title must be between 1 and 300 characters"}`},
+		"wrapped validation": {fmt.Errorf("update draft: %w", &app.ValidationError{Message: "crop must have four normalized edges enclosing an area"}), 400,
+			`{"error":"crop must have four normalized edges enclosing an area"}`},
+		"library cause stays out": {&app.ValidationError{Message: "PDF must be readable and unencrypted", Cause: errors.New("pdfcpu: xreftable: corrupt object 12 0")}, 400,
+			`{"error":"PDF must be readable and unencrypted"}`},
+		"wording alone is not validation": {errors.New("database replica must be writable: cannot execute UPDATE"), 500,
+			`{"error":"internal server error"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handleError(response, test.err)
+			if response.Code != test.status || strings.TrimSpace(response.Body.String()) != test.body {
+				t.Fatalf("%d %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }

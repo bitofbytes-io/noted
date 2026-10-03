@@ -87,6 +87,12 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 	if response = serve(router, shortcutUpload(created.Token, "fake.pdf", "application/pdf", "not a pdf")); response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("non-PDF bytes: %d %s", response.Code, response.Body.String())
 	}
+	// A damaged PDF is the user's to fix: 400, worded for the Shortcut's
+	// notification without pdfcpu's internals.
+	if response = serve(router, shortcutUpload(created.Token, "damaged.pdf", "application/pdf", string(pdf[:len(pdf)/2]))); response.Code != http.StatusBadRequest ||
+		response.Body.String() != "{\"error\":\"PDF must be readable and unencrypted\"}\n" {
+		t.Fatalf("damaged PDF: %d %s", response.Code, response.Body.String())
+	}
 
 	if response = serve(router, httptest.NewRequest(http.MethodDelete, "/api/account/shortcut-token", nil)); response.Code != http.StatusNoContent {
 		t.Fatalf("turn off: %d", response.Code)

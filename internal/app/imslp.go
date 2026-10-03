@@ -208,7 +208,7 @@ func canonicalIMSLPWorkURL(raw string) (string, bool) {
 func (s *Service) SearchIMSLP(ctx context.Context, userID, query string) (IMSLPSearch, error) {
 	query = strings.TrimSpace(query)
 	if count := utf8.RuneCountInString(query); count < 2 || count > 100 {
-		return IMSLPSearch{}, errors.New("search must be 2 to 100 characters")
+		return IMSLPSearch{}, invalid("search must be 2 to 100 characters")
 	}
 	return s.imslp.search(ctx, userID, query)
 }
