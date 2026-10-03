@@ -34,8 +34,6 @@ type fakeBackend struct {
 	patchInput   app.PiecePatch
 	patchUserID  string
 	patchPieceID string
-	uploadName   string
-	uploadBody   string
 	pdfFilename  string
 	pdfBody      []byte
 	pdfError     error
@@ -68,11 +66,6 @@ func (fake *fakeBackend) UpdatePiece(_ context.Context, userID, pieceID string, 
 	return piece, nil
 }
 func (*fakeBackend) DeletePiece(context.Context, string, string) error { return nil }
-func (fake *fakeBackend) UploadPDF(_ context.Context, _, _ string, name string, _ int, body io.Reader) (app.Piece, error) {
-	content, err := io.ReadAll(body)
-	fake.uploadName, fake.uploadBody = name, string(content)
-	return app.Piece{ID: testPieceID}, err
-}
 func (fake *fakeBackend) PDFSource(
 	_ context.Context,
 	userID, pieceID string,
@@ -226,11 +219,11 @@ func TestCORSRejectsMultipartMutationFromMismatchedOrigin(t *testing.T) {
 	})
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
-	_ = form.WriteField("pageCount", "1")
+	_ = form.WriteField("revision", "1")
 	file, _ := form.CreateFormFile("file", "score.pdf")
 	_, _ = io.WriteString(file, "%PDF-safe")
 	_ = form.Close()
-	request := httptest.NewRequest(http.MethodPost, "/api/pieces/"+testPieceID+"/pdf", body)
+	request := httptest.NewRequest(http.MethodPost, "/api/imports/"+testPieceID+"/sources", body)
 	request.Header.Set("Origin", "https://untrusted.example.test")
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	response := httptest.NewRecorder()
@@ -240,9 +233,9 @@ func TestCORSRejectsMultipartMutationFromMismatchedOrigin(t *testing.T) {
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403: %s", response.Code, response.Body.String())
 	}
-	if authenticator.ensureDevelopmentUserCalls != 0 || fake.uploadBody != "" {
-		t.Fatalf("rejected upload reached authentication or backend: auth=%d upload=%q",
-			authenticator.ensureDevelopmentUserCalls, fake.uploadBody)
+	if authenticator.ensureDevelopmentUserCalls != 0 {
+		t.Fatalf("rejected upload reached authentication: auth=%d",
+			authenticator.ensureDevelopmentUserCalls)
 	}
 }
 
@@ -374,55 +367,13 @@ func TestCreateReturnsListeningURLValidationError(t *testing.T) {
 	}
 }
 
-func TestUploadValidatesSignatureAndSanitizesFilename(t *testing.T) {
-	fake := &fakeBackend{}
-	body := &bytes.Buffer{}
-	form := multipart.NewWriter(body)
-	_ = form.WriteField("pageCount", "2")
-	file, _ := form.CreateFormFile("file", `..\..\unsafe.pdf`)
-	_, _ = io.WriteString(file, "%PDF-safe")
-	_ = form.Close()
-	request := httptest.NewRequest(http.MethodPost, "/api/pieces/"+testPieceID+"/pdf", body)
-	request.Header.Set("Content-Type", form.FormDataContentType())
-	response := httptest.NewRecorder()
-	testRouter(fake, 1024).ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("unexpected response: %d %s", response.Code, response.Body.String())
-	}
-	if fake.uploadName != "unsafe.pdf" || fake.uploadBody != "%PDF-safe" {
-		t.Fatalf("unsafe upload handling: name=%q body=%q", fake.uploadName, fake.uploadBody)
-	}
-}
-
-func TestUploadRejectsNonPDF(t *testing.T) {
-	body := &bytes.Buffer{}
-	form := multipart.NewWriter(body)
-	_ = form.WriteField("pageCount", "1")
-	file, _ := form.CreateFormFile("file", "fake.pdf")
-	_, _ = io.WriteString(file, "not a pdf")
-	_ = form.Close()
-	request := httptest.NewRequest(http.MethodPost, "/api/pieces/"+testPieceID+"/pdf", body)
-	request.Header.Set("Content-Type", form.FormDataContentType())
+// A piece's PDF is replaced only through Prepare; the PDF route is read-only.
+func TestPDFRouteRejectsDirectUpload(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/pieces/"+testPieceID+"/pdf", strings.NewReader("%PDF-"))
 	response := httptest.NewRecorder()
 	testRouter(&fakeBackend{}, 1024).ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "valid PDF") {
-		t.Fatalf("expected validation failure, got %d %s", response.Code, response.Body.String())
-	}
-}
-
-func TestUploadRejectsFilesOverConfiguredLimit(t *testing.T) {
-	body := &bytes.Buffer{}
-	form := multipart.NewWriter(body)
-	_ = form.WriteField("pageCount", "1")
-	file, _ := form.CreateFormFile("file", "large.pdf")
-	_, _ = io.WriteString(file, "%PDF-more-than-eight-bytes")
-	_ = form.Close()
-	request := httptest.NewRequest(http.MethodPost, "/api/pieces/"+testPieceID+"/pdf", body)
-	request.Header.Set("Content-Type", form.FormDataContentType())
-	response := httptest.NewRecorder()
-	testRouter(&fakeBackend{}, 8).ServeHTTP(response, request)
-	if response.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("expected size failure, got %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("direct PDF upload: %d %s", response.Code, response.Body.String())
 	}
 }
 

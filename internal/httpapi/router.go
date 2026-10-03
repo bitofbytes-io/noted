@@ -28,7 +28,6 @@ type Backend interface {
 	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
 	UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error)
 	DeletePiece(context.Context, string, string) error
-	UploadPDF(context.Context, string, string, string, int, io.Reader) (app.Piece, error)
 	PDFSource(context.Context, string, string) (app.PDFSource, assets.ReadSeekCloser, error)
 	GetReaderState(context.Context, string, string) (app.ReaderState, error)
 	PutReaderState(context.Context, string, string, app.ReaderState) (app.ReaderState, error)
@@ -87,7 +86,6 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 				router.Get("/", handler.getPiece)
 				router.Patch("/", handler.updatePiece)
 				router.Delete("/", handler.deletePiece)
-				router.Post("/pdf", handler.uploadPDF)
 				router.Get("/pdf", handler.servePDF)
 				router.Head("/pdf", handler.servePDF)
 				router.Get("/pdf/download", handler.downloadPDF)
@@ -176,54 +174,6 @@ func (h *Handler) deletePiece(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	writer.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) uploadPDF(writer http.ResponseWriter, request *http.Request) {
-	id, ok := pieceID(writer, request)
-	if !ok {
-		return
-	}
-	request.Body = http.MaxBytesReader(writer, request.Body, h.maxUploadBytes+(1<<20))
-	if err := request.ParseMultipartForm(1 << 20); err != nil {
-		writeError(writer, http.StatusBadRequest, "upload is too large or malformed")
-		return
-	}
-	file, header, err := request.FormFile("file")
-	if err != nil {
-		writeError(writer, http.StatusBadRequest, "a PDF file is required")
-		return
-	}
-	defer file.Close()
-	if request.MultipartForm != nil {
-		defer request.MultipartForm.RemoveAll()
-	}
-	pageCount, err := strconv.Atoi(request.FormValue("pageCount"))
-	if err != nil || pageCount < 1 || pageCount > 10000 {
-		writeError(writer, http.StatusBadRequest, "pageCount must be between 1 and 10000")
-		return
-	}
-	signature := make([]byte, 5)
-	if _, err := io.ReadFull(file, signature); err != nil || string(signature) != "%PDF-" {
-		writeError(writer, http.StatusBadRequest, "the selected file is not a valid PDF")
-		return
-	}
-	filename := safeFilename(header.Filename)
-	limited := &hardLimitReader{
-		reader: io.MultiReader(strings.NewReader(string(signature)), file),
-		left:   h.maxUploadBytes,
-	}
-	piece, err := h.backend.UploadPDF(
-		request.Context(), currentUser(request).ID, id, filename, pageCount, limited,
-	)
-	if err != nil {
-		if errors.Is(err, errUploadTooLarge) {
-			writeError(writer, http.StatusRequestEntityTooLarge, "PDF exceeds the upload limit")
-			return
-		}
-		handleError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, piece)
 }
 
 func (h *Handler) servePDF(writer http.ResponseWriter, request *http.Request) {

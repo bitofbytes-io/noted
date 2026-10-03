@@ -147,8 +147,17 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.UploadPDF(
-		ctx, userA.ID, pieceA.ID, "score.pdf", 2, bytes.NewReader(fixture),
+	draft, err := service.CreateImport(ctx, userA.ID, app.CreateImport{PieceID: pieceA.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft, err = service.UploadImportSource(
+		ctx, userA.ID, draft.ID, "score.pdf", draft.Revision, bytes.NewReader(fixture),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.FinalizeImport(
+		ctx, userA.ID, draft.ID, draft.Revision, bytes.NewReader(fixture),
 	); err != nil {
 		t.Fatal(err)
 	}
