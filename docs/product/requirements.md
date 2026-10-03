@@ -42,7 +42,9 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-015: Replacing or deleting a PDF cleans up the old stored object without
   leaving the database pointing at a missing replacement.
 - BND-016: A user can download the current PDF attached to their own piece using
-  its safe original filename, so they can edit it outside Noted before replacing it.
+  its safe stored filename, so they can edit it outside Noted before replacing it
+  through Prepare. A PDF saved by Prepare is named after the piece title; pieces
+  uploaded before Prepare keep their original filename.
 
 ### Reader
 
@@ -87,7 +89,7 @@ IMSLP fetching, photo stitching, sharing, and offline mode are not part of v1.
 
 1. Add a piece from a phone or desktop, using the filename-prefilled title.
 2. Optionally add a listening URL, add its PDF through Prepare, and find it by title or composer.
-3. Download the current PDF from the edit dialog and verify the original filename.
+3. Download the current PDF from the edit dialog and verify its filename (the piece title).
 4. Favorite it and verify the favorites filter.
 5. Open it directly from the library.
 6. Turn pages with taps, a swipe, and PageDown/ArrowRight.
