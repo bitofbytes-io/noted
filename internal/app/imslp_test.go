@@ -535,9 +535,9 @@ func TestIMSLPSearchPerUserLimit(t *testing.T) {
 	}
 	clock.Advance(10 * time.Minute)
 	mustSearch(t, s, "Clair de lune")
-	s.mu.Lock()
-	_, idleKept := s.users["user-b"]
-	s.mu.Unlock()
+	s.users.mu.Lock()
+	_, idleKept := s.users.users["user-b"]
+	s.users.mu.Unlock()
 	if idleKept {
 		t.Fatal("idle user limiter was not expired")
 	}

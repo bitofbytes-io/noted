@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
-	"time"
 )
 
 // ErrNotPDF means a Send to Noted upload was not a PDF.
@@ -94,42 +92,4 @@ func shortcutResult(d ImportDraft, filename string) ShortcutImport {
 		result.Headline += " — " + result.Composer
 	}
 	return result
-}
-
-// userLimiter is a token bucket per user with idle buckets swept away, like the
-// IMSLP search limit.
-type userLimiter struct {
-	rate  float64
-	burst int
-	idle  time.Duration
-	now   func() time.Time
-
-	mu        sync.Mutex
-	users     map[string]*imslpUserBucket
-	nextSweep time.Time
-}
-
-func newUserLimiter(rate float64, burst int, idle time.Duration, now func() time.Time) *userLimiter {
-	return &userLimiter{rate: rate, burst: burst, idle: idle, now: now, users: map[string]*imslpUserBucket{}}
-}
-
-func (l *userLimiter) allow(userID string) bool {
-	now := l.now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !now.Before(l.nextSweep) {
-		for id, user := range l.users {
-			if now.Sub(user.seen) >= l.idle {
-				delete(l.users, id)
-			}
-		}
-		l.nextSweep = now.Add(l.idle)
-	}
-	user := l.users[userID]
-	if user == nil {
-		user = &imslpUserBucket{}
-		l.users[userID] = user
-	}
-	user.seen = now
-	return user.bucket.allow(now, l.rate, l.burst)
 }
