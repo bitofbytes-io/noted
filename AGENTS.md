@@ -13,8 +13,8 @@ Read these before changing scope or behavior:
 3. `docs/design/visual-direction.md`
 4. `docs/design/design-tokens.md`
 
-The material under `docs/archive/` describes the superseded practice and
-MusicXML product. It is historical context only.
+The superseded practice and MusicXML product docs were removed from the tree;
+they remain in git history as historical context only.
 
 ## v1 boundaries
 

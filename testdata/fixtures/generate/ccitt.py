@@ -1,10 +1,19 @@
-"""Generate the synthetic CCITT Group 4 PDF used by the PDF.js regression test."""
+"""Generate the synthetic CCITT Group 4 PDF fixtures.
+
+By default this writes `noted-ccitt-exercise.pdf`, the deliberately malformed
+baseline that concatenates independently encoded TIFF strips. With
+`--single-strip` it writes `noted-valid-ccitt.pdf`, which encodes the same
+artwork as one strip.
+"""
 
 from io import BytesIO
 from pathlib import Path
+import sys
 
 from PIL import Image, ImageDraw
 
+
+SINGLE_STRIP = "--single-strip" in sys.argv[1:]
 
 WIDTH, HEIGHT = 1200, 1600
 image = Image.new("1", (WIDTH, HEIGHT), 1)
@@ -25,12 +34,15 @@ for system_top in (220, 700):
             draw.line((x + 9, y, x + 9, y - 60), fill=0, width=3)
 
 tiff_data = BytesIO()
-image.save(tiff_data, format="TIFF", compression="group4")
+tiff_options = {"tiffinfo": {278: HEIGHT}} if SINGLE_STRIP else {}
+image.save(tiff_data, format="TIFF", compression="group4", **tiff_options)
 tiff_data.seek(0)
 tiff = Image.open(tiff_data)
 offsets = tiff.tag_v2[273]
 counts = tiff.tag_v2[279]
 raw_tiff = tiff_data.getvalue()
+if SINGLE_STRIP:
+    assert len(offsets) == 1, "PDF CCITT stream must contain one independently encoded strip"
 ccitt = b"".join(raw_tiff[offset : offset + count] for offset, count in zip(offsets, counts))
 
 content = b"q\n540 0 0 720 36 36 cm\n/Im0 Do\nQ\n"
@@ -63,6 +75,7 @@ pdf.extend(
     f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
 )
 
-destination = Path(__file__).parents[1] / "noted-ccitt-exercise.pdf"
+name = "noted-valid-ccitt.pdf" if SINGLE_STRIP else "noted-ccitt-exercise.pdf"
+destination = Path(__file__).parents[1] / name
 destination.write_bytes(pdf)
 print(destination)

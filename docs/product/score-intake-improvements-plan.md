@@ -45,12 +45,14 @@ as requested in this conversation.
 
 ## Accepted checkpoint: working tool proof
 
-The implementation sequence began with the isolated
-[`../../tools/score-intake-proof/`](../../tools/score-intake-proof/) harness.
-It uses pinned pdf-lib, OpenCV.js, PDF.js and canvas dependencies to generate
-rights-safe fixtures, introduce reproducible defects, apply corrections, and
-render actual output PDFs through PDF.js and Poppler. It does not alter app code,
-API handlers, storage or schemas. Outputs remain under `.local/score-intake-proof/`.
+The implementation sequence began with an isolated `tools/score-intake-proof/`
+harness. It used pinned pdf-lib, OpenCV.js, PDF.js and canvas dependencies to
+generate rights-safe fixtures, introduce reproducible defects, apply corrections,
+and render actual output PDFs through PDF.js and Poppler. It did not alter app
+code, API handlers, storage or schemas. Its outputs stayed under
+`.local/score-intake-proof/`. The harness was removed after the app implementation
+superseded it; it remains in git history. Its single-strip CCITT fixture generator
+now lives in `testdata/fixtures/generate/ccitt.py --single-strip`.
 
 Acceptance requires rendered tilt residuals within 0.25 degrees, controlled
 alignment/scale errors within 1%, unchanged-input checksums, retained vectors

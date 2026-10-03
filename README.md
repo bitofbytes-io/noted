@@ -6,8 +6,7 @@ iPad-friendly reader with keyboard/pedal page turns or adjustable auto-scroll.
 
 The current scope is defined by
 [`docs/product/requirements.md`](docs/product/requirements.md). The previous
-practice, MusicXML, playback, and OMR product is preserved only under
-`docs/archive/`.
+practice, MusicXML, playback, and OMR product docs survive only in git history.
 
 ## Local setup
 
