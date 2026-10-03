@@ -85,6 +85,26 @@ describe('PrepareComponent', () => {
     openWindow.mockRestore();
   });
 
+  it('offers details without a PDF only for a new piece, not when adding a PDF to one', async () => {
+    const component = fixture.componentInstance;
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const detailsButton = () =>
+      [...fixture.nativeElement.querySelectorAll('.source-foot button')].find((button) =>
+        button.textContent.includes('Add details without a PDF'),
+      );
+    component.draft.set(structuredClone(draft));
+    component.step.set('source');
+    fixture.detectChanges();
+    expect(detailsButton()).toBeTruthy();
+
+    component.draft.set({ ...structuredClone(draft), pieceId: 'piece-one' });
+    fixture.detectChanges();
+    expect(detailsButton()).toBeUndefined();
+    await component.detailsWithoutPDF();
+    expect(api.deleteImport).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('marks meaningful page edits and clears the marker after reset', () => {
     const component = fixture.componentInstance;
     component.draft.set({

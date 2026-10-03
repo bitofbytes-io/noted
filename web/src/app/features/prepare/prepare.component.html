@@ -348,7 +348,7 @@
         }
       </section>
       <div class="source-foot">
-        @if (!d.sources.length) {
+        @if (!d.sources.length && !d.pieceId) {
           <button class="btn-quiet" (click)="detailsWithoutPDF()" [disabled]="busy()">
             Add details without a PDF
           </button>

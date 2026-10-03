@@ -236,36 +236,14 @@
       <span>Favorite</span>
     </label>
 
-    <label class="upload-field">
-      <input type="file" accept="application/pdf,.pdf" (change)="choosePdf($event)" />
-      <svg lucideUpload aria-hidden="true"></svg>
-      <span>
-        @if (readingPdf()) {
-          Reading PDF…
-        } @else if (selectedFile) {
-          {{ selectedFile.name }} ({{ selectedPageCount }}
-          {{ selectedPageCount === 1 ? 'page' : 'pages' }})
-        } @else if (editing?.pdf) {
-          Replace {{ editing?.pdf?.originalFilename }}
-        } @else {
-          Choose PDF
-        }
-      </span>
-      <small>PDF only. Your account’s upload limit applies.</small>
-    </label>
-
     @if (editing) {
       <div class="pdf-actions">
-        <button
-          class="btn-secondary"
-          type="button"
-          [disabled]="saving() || readingPdf() || tooLongToPrepare(editing)"
-          [attr.aria-describedby]="tooLongToPrepare(editing) ? 'edit-pages-limit' : null"
-          (click)="editPages()"
-        >
-          <svg lucideFileText aria-hidden="true"></svg>
-          <span>Edit pages</span>
-        </button>
+        @if (!tooLongToPrepare(editing)) {
+          <button class="btn-secondary" type="button" [disabled]="saving()" (click)="editPages()">
+            <svg lucideFileText aria-hidden="true"></svg>
+            <span>{{ editing.pdf ? 'Edit or replace PDF' : 'Add PDF' }}</span>
+          </button>
+        }
         @if (editing.pdf; as pdf) {
           <a class="btn-secondary" [href]="pdf.contentUrl + '/download'">
             <svg lucideDownload aria-hidden="true"></svg>
@@ -275,10 +253,14 @@
       </div>
       @if (tooLongToPrepare(editing)) {
         <small id="edit-pages-limit" class="field-help pdf-limit">
-          Page editing supports scores of up to {{ maxPreparedPages }} pages. Choose a PDF above to
-          replace a longer score.
+          Page editing supports scores of up to {{ maxPreparedPages }} pages, so this score’s PDF
+          cannot be changed in Noted.
         </small>
       }
+    } @else {
+      <small class="field-help pdf-limit">
+        Add a PDF later from this piece’s details, with Add PDF.
+      </small>
     }
 
     @if (error()) {
@@ -297,9 +279,7 @@
       <button
         class="btn-primary"
         type="submit"
-        [disabled]="
-          saving() || readingPdf() || !form.title.trim() || !!listeningUrlValidationError()
-        "
+        [disabled]="saving() || !form.title.trim() || !!listeningUrlValidationError()"
       >
         {{ saving() ? 'Saving…' : editing ? 'Save changes' : 'Add piece' }}
       </button>

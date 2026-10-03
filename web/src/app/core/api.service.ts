@@ -106,13 +106,6 @@ export class ApiService {
     return this.http.delete<void>(`/api/pieces/${id}/`);
   }
 
-  uploadPdf(id: string, file: File, pageCount: number): Observable<Piece> {
-    const body = new FormData();
-    body.set('file', file, file.name);
-    body.set('pageCount', String(pageCount));
-    return this.http.post<Piece>(`/api/pieces/${id}/pdf`, body);
-  }
-
   readerState(id: string): Observable<ReaderState> {
     return this.http.get<ReaderState>(`/api/pieces/${id}/reader-state`);
   }

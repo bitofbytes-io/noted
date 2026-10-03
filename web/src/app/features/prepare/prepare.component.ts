@@ -283,7 +283,8 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   async detailsWithoutPDF() {
     const d = this.draft();
-    if (!d || d.sources.length || this.busy()) return;
+    // A draft for an existing piece already has its details; this starts a new piece.
+    if (!d || d.sources.length || d.pieceId || this.busy()) return;
     this.busy.set(true);
     try {
       await this.pendingSave;

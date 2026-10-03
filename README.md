@@ -104,7 +104,7 @@ that:
 - `POST /api/imports/{draftID}/finalize`
 - `GET/POST /api/pieces/`
 - `GET/PATCH/DELETE /api/pieces/{id}/`
-- `POST/GET/HEAD /api/pieces/{id}/pdf`
+- `GET/HEAD /api/pieces/{id}/pdf`
 - `GET/HEAD /api/pieces/{id}/pdf/download`
 - `GET/PUT /api/pieces/{id}/reader-state`
 - `GET /api/health`

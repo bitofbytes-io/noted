@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { Subject, of, throwError } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
@@ -11,7 +11,7 @@ import {
   ShortcutTokenCreated,
 } from '../../core/models';
 import { LibraryComponent } from './library.component';
-import { formatDay, lastUsedText, listeningUrlError, titleFromFilename } from './library.utils';
+import { formatDay, lastUsedText, listeningUrlError } from './library.utils';
 
 describe('LibraryComponent', () => {
   it('cancels a stale search so it cannot replace newer results', async () => {
@@ -51,94 +51,13 @@ describe('LibraryComponent', () => {
     fixture.destroy();
   });
 
-  it('ignores a PDF read that finishes after its editor session or selection was replaced', async () => {
+  it('adds or replaces a PDF only through Prepare, and explains the page limit', async () => {
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
       pieces: vi.fn(() => of([])),
-    };
-    await TestBed.configureTestingModule({
-      imports: [LibraryComponent],
-      providers: [
-        provideRouter([]),
-        {
-          provide: ActivatedRoute,
-          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
-        },
-        { provide: ApiService, useValue: api },
-      ],
-    }).compileComponents();
-    const fixture = TestBed.createComponent(LibraryComponent);
-    fixture.detectChanges();
-    const component = fixture.componentInstance;
-    const dialog = fixture.nativeElement.querySelector('dialog') as HTMLDialogElement;
-    dialog.showModal = vi.fn();
-    dialog.close = vi.fn();
-    const tasks: { finish: (pages: number) => void; destroy: ReturnType<typeof vi.fn> }[] = [];
-    vi.spyOn(component as unknown as { openPdf: () => unknown }, 'openPdf').mockImplementation(
-      () => {
-        let finish!: (value: { numPages: number }) => void;
-        const promise = new Promise<{ numPages: number }>((resolve) => (finish = resolve));
-        const destroy = vi.fn(() => Promise.resolve());
-        tasks.push({ finish: (numPages) => finish({ numPages }), destroy });
-        return { promise, destroy };
-      },
-    );
-    const choose = (name: string) => {
-      const input = document.createElement('input');
-      const file = { name, arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) };
-      Object.defineProperty(input, 'files', { value: [file] });
-      return component.choosePdf({ target: input } as unknown as Event);
-    };
-    const piece = (id: string) =>
-      ({
-        id,
-        title: id,
-        composer: '',
-        favorite: false,
-        sourceUrl: '',
-        listeningUrl: '',
-        notes: '',
-        pdf: null,
-      }) as unknown as Piece;
-    const state = () => ({
-      file: Reflect.get(component, 'selectedFile')?.name ?? null,
-      pages: Reflect.get(component, 'selectedPageCount'),
-      reading: Reflect.get(component, 'readingPdf')(),
-    });
-
-    component.openEdit(piece('A'));
-    const staleSession = choose('replacement-for-A.pdf');
-    await vi.waitFor(() => expect(tasks).toHaveLength(1));
-    component.closeEditor();
-    component.openEdit(piece('B'));
-    expect(tasks[0].destroy).toHaveBeenCalled();
-    tasks[0].finish(9);
-    await staleSession;
-    expect(state()).toEqual({ file: null, pages: 0, reading: false });
-
-    const older = choose('older.pdf');
-    await vi.waitFor(() => expect(tasks).toHaveLength(2));
-    const newer = choose('newer.pdf');
-    await vi.waitFor(() => expect(tasks).toHaveLength(3));
-    expect(tasks[1].destroy).toHaveBeenCalled();
-    tasks[2].finish(2);
-    await newer;
-    tasks[1].finish(7);
-    await older;
-    expect(state()).toEqual({ file: 'newer.pdf', pages: 2, reading: false });
-    expect(tasks[2].destroy).toHaveBeenCalled();
-    fixture.destroy();
-  });
-
-  it('disables page editing for a score longer than the preparation limit', async () => {
-    const api = {
-      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
-      imports: vi.fn(() => of([])),
-      pieces: vi.fn(() => of([])),
-      createImport: vi.fn(),
+      createImport: vi.fn(() => of({ id: 'draft-1' })),
       updatePiece: vi.fn(),
-      uploadPdf: vi.fn(),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -151,60 +70,66 @@ describe('LibraryComponent', () => {
         { provide: ApiService, useValue: api },
       ],
     }).compileComponents();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     const fixture = TestBed.createComponent(LibraryComponent);
     fixture.detectChanges();
     const component = fixture.componentInstance;
     const dialog = fixture.nativeElement.querySelector('dialog') as HTMLDialogElement;
     dialog.showModal = vi.fn();
     dialog.close = vi.fn();
-    const piece = (pageCount: number) =>
+    const piece = (pageCount: number | null) =>
       ({
-        id: `piece-${pageCount}`,
+        id: `piece-${pageCount ?? 'none'}`,
         title: 'Score',
         composer: '',
         favorite: false,
         sourceUrl: '',
         listeningUrl: '',
         notes: '',
-        pdf: { pageCount, contentUrl: '/api/pieces/x/pdf' },
+        pdf: pageCount === null ? null : { pageCount, contentUrl: '/api/pieces/x/pdf' },
       }) as Piece;
-    const editPagesButton = () =>
-      [...fixture.nativeElement.querySelectorAll('.pdf-actions button')].find((button) =>
-        button.textContent.includes('Edit pages'),
-      ) as HTMLButtonElement;
-
     const render = () => {
       fixture.componentRef.changeDetectorRef.markForCheck();
       fixture.detectChanges();
     };
+    const actions = () =>
+      [...fixture.nativeElement.querySelectorAll('.pdf-actions button, .pdf-actions a')].map(
+        (action) => action.textContent.trim(),
+      );
+    const prepareButton = () =>
+      fixture.nativeElement.querySelector('.pdf-actions button') as HTMLButtonElement;
 
-    component.openEdit(piece(MAX_PREPARED_PAGES + 1));
+    expect(fixture.nativeElement.querySelector('input[type="file"]')).toBeNull();
+
+    component.openEdit(piece(null));
     render();
-    expect(editPagesButton().disabled).toBe(true);
-    expect(fixture.nativeElement.querySelector('#edit-pages-limit').textContent).toContain(
-      `up to ${MAX_PREPARED_PAGES} pages`,
-    );
-    await component.editPages();
-    expect(api.createImport).not.toHaveBeenCalled();
-    const select = (pages: number) => {
-      Reflect.set(component, 'selectedFile', new File(['%PDF-'], 'replacement.pdf'));
-      Reflect.set(component, 'selectedPageCount', pages);
-      render();
-    };
-    // A chosen short replacement can be prepared, and a chosen long one cannot.
-    select(MAX_PREPARED_PAGES);
-    expect(editPagesButton().disabled).toBe(false);
+    expect(actions()).toEqual(['Add PDF']);
+    prepareButton().click();
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalled());
+    expect(api.createImport).toHaveBeenLastCalledWith('piece-none');
+    expect(navigate).toHaveBeenLastCalledWith(['/prepare', 'draft-1'], {
+      queryParams: { source: 'all' },
+    });
 
     component.openEdit(piece(MAX_PREPARED_PAGES));
     render();
-    expect(editPagesButton().disabled).toBe(false);
+    expect(actions()).toEqual(['Edit or replace PDF', 'Download current PDF']);
     expect(fixture.nativeElement.querySelector('#edit-pages-limit')).toBeNull();
-    select(MAX_PREPARED_PAGES + 2);
-    expect(editPagesButton().disabled).toBe(true);
+    prepareButton().click();
+    await vi.waitFor(() =>
+      expect(api.createImport).toHaveBeenLastCalledWith(`piece-${MAX_PREPARED_PAGES}`),
+    );
+
+    api.createImport.mockClear();
+    component.openEdit(piece(MAX_PREPARED_PAGES + 1));
+    render();
+    expect(actions()).toEqual(['Download current PDF']);
+    expect(fixture.nativeElement.querySelector('#edit-pages-limit').textContent).toContain(
+      `up to ${MAX_PREPARED_PAGES} pages, so this score’s PDF`,
+    );
     await component.editPages();
-    expect(api.updatePiece).not.toHaveBeenCalled();
-    expect(api.uploadPdf).not.toHaveBeenCalled();
     expect(api.createImport).not.toHaveBeenCalled();
+    expect(api.updatePiece).not.toHaveBeenCalled();
     fixture.destroy();
   });
 });
@@ -502,12 +427,6 @@ describe('lastUsedText', () => {
     const older = new Date(2026, 8, 28, 12).toISOString();
     expect(lastUsedText(older)).toBe('28 Sep 2026');
     expect(formatDay(older)).toBe('28 Sep 2026');
-  });
-});
-
-describe('titleFromFilename', () => {
-  it('turns a scan filename into an editable title', () => {
-    expect(titleFromFilename('bach_wtc-prelude-01.PDF')).toBe('bach wtc prelude 01');
   });
 });
 
