@@ -552,9 +552,7 @@ func TestIntegrationPreparationPageLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 		data := blankPDF(pages)
-		if piece, err = s.UploadPDF(ctx, owner, piece.ID, "score.pdf", pages, bytes.NewReader(data)); err != nil {
-			t.Fatal(err)
-		}
+		storeLegacyPDF(t, ctx, s, piece.ID, "score.pdf", data)
 		return piece, data
 	}
 
@@ -644,9 +642,7 @@ func TestIntegrationLegacyDraftKeepsNewerMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if piece, err = s.UploadPDF(ctx, owner, piece.ID, "score.pdf", 2, bytes.NewReader(data)); err != nil {
-		t.Fatal(err)
-	}
+	storeLegacyPDF(t, ctx, s, piece.ID, "score.pdf", data)
 	legacyDraft := func() ImportDraft {
 		t.Helper()
 		d, err := s.CreateImport(ctx, owner, CreateImport{PieceID: piece.ID})

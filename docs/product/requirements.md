@@ -18,7 +18,9 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-003: Choosing a PDF prefills its filename as the editable title.
 - BND-004: A user can search title and composer and filter favorites.
 - BND-005: Selecting a piece with a PDF opens its reader directly.
-- BND-006: A user can upload or replace the one PDF attached to a piece.
+- BND-006: A user can add or replace the one PDF attached to a piece through
+  Prepare (Add PDF, or Edit or replace PDF, in the details dialog). There is no
+  direct upload.
 - BND-007: Production users sign in with one of the explicitly allow-listed,
   verified Google accounts.
 - BND-008: Each piece, its PDF, notes, source and listening URLs, favorite state,
@@ -40,7 +42,9 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-015: Replacing or deleting a PDF cleans up the old stored object without
   leaving the database pointing at a missing replacement.
 - BND-016: A user can download the current PDF attached to their own piece using
-  its safe original filename, so they can edit it outside Noted before replacing it.
+  its safe stored filename, so they can edit it outside Noted before replacing it
+  through Prepare. A PDF saved by Prepare is named after the piece title; pieces
+  uploaded before Prepare keep their original filename.
 
 ### Reader
 
@@ -84,8 +88,8 @@ IMSLP fetching, photo stitching, sharing, and offline mode are not part of v1.
 ## Acceptance flow
 
 1. Add a piece from a phone or desktop, using the filename-prefilled title.
-2. Optionally add a listening URL, upload its PDF, and find it by title or composer.
-3. Download the current PDF from the edit dialog and verify the original filename.
+2. Optionally add a listening URL, add its PDF through Prepare, and find it by title or composer.
+3. Download the current PDF from the edit dialog and verify its filename (the piece title).
 4. Favorite it and verify the favorites filter.
 5. Open it directly from the library.
 6. Turn pages with taps, a swipe, and PageDown/ArrowRight.
@@ -133,8 +137,9 @@ Originals needed by the current saved manifest or an open draft remain private.
 Superseded, unreferenced files enter a durable deletion queue; drafts expire after
 seven inactive days. Limits are the configured file limit, 200 MiB per draft,
 10 prepared pages, 20 active drafts per owner, and 20 megapixels per photo.
-A saved score longer than 10 pages cannot be opened for page editing; it can
-still be replaced with a new PDF. A draft never starts from a partial copy.
+A saved score longer than 10 pages cannot be opened for page editing, so its PDF
+cannot be replaced in Noted; the details dialog says so instead of offering the
+action. A draft never starts from a partial copy.
 Revision checks prevent stale saves; repeat finalization returns the same piece.
 Unchanged preparation preserves original output bytes and reader state; content
 changes reset position/page/zoom while retaining reading mode and scroll speed.
@@ -200,9 +205,10 @@ the selected area itself defines the finished page. Rotation may expose the
 geometric white wedges around a tilted selection.
 
 Add piece opens Source directly with PDF, phone-photo and assisted IMSLP choices.
-There is no source-choice dialog. The secondary details-without-PDF action removes
-its empty draft before opening the existing metadata form. Library rows expose
-Listen, favorite and an Edit details action with accessible labels; Edit pages
-lives inside the details dialog, and unfinished drafts appear as rows with a
-Resume action. PDF pages, including IMSLP downloads, retain removal, reordering
-and extraction controls.
+There is no source-choice dialog. The secondary details-without-PDF action,
+offered only when starting a new piece, removes its empty draft before opening the
+existing metadata form; the PDF is added later with Add PDF. Library rows expose
+Listen, favorite and an Edit details action with accessible labels; Add PDF (Edit
+or replace PDF once one exists) lives inside the details dialog and opens Prepare,
+and unfinished drafts appear as rows with a Resume action. PDF pages, including
+IMSLP downloads, retain removal, reordering and extraction controls.

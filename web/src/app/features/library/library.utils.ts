@@ -1,11 +1,3 @@
-export function titleFromFilename(filename: string): string {
-  return filename
-    .replace(/\.pdf$/i, '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 export function listeningUrlError(value: string): string {
   const candidate = value.trim();
   if (!candidate) return '';

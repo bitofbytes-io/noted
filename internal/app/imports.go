@@ -34,7 +34,7 @@ const maxOpenDrafts = 20
 // partial copy that would replace the full PDF on an unchanged save.
 const MaxPreparedPages = 10
 
-var ErrTooManyPages = fmt.Errorf("page editing supports scores of up to %d pages; replace the PDF to change a longer score", MaxPreparedPages)
+var ErrTooManyPages = fmt.Errorf("page editing supports scores of up to %d pages, so a longer score's PDF cannot be changed in Noted", MaxPreparedPages)
 
 func (s *Service) importLimit() int64 {
 	if s.maxUploadBytes > 0 {

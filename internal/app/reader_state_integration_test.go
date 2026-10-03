@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -49,7 +48,7 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 	changed := append(append([]byte(nil), original...), []byte("\n% changed replacement\n")...)
 	failedReplacement := append(append([]byte(nil), original...), []byte("\n% failed replacement\n")...)
 
-	piece, err = service.UploadPDF(ctx, ownerID, piece.ID, "score.pdf", 2, bytes.NewReader(original))
+	piece, err = preparePDF(ctx, service, ownerID, piece.ID, "score.pdf", original)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +67,7 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 	}
 
 	// Replacing a PDF with identical bytes must not disturb any reader setting.
-	piece, err = service.UploadPDF(ctx, ownerID, piece.ID, "renamed.pdf", 2, bytes.NewReader(original))
+	piece, err = preparePDF(ctx, service, ownerID, piece.ID, "renamed.pdf", original)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +84,7 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 	}
 
 	// Different bytes reset position/page/zoom/pause while preserving mode and speed.
-	piece, err = service.UploadPDF(ctx, ownerID, piece.ID, "changed.pdf", 2, bytes.NewReader(changed))
+	piece, err = preparePDF(ctx, service, ownerID, piece.ID, "changed.pdf", changed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +142,7 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 		EXECUTE FUNCTION noted_test_fail_reader_reset()`); err != nil {
 		t.Fatal(err)
 	}
-	_, replaceErr := service.UploadPDF(ctx, ownerID, piece.ID, "failed.pdf", 2, bytes.NewReader(failedReplacement))
+	_, replaceErr := preparePDF(ctx, service, ownerID, piece.ID, "failed.pdf", failedReplacement)
 	if _, err = pool.Exec(ctx, `
 		DROP TRIGGER noted_test_fail_reader_reset ON reader_states;
 		DROP FUNCTION noted_test_fail_reader_reset()`); err != nil {
@@ -161,7 +160,7 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 	if afterFailurePiece.PDF.ChecksumSHA256 != changedChecksum ||
-		afterFailurePiece.PDF.OriginalFilename != "changed.pdf" ||
+		!afterFailurePiece.PDF.UploadedAt.Equal(piece.PDF.UploadedAt) ||
 		afterFailureState.PDFChecksumSHA256 != changedChecksum || afterFailureState.Mode != current.Mode ||
 		afterFailureState.LastPage != current.LastPage || afterFailureState.ScrollPosition != current.ScrollPosition ||
 		afterFailureState.Zoom != current.Zoom || afterFailureState.ScrollSpeed != current.ScrollSpeed ||

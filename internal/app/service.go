@@ -1,11 +1,9 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"strings"
 	"time"
@@ -206,102 +204,6 @@ func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
 		}
 	}
 	return tx.Commit(ctx)
-}
-
-func (s *Service) UploadPDF(
-	ctx context.Context,
-	userID, id, filename string,
-	pageCount int,
-	source io.Reader,
-) (Piece, error) {
-	if pageCount < 1 || pageCount > 10000 {
-		return Piece{}, fmt.Errorf("page count must be between 1 and 10000")
-	}
-	data, err := io.ReadAll(io.LimitReader(source, s.importLimit()+1))
-	if err != nil {
-		return Piece{}, err
-	}
-	if int64(len(data)) > s.importLimit() {
-		return Piece{}, ErrImportLimit
-	}
-	mime, actualCount, _, _, err := ValidateImportBytes(data)
-	if err != nil {
-		return Piece{}, err
-	}
-	if mime != "application/pdf" || actualCount != pageCount {
-		return Piece{}, fmt.Errorf("PDF page count must match the actual file")
-	}
-	object, err := s.store.Save(ctx, bytes.NewReader(data))
-	if err != nil {
-		return Piece{}, err
-	}
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = s.store.Delete(ctx, object.Key)
-		}
-	}()
-	tx, err := s.importTx(ctx, userID)
-	if err != nil {
-		return Piece{}, err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, id); err != nil {
-		return Piece{}, err
-	}
-	var exists bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM pieces WHERE id=$1 AND user_id=$2)`,
-		id, userID).Scan(&exists); err != nil {
-		return Piece{}, err
-	}
-	if !exists {
-		return Piece{}, ErrNotFound
-	}
-	var oldKey, oldChecksum string
-	err = tx.QueryRow(ctx, `SELECT storage_key,checksum_sha256 FROM piece_pdfs WHERE piece_id=$1`, id).Scan(&oldKey, &oldChecksum)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return Piece{}, err
-	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO piece_pdfs
-			(piece_id, storage_key, original_filename, size_bytes, checksum_sha256, page_count)
-		VALUES ($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (piece_id) DO UPDATE SET
-			storage_key=excluded.storage_key,
-			original_filename=excluded.original_filename,
-			size_bytes=excluded.size_bytes,
-			checksum_sha256=excluded.checksum_sha256,
-			page_count=excluded.page_count,
-			uploaded_at=now()`,
-		id, object.Key, filename, object.Size, object.Checksum, pageCount)
-	if err != nil {
-		return Piece{}, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE pieces SET content_revision=content_revision+1,preparation_manifest=NULL WHERE id=$1`, id); err != nil {
-		return Piece{}, err
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM piece_sources WHERE piece_id=$1`, id); err != nil {
-		return Piece{}, err
-	}
-	if oldChecksum != object.Checksum {
-		if _, err = tx.Exec(ctx, `UPDATE reader_states SET last_page=1,scroll_position=0,zoom=1,scroll_paused=true,updated_at=now() WHERE piece_id=$1`, id); err != nil {
-			return Piece{}, err
-		}
-	}
-	if err = collectOrphans(ctx, tx); err != nil {
-		return Piece{}, err
-	}
-	if oldKey != "" {
-		if err = queueKey(ctx, tx, oldKey); err != nil {
-			return Piece{}, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Piece{}, err
-	}
-	cleanup = false
-	return s.GetPiece(ctx, userID, id)
 }
 
 func (s *Service) PDFSource(

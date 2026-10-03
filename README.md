@@ -104,7 +104,7 @@ that:
 - `POST /api/imports/{draftID}/finalize`
 - `GET/POST /api/pieces/`
 - `GET/PATCH/DELETE /api/pieces/{id}/`
-- `POST/GET/HEAD /api/pieces/{id}/pdf`
+- `GET/HEAD /api/pieces/{id}/pdf`
 - `GET/HEAD /api/pieces/{id}/pdf/download`
 - `GET/PUT /api/pieces/{id}/reader-state`
 - `GET /api/health`
@@ -117,9 +117,9 @@ that:
 
 PDF responses use `http.ServeContent`, including byte-range support required by
 PDF.js on Safari. The `/pdf` route displays inline, while `/pdf/download` sends
-the current file as an attachment using its safe original filename. The storage
-implementation is behind `assets.Store` so a future NFS-backed production
-deployment does not change handlers.
+the current file as an attachment using its safe stored filename (the piece title
+for PDFs saved by Prepare). The storage implementation is behind `assets.Store`
+so a future NFS-backed production deployment does not change handlers.
 All piece, PDF, and reader-state routes resolve the authenticated user
 server-side; another user's identifier is returned as not found.
 `POST /api/shortcut/import` is the only route that takes a Send to Noted
