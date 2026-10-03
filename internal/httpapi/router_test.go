@@ -129,8 +129,19 @@ func TestIMSLPWorkSearchMapsPerUserLimitTo429(t *testing.T) {
 	}
 }
 
+// fakeAuthenticator succeeds unless one of its error fields is set, and
+// records what the OAuth callback passed it.
 type fakeAuthenticator struct {
 	ensureDevelopmentUserCalls int
+
+	returnPath string // from ConsumeLoginState; "/" when empty
+	consumeErr error
+	authErr    error
+	sessionErr error
+
+	consumedState string
+	identity      *auth.GoogleIdentity
+	sessionUserID string
 }
 
 func (fake *fakeAuthenticator) EnsureDevelopmentUser(context.Context, string) (app.User, error) {
@@ -140,14 +151,20 @@ func (fake *fakeAuthenticator) EnsureDevelopmentUser(context.Context, string) (a
 func (*fakeAuthenticator) NewLoginState(context.Context, string) (string, error) {
 	return "state", nil
 }
-func (*fakeAuthenticator) ConsumeLoginState(context.Context, string) (string, error) {
-	return "/", nil
+func (fake *fakeAuthenticator) ConsumeLoginState(_ context.Context, state string) (string, error) {
+	fake.consumedState = state
+	if fake.returnPath == "" {
+		return "/", fake.consumeErr
+	}
+	return fake.returnPath, fake.consumeErr
 }
-func (*fakeAuthenticator) AuthenticateGoogle(context.Context, auth.GoogleIdentity) (app.User, error) {
-	return app.User{ID: testUserID}, nil
+func (fake *fakeAuthenticator) AuthenticateGoogle(_ context.Context, identity auth.GoogleIdentity) (app.User, error) {
+	fake.identity = &identity
+	return app.User{ID: testUserID}, fake.authErr
 }
-func (*fakeAuthenticator) NewSession(context.Context, string, string, string) (string, time.Time, error) {
-	return "token", time.Now().Add(time.Hour), nil
+func (fake *fakeAuthenticator) NewSession(_ context.Context, userID, _, _ string) (string, time.Time, error) {
+	fake.sessionUserID = userID
+	return "token", time.Now().Add(time.Hour), fake.sessionErr
 }
 func (*fakeAuthenticator) ResolveSession(context.Context, string) (app.User, error) {
 	return app.User{ID: testUserID}, nil

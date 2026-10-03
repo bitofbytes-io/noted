@@ -39,12 +39,16 @@ type Handler struct {
 	config         config.Config
 	maxUploadBytes int64
 	allowedOrigin  string
+	// Google's OAuth token and userinfo endpoints; tests point them at a fake.
+	googleTokenURL    string
+	googleUserInfoURL string
 }
 
 func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) http.Handler {
 	handler := &Handler{
 		backend: backend, auth: authenticator, config: cfg,
 		maxUploadBytes: cfg.MaxUploadBytes, allowedOrigin: cfg.AllowedOrigin,
+		googleTokenURL: googleTokenEndpoint, googleUserInfoURL: googleUserInfoEndpoint,
 	}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
