@@ -35,7 +35,7 @@ fetching (bot-blocked), photo-to-piece stitching, and sharing.
 
 ## Codebase reset (same repo, fresh build)
 
-- Move current `docs/` content to `docs/archive/` for reference (since removed; it remains in git history); write a new concise requirements doc and rewrite `AGENTS.md` to reflect the new scope and invariants.
+- Keep the superseded product docs in git history only; write a new concise requirements doc and rewrite `AGENTS.md` to reflect the new scope and invariants.
 - Delete old application code: `cmd/`, `internal/`, `web/`, `omr/`, `migrations/`, `scripts/`, old Docker/compose/Makefile targets. Rebuild with the same stack: Angular frontend, Go API, PostgreSQL.
 - Keep the safety invariants that still apply: filesystem asset storage behind a Go interface under gitignored `.local/`, opaque storage keys (never user filenames as paths), no committed scores or secrets, rights-safe fixtures in `testdata/`.
 - Keep the "Title Page" visual direction and design tokens (`docs/design/design-tokens.md`) — carry those docs forward rather than archiving them.

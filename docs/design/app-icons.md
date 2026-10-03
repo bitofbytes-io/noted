@@ -25,7 +25,8 @@ size with 8x supersampling, and writes:
 
 No image-generation package is needed by the app, its build or production.
 Keep the versioned URLs in `web/src/index.html` and the auth marks in
-`web/src/app/app.html` aligned. Older v2 assets remain for cached clients.
+`web/src/app/app.html` aligned. The older v2 assets were removed once no
+served page referenced them.
 
 The new URL refreshes browser icon discovery. An existing iPad Home Screen
 shortcut may retain its saved image; remove and add that shortcut again after
