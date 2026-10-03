@@ -39,12 +39,16 @@ type Handler struct {
 	config         config.Config
 	maxUploadBytes int64
 	allowedOrigin  string
+	// Google's OAuth token and userinfo endpoints; tests point them at a fake.
+	googleTokenURL    string
+	googleUserInfoURL string
 }
 
 func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) http.Handler {
 	handler := &Handler{
 		backend: backend, auth: authenticator, config: cfg,
 		maxUploadBytes: cfg.MaxUploadBytes, allowedOrigin: cfg.AllowedOrigin,
+		googleTokenURL: googleTokenEndpoint, googleUserInfoURL: googleUserInfoEndpoint,
 	}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
@@ -339,6 +343,7 @@ func decodeJSON(request *http.Request, destination any) error {
 }
 
 func handleError(writer http.ResponseWriter, err error) {
+	var invalid *app.ValidationError
 	switch {
 	case errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged), errors.Is(err, app.ErrPDFChanged):
 		writeError(writer, http.StatusConflict, err.Error())
@@ -346,10 +351,11 @@ func handleError(writer http.ResponseWriter, err error) {
 		writeError(writer, http.StatusRequestEntityTooLarge, "Import limit reached: max 20 drafts, 200 MiB per draft, and configured per-file limit")
 	case errors.Is(err, app.ErrNotFound):
 		writeError(writer, http.StatusNotFound, "piece not found")
-	case errors.Is(err, app.ErrTooManyPages):
-		writeError(writer, http.StatusBadRequest, err.Error())
-	case strings.Contains(err.Error(), "must"), strings.Contains(err.Error(), "cannot"):
-		writeError(writer, http.StatusBadRequest, err.Error())
+	case errors.As(err, &invalid):
+		if invalid.Cause != nil {
+			slog.Info("request rejected", "reason", invalid.Message, "cause", invalid.Cause)
+		}
+		writeError(writer, http.StatusBadRequest, invalid.Message)
 	default:
 		slog.Error("request failed", "error", err)
 		writeError(writer, http.StatusInternalServerError, "internal server error")

@@ -208,7 +208,7 @@ func (h *Handler) exchangeGoogleIdentity(
 		"redirect_uri":  {h.config.GoogleRedirect},
 	}
 	tokenRequest, err := http.NewRequestWithContext(
-		request.Context(), http.MethodPost, googleTokenEndpoint, strings.NewReader(form.Encode()),
+		request.Context(), http.MethodPost, h.googleTokenURL, strings.NewReader(form.Encode()),
 	)
 	if err != nil {
 		return auth.GoogleIdentity{}, err
@@ -233,7 +233,7 @@ func (h *Handler) exchangeGoogleIdentity(
 	}
 
 	userRequest, err := http.NewRequestWithContext(
-		request.Context(), http.MethodGet, googleUserInfoEndpoint, nil,
+		request.Context(), http.MethodGet, h.googleUserInfoURL, nil,
 	)
 	if err != nil {
 		return auth.GoogleIdentity{}, err

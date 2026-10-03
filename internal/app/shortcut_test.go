@@ -8,26 +8,30 @@ import (
 	"time"
 )
 
+// The limit the Service is built with, not a copy of its numbers: the iOS
+// Shortcut depends on it.
 func TestShortcutImportLimitIsTenAMinutePerUser(t *testing.T) {
 	clock := newFakeClock()
-	limiter := newUserLimiter(10.0/60, 10, 10*time.Minute, clock.Now)
+	s := NewService(nil, nil)
+	limiter := s.shortcuts
+	limiter.now = clock.Now
 	for i := range 10 {
-		if !limiter.allow("user-a") {
+		if !s.AllowShortcutImport("user-a") {
 			t.Fatalf("import %d in a burst was refused", i+1)
 		}
 	}
-	if limiter.allow("user-a") {
+	if s.AllowShortcutImport("user-a") {
 		t.Fatal("eleventh import in a minute was allowed")
 	}
-	if !limiter.allow("user-b") {
+	if !s.AllowShortcutImport("user-b") {
 		t.Fatal("another user was limited")
 	}
 	clock.Advance(6 * time.Second)
-	if !limiter.allow("user-a") || limiter.allow("user-a") {
+	if !s.AllowShortcutImport("user-a") || s.AllowShortcutImport("user-a") {
 		t.Fatal("the limit did not refill one import every six seconds")
 	}
 	clock.Advance(10 * time.Minute)
-	limiter.allow("user-a")
+	s.AllowShortcutImport("user-a")
 	limiter.mu.Lock()
 	_, kept := limiter.users["user-b"]
 	limiter.mu.Unlock()

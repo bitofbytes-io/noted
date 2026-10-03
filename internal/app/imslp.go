@@ -138,9 +138,9 @@ type imslpSearcher struct {
 	flight singleflight.Group
 	slots  chan struct{}
 
+	users *userLimiter
+
 	mu        sync.Mutex
-	users     map[string]*imslpUserBucket
-	nextSweep time.Time
 	outbound  tokenBucket
 	cache     *list.List
 	entries   map[string]*list.Element
@@ -152,11 +152,6 @@ type imslpSearcher struct {
 	// files caches IMSLP file number → work for Send to Noted, apart from searches.
 	files       *list.List
 	fileEntries map[string]*list.Element
-}
-
-type imslpUserBucket struct {
-	bucket tokenBucket
-	seen   time.Time
 }
 
 type imslpCacheEntry struct {
@@ -183,7 +178,7 @@ func newIMSLPSearcher(cfg IMSLPSearchConfig) *imslpSearcher {
 		cfg:     cfg,
 		client:  &client,
 		slots:   make(chan struct{}, cfg.OutboundConcurrency),
-		users:   map[string]*imslpUserBucket{},
+		users:   newUserLimiter(cfg.UserRate, cfg.UserBurst, cfg.UserIdle, cfg.Now),
 		cache:   list.New(),
 		entries: map[string]*list.Element{},
 
@@ -213,7 +208,7 @@ func canonicalIMSLPWorkURL(raw string) (string, bool) {
 func (s *Service) SearchIMSLP(ctx context.Context, userID, query string) (IMSLPSearch, error) {
 	query = strings.TrimSpace(query)
 	if count := utf8.RuneCountInString(query); count < 2 || count > 100 {
-		return IMSLPSearch{}, errors.New("search must be 2 to 100 characters")
+		return IMSLPSearch{}, invalid("search must be 2 to 100 characters")
 	}
 	return s.imslp.search(ctx, userID, query)
 }
@@ -223,7 +218,7 @@ func normaliseIMSLPQuery(query string) string {
 }
 
 func (s *imslpSearcher) search(ctx context.Context, userID, query string) (IMSLPSearch, error) {
-	if !s.allowUser(userID) {
+	if !s.users.allow(userID) {
 		return IMSLPSearch{}, ErrIMSLPThrottled
 	}
 	key := normaliseIMSLPQuery(query)
@@ -303,27 +298,6 @@ func imslpSearchTerms(query string) string {
 		terms = append(terms, token)
 	}
 	return strings.Join(terms, " ")
-}
-
-func (s *imslpSearcher) allowUser(userID string) bool {
-	now := s.cfg.Now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !now.Before(s.nextSweep) {
-		for id, user := range s.users {
-			if now.Sub(user.seen) >= s.cfg.UserIdle {
-				delete(s.users, id)
-			}
-		}
-		s.nextSweep = now.Add(s.cfg.UserIdle)
-	}
-	user := s.users[userID]
-	if user == nil {
-		user = &imslpUserBucket{}
-		s.users[userID] = user
-	}
-	user.seen = now
-	return user.bucket.allow(now, s.cfg.UserRate, s.cfg.UserBurst)
 }
 
 // admit applies the circuit breaker. After the cooldown exactly one probe is
@@ -623,50 +597,4 @@ func parseIMSLPSearch(body io.Reader) ([]IMSLPWork, error) {
 		works = append(works, IMSLPWork{Title: title, Composer: composer, URL: workURL})
 	}
 	return works, nil
-}
-
-// tokenBucket is a plain token bucket; a new bucket starts full.
-type tokenBucket struct {
-	tokens float64
-	last   time.Time
-}
-
-func (b *tokenBucket) refill(now time.Time, rate float64, burst int) {
-	if b.last.IsZero() {
-		b.tokens, b.last = float64(burst), now
-		return
-	}
-	if elapsed := now.Sub(b.last); elapsed > 0 {
-		b.tokens = math.Min(float64(burst), b.tokens+elapsed.Seconds()*rate)
-		b.last = now
-	}
-}
-
-func (b *tokenBucket) allow(now time.Time, rate float64, burst int) bool {
-	b.refill(now, rate, burst)
-	if b.tokens < 1 {
-		return false
-	}
-	b.tokens--
-	return true
-}
-
-// reserve takes a token now or in the future and returns how long to wait for
-// it. When that wait would exceed maxWait nothing is taken.
-func (b *tokenBucket) reserve(now time.Time, rate float64, burst int, maxWait time.Duration) (time.Duration, bool) {
-	b.refill(now, rate, burst)
-	var wait time.Duration
-	if b.tokens < 1 {
-		wait = time.Duration((1 - b.tokens) / rate * float64(time.Second))
-	}
-	if wait > maxWait {
-		return 0, false
-	}
-	b.tokens--
-	return wait, true
-}
-
-// refund returns a token taken by reserve for a request that was never made.
-func (b *tokenBucket) refund(burst int) {
-	b.tokens = math.Min(float64(burst), b.tokens+1)
 }

@@ -34,7 +34,7 @@ const maxOpenDrafts = 20
 // partial copy that would replace the full PDF on an unchanged save.
 const MaxPreparedPages = 10
 
-var ErrTooManyPages = fmt.Errorf("page editing supports scores of up to %d pages, so a longer score's PDF cannot be changed in Noted", MaxPreparedPages)
+var ErrTooManyPages = invalid("page editing supports scores of up to %d pages, so a longer score's PDF cannot be changed in Noted", MaxPreparedPages)
 
 func (s *Service) importLimit() int64 {
 	if s.maxUploadBytes > 0 {
@@ -122,10 +122,10 @@ func mergeDraftMetadata(current, base, draft PieceInput) PieceInput {
 
 func validateIMSLPAutoFill(metadata PieceInput, provenance IMSLPAutoFill) error {
 	if provenance.Title != nil && (provenance.TitleEdited || len(*provenance.Title) > 300 || *provenance.Title != metadata.Title) {
-		return fmt.Errorf("IMSLP title ownership must match the draft title")
+		return invalid("IMSLP title ownership must match the draft title")
 	}
 	if provenance.Composer != nil && (provenance.ComposerEdited || len(*provenance.Composer) > 300 || *provenance.Composer != metadata.Composer) {
-		return fmt.Errorf("IMSLP composer ownership must match the draft composer")
+		return invalid("IMSLP composer ownership must match the draft composer")
 	}
 	return nil
 }
@@ -212,7 +212,7 @@ func (s *Service) createImport(ctx context.Context, owner string, input CreateIm
 	var sources []string
 	if input.PieceID != "" {
 		if _, err = uuid.Parse(input.PieceID); err != nil {
-			return d, fmt.Errorf("piece id must be a UUID")
+			return d, invalid("piece id must be a UUID")
 		}
 		d.PieceID = &input.PieceID
 		var saved []byte
@@ -450,7 +450,7 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		return Piece{}, err
 	}
 	if mime != "application/pdf" || count != len(d.Manifest.Pages) {
-		return Piece{}, fmt.Errorf("output PDF must have exactly the prepared page count")
+		return Piece{}, invalid("output PDF must have exactly the prepared page count")
 	}
 	var oldKey, oldChecksum string
 	var oldPageCount int

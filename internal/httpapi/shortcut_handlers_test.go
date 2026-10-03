@@ -387,7 +387,8 @@ func TestShortcutImportChecksTheFileAndMapsErrors(t *testing.T) {
 		"draft limit":      {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: fmt.Errorf("create: %w", app.ErrDraftLimit)}, 1024, 429, "You have 20 open drafts. Finish or delete one in Noted, then send again.", true},
 		"size from app":    {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: app.ErrImportLimit}, 1024, 413, "File is larger than Noted allows.", true},
 		"asset store":      {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: fmt.Errorf("%w: disk full", app.ErrAssetStore)}, 1024, 503, "Noted couldn't store the file. Try again later.", true},
-		"unreadable PDF":   {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: errors.New("PDF must be readable and unencrypted: bad xref")}, 1024, 400, "PDF must be readable and unencrypted: bad xref", true},
+		"unreadable PDF":   {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: &app.ValidationError{Message: "PDF must be readable and unencrypted", Cause: errors.New("pdfcpu: bad xref")}}, 1024, 400, "PDF must be readable and unencrypted", true},
+		"server failure":   {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: errors.New("connection reset")}, 1024, 500, "internal server error", true},
 		"too fast":         {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{throttled: true}, 1024, 429, "Too many files sent in a minute. Wait a moment and send again.", false},
 	} {
 		t.Run(name, func(t *testing.T) {
