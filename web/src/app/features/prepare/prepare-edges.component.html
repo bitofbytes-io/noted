@@ -1,0 +1,15 @@
+<svg class="edge-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+  <path [attr.d]="shade" fill-rule="evenodd" />
+  <polygon [attr.points]="polygon" />
+</svg>
+@for (point of points(); track $index; let i = $index) {
+  <button
+    class="corner"
+    [disabled]="busy() || !ready() || resetRequired()"
+    [style.left.%]="point[0] * 100"
+    [style.top.%]="point[1] * 100"
+    [attr.aria-label]="'Adjust corner ' + (i + 1) + ' with arrow keys or drag'"
+    (pointerdown)="dragCorner($event, i)"
+    (keydown)="nudgeCorner(i, $event)"
+  ></button>
+}
