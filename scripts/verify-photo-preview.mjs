@@ -37,9 +37,17 @@ try {
   if (!uploaded.ok())
     throw new Error(`Fixture upload failed with ${uploaded.status()}.`);
   draft = await uploaded.json();
+  // The Angular build names the processing worker after its content hash. An
+  // unedited photo is prepared in the background, so opening it starts the worker.
+  const appWorker = page.waitForEvent("worker", {
+    predicate: (worker) =>
+      /^\/worker-[A-Z0-9]+\.js$/.test(new URL(worker.url()).pathname),
+    timeout: 60_000,
+  });
   await page.goto(`${baseURL}/prepare/${draft.id}`);
+  const workerURL = (await appWorker).url();
 
-  const result = await page.evaluate(async (current) => {
+  const result = await page.evaluate(async ({ current, workerURL }) => {
     const source = current.sources[0];
     const sourceResponse = await fetch(
       `/api/imports/${current.id}/sources/${source.id}`,
@@ -62,7 +70,7 @@ try {
 
     const run = (payload) =>
       new Promise((resolve, reject) => {
-        const worker = new Worker("/intake/processing-worker.js");
+        const worker = new Worker(workerURL);
         const requestId = crypto.randomUUID();
         const timer = setTimeout(() => {
           worker.terminate();
@@ -213,7 +221,7 @@ try {
     } finally {
       await task.destroy();
     }
-  }, draft);
+  }, { current: draft, workerURL });
 
   const failures = [];
   if (result.pages !== 2)

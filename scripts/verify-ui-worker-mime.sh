@@ -25,7 +25,14 @@ until curl -fsS "$base_url/health" >/dev/null; do
 	sleep 1
 done
 
-for asset in /pdfjs/pdf.worker.min.mjs /pdfjs/pdf.min.mjs /intake/processing-worker.js /intake/pdf-lib.min.js /intake/opencv.js; do
+# The Angular build names the score processing worker after its content hash.
+worker=$(docker exec "$container" sh -c 'cd /usr/share/nginx/html && ls worker-*.js 2>/dev/null' || true)
+if [ -z "$worker" ] || [ "$(printf '%s\n' "$worker" | wc -l)" -ne 1 ]; then
+  echo "Expected exactly one built processing worker, found: ${worker:-none}" >&2
+  exit 1
+fi
+
+for asset in /pdfjs/pdf.worker.min.mjs /pdfjs/pdf.min.mjs "/$worker" /intake/pdf-lib.min.js /intake/opencv.js; do
   content_type=$(curl -fsSI "$base_url$asset" | awk 'tolower($1) == "content-type:" { gsub("\r", "", $2); print tolower($2) }')
   case "$content_type" in
     application/javascript* | text/javascript*) ;;

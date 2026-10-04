@@ -120,8 +120,9 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
   rangeSourceId = '';
   rangeText = '';
   private uploadGeneration = 0;
+  // A classic worker: it loads pdf-lib and OpenCV from /intake with importScripts.
   private readonly workerClient = new ProcessingWorkerClient(
-    () => new Worker('/intake/processing-worker.js'),
+    () => new Worker(new URL('./processing.worker', import.meta.url), { type: 'classic' }),
   );
   private foregroundWorker = false;
   private readonly preparedPages = new PreparedPageCache();
