@@ -176,175 +176,7 @@
           </article>
         }
         @if (sourceMode() === 'imslp') {
-          @let chosen = imslpChanging() ? null : chosenIMSLPWork;
-          <article
-            class="imslp"
-            [class.drop-hot]="imslpDropHot()"
-            (dragover)="imslpDragOver($event)"
-            (dragleave)="imslpDragLeave($event)"
-            (drop)="imslpDrop($event)"
-          >
-            <h2>Find a score on IMSLP</h2>
-            @if (chosen) {
-              <div class="chosen-work">
-                <div>
-                  <p class="chosen-label">Chosen work</p>
-                  <p class="chosen-title">{{ chosen.title || chosen.url }}</p>
-                  @if (chosen.composer) {
-                    <p class="chosen-composer">{{ chosen.composer }}</p>
-                  }
-                  <a
-                    class="chosen-link"
-                    [href]="chosen.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    >{{ chosen.url }}</a
-                  >
-                  @if (imslpProvenance) {
-                    <p class="provenance">{{ imslpProvenance }}</p>
-                  }
-                </div>
-                <button
-                  class="btn-quiet"
-                  type="button"
-                  [disabled]="busy()"
-                  (click)="changeIMSLPWork()"
-                >
-                  Change
-                </button>
-              </div>
-              @if (imslpOpened() && !imslpAdded().length) {
-                <div class="imslp-banner">
-                  <p class="imslp-banner-heading">IMSLP opened in a new tab</p>
-                  <p>
-                    Pick the edition there and download its PDF. IMSLP shows a short wait unless you
-                    are a member. Then come back here and add the file.
-                  </p>
-                </div>
-              }
-            } @else {
-              <p>
-                Search by title, composer, or both. Choosing a work opens it on IMSLP, where you
-                pick the edition and download the PDF.
-              </p>
-              <label class="field imslp-query">
-                <span>Title or composer</span>
-                <span class="imslp-input" [class.searching]="imslpStatus() === 'searching'">
-                  <input
-                    #imslpSearchInput
-                    type="search"
-                    name="imslpQuery"
-                    [(ngModel)]="imslpQuery"
-                    (input)="imslpInput()"
-                    (keydown.enter)="imslpEnter($event)"
-                    maxlength="100"
-                    placeholder="Debussy Clair de lune"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
-                  @if (imslpStatus() === 'searching') {
-                    <span class="imslp-spinner" aria-hidden="true"></span>
-                  }
-                </span>
-              </label>
-              <p
-                class="imslp-status"
-                [class.error]="imslpStatus() === 'unavailable'"
-                role="status"
-                aria-live="polite"
-              >
-                {{ imslpStatusText() }}
-              </p>
-              @if (imslpResults().length) {
-                <ul
-                  class="imslp-results"
-                  [class.stale]="imslpResultsStale()"
-                  aria-label="IMSLP work results"
-                >
-                  @for (work of imslpResults(); track work.url) {
-                    <li [class.chosen]="work.url === d.metadata.sourceUrl">
-                      <span class="imslp-work"
-                        ><strong>{{ work.title }}</strong
-                        ><small>{{ work.composer }}</small></span
-                      >
-                      <button
-                        class="btn-secondary"
-                        type="button"
-                        [disabled]="busy() || finalizing() || imslpResultsStale()"
-                        (click)="selectIMSLPWork(work)"
-                        [attr.aria-label]="
-                          'Open ' + work.title + ' by ' + work.composer + ' on IMSLP'
-                        "
-                      >
-                        <span class="label-long">Open on IMSLP</span
-                        ><span class="label-short">Open</span>
-                        <svg lucideExternalLink aria-hidden="true"></svg>
-                      </button>
-                    </li>
-                  }
-                </ul>
-                <p class="imslp-hint">
-                  Showing IMSLP's top matches. Add the composer to narrow a common title.
-                </p>
-              }
-              <details
-                class="imslp-link"
-                [open]="imslpLinkOpen()"
-                (toggle)="imslpLinkOpen.set($any($event.target).open)"
-              >
-                <summary>Have a work link already?</summary>
-                <label class="field">
-                  <span>IMSLP work link</span>
-                  <input
-                    type="url"
-                    [(ngModel)]="imslp"
-                    [disabled]="busy()"
-                    placeholder="https://imslp.org/wiki/…"
-                  />
-                </label>
-              </details>
-            }
-            @if (chosen || imslpDropHot()) {
-              <div class="imslp-drop" [class.hot]="imslpDropHot()">
-                <span
-                  class="drop-mark"
-                  [class.waiting]="!imslpDropHot() && !imslpAdded().length"
-                  aria-hidden="true"
-                ></span>
-                @if (imslpDropHot()) {
-                  <p class="drop-match">Release to add the PDF to this draft.</p>
-                } @else if (imslpAdded().length) {
-                  @for (file of imslpAdded(); track $index) {
-                    <p class="drop-filename">{{ file.filename }}</p>
-                    @if (file.match) {
-                      <p class="drop-match">{{ file.match }}</p>
-                    }
-                  }
-                  <p>Added to this draft. Continue when you are ready.</p>
-                } @else {
-                  <p>Waiting for your PDF. Drop it here, or use Add downloaded PDF.</p>
-                }
-              </div>
-            }
-            <div class="actions">
-              @if (imslp) {
-                <button class="btn-secondary" (click)="openIMSLP()" [disabled]="busy()">
-                  <span>Open on IMSLP</span>
-                  <svg lucideExternalLink aria-hidden="true"></svg>
-                </button>
-              }
-              <button
-                class="btn-secondary add-downloaded"
-                (click)="pdfInput.click()"
-                [disabled]="busy() || editingEdges"
-              >
-                Add downloaded PDF
-              </button>
-              @if (chosen) {
-                <span class="imslp-note">On iPad this opens Files; Safari saves to Downloads.</span>
-              }
-            </div>
-          </article>
+          <article class="imslp" appPrepareImslp (addPdf)="pdfInput.click()"></article>
         }
       </section>
       <div class="source-foot">
@@ -517,28 +349,21 @@
                     : zoom() * 100 + '%'
                 "
               >
-                <img [src]="preview()" alt="Current score page preview" draggable="false" />
-                @if (handles()) {
-                  <svg
-                    class="edge-overlay"
-                    viewBox="0 0 100 100"
-                    preserveAspectRatio="none"
-                    aria-hidden="true"
-                  >
-                    <path [attr.d]="edgeShade" fill-rule="evenodd" />
-                    <polygon [attr.points]="edgePolygon" />
-                  </svg>
-                  @for (point of edgePoints; track $index; let i = $index) {
-                    <button
-                      class="corner"
-                      [disabled]="busy() || !edgeReady() || edgeResetRequired()"
-                      [style.left.%]="point[0] * 100"
-                      [style.top.%]="point[1] * 100"
-                      [attr.aria-label]="'Adjust corner ' + (i + 1) + ' with arrow keys or drag'"
-                      (pointerdown)="dragCorner($event, i)"
-                      (keydown)="nudgeCorner(i, $event)"
-                    ></button>
-                  }
+                <img
+                  #previewImage
+                  [src]="preview()"
+                  alt="Current score page preview"
+                  draggable="false"
+                />
+                @if (handles(); as mode) {
+                  <app-prepare-edges
+                    [(points)]="pendingEdges"
+                    [mode]="mode"
+                    [image]="previewImage"
+                    [busy]="busy()"
+                    [ready]="edgeReady()"
+                    [resetRequired]="edgeResetRequired()"
+                  />
                 }
               </div>
             } @else if (d.manifest.pages.length) {

@@ -2,75 +2,52 @@ import {
   Component,
   ElementRef,
   HostListener,
-  Injector,
   OnDestroy,
   ViewChild,
-  afterNextRender,
+  forwardRef,
   inject,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import {
-  LucideChevronDown,
-  LucideChevronUp,
-  LucideExternalLink,
-  LucideMinus,
-  LucidePlus,
-} from '@lucide/angular';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { Subscription, firstValueFrom } from 'rxjs';
+import { LucideChevronDown, LucideChevronUp, LucideMinus, LucidePlus } from '@lucide/angular';
+import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { LeaveGuarded } from '../../core/leave.guard';
 import {
   EditManifest,
   ImportAsset,
   ImportDraft,
-  IMSLPWork,
   MAX_PREPARED_PAGES,
   PageEdit,
   PieceInput,
 } from '../../core/models';
 import { measureAsync } from '../../core/performance';
+import { PrepareEdgesComponent } from './prepare-edges.component';
+import { PrepareImslpComponent } from './prepare-imslp.component';
+import {
+  IMSLPAddedFile,
+  ImslpPanelHost,
+  ImslpSearch,
+  chosenIMSLPWork,
+  imslpFileMatch,
+  isIMSLPWorkLink,
+  linkIMSLPWork,
+} from './prepare-imslp';
 import {
   PreparedPageCache,
   ProcessingResponse,
-  ProcessingStoppedError,
   ProcessingWorkerClient,
   isProcessingStopped,
   hasPageAdjustments,
   preparedPhotoKey,
 } from './prepare-processing';
-GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
-/** Requests fire this long after the last keystroke, never per keystroke. */
-const IMSLP_DEBOUNCE_MS = 350;
-/** The per-user limit refills within a second (the API's Retry-After). */
-const IMSLP_THROTTLE_RETRY_MS = 1000;
-/** One quiet retry after "unavailable"; the API's breaker pauses for up to 60 s. */
-const IMSLP_UNAVAILABLE_RETRY_MS = 30_000;
-const IMSLP_CACHE_ENTRIES = 20;
-interface IMSLPAddedFile {
-  filename: string;
-  match: string;
-}
+import { PageRenderer, PrepareStep } from './prepare-rendering';
 interface Suggestion {
   confident: boolean;
   angle?: number;
   bounds?: number[];
   reason?: string;
-}
-interface DisplayRaster {
-  key: string;
-  blob: Blob;
-  url: string;
-  width: number;
-  height: number;
-}
-interface ThumbnailRequest {
-  revision: number;
-  key: string;
-  ids: Set<string>;
-  pages: PageEdit[];
 }
 @Component({
   selector: 'app-prepare',
@@ -78,18 +55,20 @@ interface ThumbnailRequest {
     FormsModule,
     LucideChevronDown,
     LucideChevronUp,
-    LucideExternalLink,
     LucideMinus,
     LucidePlus,
+    PrepareEdgesComponent,
+    PrepareImslpComponent,
   ],
   templateUrl: './prepare.component.html',
-  styleUrls: ['./prepare.component.scss', './prepare-imslp.scss'],
+  styleUrl: './prepare.component.scss',
+  providers: [{ provide: ImslpPanelHost, useExisting: forwardRef(() => PrepareComponent) }],
 })
-export class PrepareComponent implements OnDestroy, LeaveGuarded {
+export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost {
   readonly Math = Math;
   readonly hasPageAdjustments = hasPageAdjustments;
   readonly maxPreparedPages = MAX_PREPARED_PAGES;
-  readonly steps: { id: 'source' | 'pages' | 'details'; label: string }[] = [
+  readonly steps: { id: PrepareStep; label: string }[] = [
     { id: 'source', label: 'Source' },
     { id: 'pages', label: 'Pages' },
     { id: 'details', label: 'Details' },
@@ -97,12 +76,11 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly injector = inject(Injector);
   @ViewChild('surface') surface?: ElementRef<HTMLElement>;
   @ViewChild('thumbRail') thumbRail?: ElementRef<HTMLElement>;
-  @ViewChild('imslpSearchInput') imslpSearchInput?: ElementRef<HTMLInputElement>;
+  @ViewChild(PrepareEdgesComponent) edgeEditor?: PrepareEdgesComponent;
   readonly draft = signal<ImportDraft | null>(null);
-  readonly step = signal<'source' | 'pages' | 'details'>('source');
+  readonly step = signal<PrepareStep>('source');
   readonly error = signal('');
   readonly busy = signal(false);
   readonly finalizing = signal(false);
@@ -111,7 +89,6 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   readonly cancellable = signal(false);
   readonly saved = signal('');
   readonly preview = signal('');
-  readonly thumbs = signal<Record<string, string>>({});
   readonly selected = signal(0);
   readonly compare = signal(false);
   readonly zoom = signal(1);
@@ -124,31 +101,22 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   private gesture = false;
   private previewTimer?: ReturnType<typeof setTimeout>;
   private backgroundTimer?: ReturnType<typeof setTimeout>;
-  private dragCleanup?: () => void;
   readonly selectedIDs = signal<Set<string>>(new Set());
   readonly suggestion = signal<Suggestion | null>(null);
-  imslp = '';
-  imslpQuery = '';
-  readonly imslpResults = signal<IMSLPWork[]>([]);
-  readonly imslpStatus = signal<'idle' | 'searching' | 'ready' | 'unavailable' | 'throttled'>(
-    'idle',
-  );
-  /** True after Change: the search shows again while the chosen work link is kept. */
-  readonly imslpChanging = signal(false);
-  /** True once a work was opened on IMSLP in this visit, so the hand-off note shows. */
-  readonly imslpOpened = signal(false);
-  readonly imslpDropHot = signal(false);
-  readonly imslpLinkOpen = signal(false);
-  /** True while the visible results belong to a query the user has since changed. */
-  readonly imslpStale = signal(false);
-  /** PDFs added from the IMSLP panel in this visit; the draft stays on Source. */
-  readonly imslpAdded = signal<IMSLPAddedFile[]>([]);
-  private imslpRequest = 0;
-  private imslpTimer?: ReturnType<typeof setTimeout>;
-  private imslpSearch?: Subscription;
-  private imslpLastSent = '';
-  private readonly imslpCache = new Map<string, IMSLPWork[]>();
   readonly sourceMode = signal('all');
+  /** The IMSLP panel's search and link state, kept while the panel is closed. */
+  readonly imslp = new ImslpSearch(
+    this.api,
+    () => this.sourceMode() === 'imslp' && this.step() === 'source',
+  );
+  /** Draws thumbnails and previews; it reads the draft and selection, never changes them. */
+  private readonly renderer = new PageRenderer({
+    draft: this.draft,
+    step: this.step,
+    selected: this.selected,
+    error: this.error,
+  });
+  readonly thumbs = this.renderer.thumbs;
   rangeSourceId = '';
   rangeText = '';
   private uploadGeneration = 0;
@@ -165,20 +133,9 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   private discarding = false;
   private destroyed = false;
   private previewRevision = 0;
-  private previewTask?: ReturnType<typeof getDocument>;
-  private thumbnailRevision = 0;
-  private thumbnailRequest?: ThumbnailRequest;
-  private thumbnailPump?: Promise<void>;
-  private pdfTasks = new Map<string, { task: ReturnType<typeof getDocument>; users: number }>();
   private history: EditManifest[] = [];
   private replaceID?: string;
   private objectURL = '';
-  private displayRaster?: DisplayRaster;
-  private displayRasterLoad?: {
-    key: string;
-    promise: Promise<DisplayRaster>;
-    controller: AbortController;
-  };
   constructor() {
     void this.load();
   }
@@ -193,12 +150,6 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   get edgePoints(): number[][] {
     return this.pendingEdges();
-  }
-  get edgePolygon() {
-    return this.edgePoints.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
-  }
-  get edgeShade() {
-    return `M0 0H100V100H0Z M${this.edgePoints.map(([x, y]) => `${x * 100} ${y * 100}`).join('L')}Z`;
   }
   readonly marginLabels = ['Top', 'Right', 'Bottom', 'Left'];
   marginMM(index: number) {
@@ -229,7 +180,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.draft.set(d);
       this.sourceMode.set(this.route.snapshot.queryParamMap.get('source') || 'all');
       this.rangeSourceId = d.sources[0]?.id || '';
-      this.imslp = isIMSLPWorkLink(d.metadata.sourceUrl) ? d.metadata.sourceUrl : '';
+      this.imslp.link = isIMSLPWorkLink(d.metadata.sourceUrl) ? d.metadata.sourceUrl : '';
       this.step.set(d.manifest.pages.length ? 'pages' : 'source');
       this.reconcilePreparedKeys();
       void this.renderThumbnails();
@@ -241,21 +192,15 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
   }
   ngOnDestroy() {
     this.destroyed = true;
-    this.cancelIMSLPSearch();
+    this.imslp.destroy();
     this.invalidatePreview();
-    this.dragCleanup?.();
     clearTimeout(this.previewTimer);
     clearTimeout(this.backgroundTimer);
-    this.thumbnailRevision++;
-    this.thumbnailRequest = undefined;
-    for (const entry of this.pdfTasks.values()) void entry.task.destroy();
-    this.pdfTasks.clear();
+    this.renderer.destroy();
     this.workerClient.destroy();
     this.preparedPages.clear();
     clearTimeout(this.saveTimer);
     this.revokePreviewURL();
-    this.revokeDisplayRaster();
-    this.revokeThumbnails();
   }
   /** Route departure flushes pending draft edits; a failed save asks before discarding them. */
   async canLeave(): Promise<boolean> {
@@ -442,10 +387,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     ++this.previewRevision;
     clearTimeout(this.previewTimer);
     clearTimeout(this.backgroundTimer);
-    if (this.previewTask) {
-      void this.previewTask.destroy().catch(() => {});
-      this.previewTask = undefined;
-    }
+    this.renderer.cancelPdfPreview();
     if (this.workerClient.activeRequest && (!this.busy() || this.uploading)) {
       this.workerClient.supersede();
       this.foregroundWorker = false;
@@ -501,11 +443,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     this.endGesture();
     const nextPage = this.draft()?.manifest.pages[index];
     const nextSource = this.draft()?.sources.find((source) => source.id === nextPage?.sourceId);
-    if (
-      this.displayRaster &&
-      `${nextSource?.checksum}:${nextPage?.page}` !== this.displayRaster.key
-    )
-      this.revokeDisplayRaster();
+    this.renderer.keepDisplayRasterFor(`${nextSource?.checksum}:${nextPage?.page}`);
     this.lastEditOrSelectionAt = performance.now();
     this.selected.set(index);
     this.handles.set(null);
@@ -572,7 +510,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     try {
       this.applyIMSLP();
       await this.persist();
-      const chosen = this.chosenIMSLPWork;
+      const chosen = chosenIMSLPWork(this.draft());
       this.replaceID = replace ? this.page?.id : undefined;
       for (const [i, file] of files.entries()) {
         if (uploadGeneration !== this.uploadGeneration) break;
@@ -604,14 +542,8 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
           next.manifest.pages[target] = { id: this.replaceID, sourceId: incoming.id, page: 0 };
           this.mark();
           await this.persist();
-          const replacementID = this.replaceID;
-          this.thumbs.update((t) => {
-            const next = { ...t };
-            if (next[replacementID!]) URL.revokeObjectURL(next[replacementID!]);
-            delete next[replacementID!];
-            return next;
-          });
-          this.revokeDisplayRaster();
+          this.renderer.dropThumbnail(this.replaceID);
+          this.renderer.releaseDisplayRaster();
           this.reconcilePreparedKeys();
           this.replaceID = undefined;
         }
@@ -629,7 +561,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     } catch (e) {
       this.error.set(errorMessage(e) + ' Pages already added remain in this draft.');
     } finally {
-      if (added.length) this.imslpAdded.update((files) => [...files, ...added]);
+      if (added.length) this.imslp.added.update((files) => [...files, ...added]);
       this.uploading = false;
       this.skipRemainingUploads = false;
       this.syncCancellable();
@@ -637,246 +569,12 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.progress.set('');
     }
   }
-  async sourceCanvas(page: PageEdit, width = 1000): Promise<HTMLCanvasElement> {
-    const d = this.draft()!,
-      asset = d.sources.find((a) => a.id === page.sourceId)!;
-    const url = `/api/imports/${d.id}/sources/${asset.id}`,
-      canvas = document.createElement('canvas');
-    if (asset.mime === 'application/pdf') {
-      let entry = this.pdfTasks.get(asset.id);
-      if (!entry) entry = { task: getDocument({ url, wasmUrl: '/pdfjs/wasm/' }), users: 0 };
-      this.pdfTasks.delete(asset.id);
-      this.pdfTasks.set(asset.id, entry);
-      entry.users++;
-      const task = entry.task;
-      try {
-        const pdf = await task.promise,
-          p = await pdf.getPage(page.page + 1),
-          base = p.getViewport({ scale: 1 }),
-          viewport = p.getViewport({ scale: Math.min(width / base.width, 2) });
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
-      } catch (error) {
-        this.pdfTasks.delete(asset.id);
-        await task.destroy();
-        throw error;
-      } finally {
-        entry.users--;
-        for (const [id, cached] of this.pdfTasks) {
-          if (this.pdfTasks.size <= 3) break;
-          if (cached.users) continue;
-          this.pdfTasks.delete(id);
-          void cached.task.destroy();
-        }
-      }
-    } else {
-      const response = await fetch(url);
-      if (!response.ok) throw Error('Photo could not be loaded.');
-      const bitmap = await createImageBitmap(await response.blob());
-      const scale = Math.min(1, width / bitmap.width);
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      bitmap.close();
-    }
-    return canvas;
-  }
+  /** The rail and the details review draw only thumbnails near the viewport. */
   async renderThumbnails(container = this.thumbRail?.nativeElement) {
-    if (this.destroyed) return;
-    const d = this.draft();
-    if (!d) return;
-    const visibleIDs = this.thumbnailIDs(d, container);
-    const selectedPage = d.manifest.pages[this.selected()];
-    const visiblePages = d.manifest.pages.filter((page) => visibleIDs.has(page.id));
-    const visible = selectedPage
-      ? [selectedPage, ...visiblePages.filter((page) => page.id !== selectedPage.id)]
-      : visiblePages;
-    this.thumbs.update((current) => {
-      const next = { ...current };
-      for (const [id, url] of Object.entries(next)) {
-        if (visibleIDs.has(id)) continue;
-        URL.revokeObjectURL(url);
-        delete next[id];
-      }
-      return next;
-    });
-    const key = visible
-      .map((page) => {
-        const source = d.sources.find((item) => item.id === page.sourceId);
-        return `${page.id}:${source?.checksum ?? page.sourceId}:${page.page}`;
-      })
-      .join('|');
-    if (this.thumbnailRequest?.key !== key) {
-      this.thumbnailRequest = {
-        revision: ++this.thumbnailRevision,
-        key,
-        ids: visibleIDs,
-        pages: visible.map((page) => structuredClone(page)),
-      };
-    }
-    if (!this.thumbnailPump) {
-      const pump = this.pumpThumbnails();
-      this.thumbnailPump = pump;
-      void pump.finally(() => {
-        if (this.thumbnailPump === pump) this.thumbnailPump = undefined;
-      });
-    }
-    await this.thumbnailPump;
-  }
-  private async pumpThumbnails(): Promise<void> {
-    let attemptedRevision = -1;
-    let attempted = new Set<string>();
-    while (!this.destroyed) {
-      const request = this.thumbnailRequest;
-      if (!request) return;
-      if (request.revision !== attemptedRevision) {
-        attemptedRevision = request.revision;
-        attempted = new Set<string>();
-      }
-      const page = request.pages.find(
-        (candidate) => !this.thumbs()[candidate.id] && !attempted.has(candidate.id),
-      );
-      if (!page) {
-        if (this.thumbnailRequest === request) return;
-        continue;
-      }
-      attempted.add(page.id);
-      let canvas: HTMLCanvasElement | undefined;
-      try {
-        canvas = await this.thumbnailCanvas(page);
-        const latest = this.thumbnailRequest;
-        if (this.destroyed || latest?.revision !== request.revision || !latest.ids.has(page.id))
-          continue;
-        const blob = await this.canvasBlob(canvas, 'image/jpeg', 0.8);
-        const current = this.thumbnailRequest;
-        if (this.destroyed || current?.revision !== request.revision || !current.ids.has(page.id))
-          continue;
-        const url = URL.createObjectURL(blob);
-        this.thumbs.update((thumbs) => ({ ...thumbs, [page.id]: url }));
-      } catch (e) {
-        if (
-          !this.destroyed &&
-          !isProcessingStopped(e) &&
-          !(e instanceof DOMException && e.name === 'AbortError') &&
-          this.thumbnailRequest?.revision === request.revision
-        )
-          this.error.set(errorMessage(e));
-      } finally {
-        if (canvas) canvas.width = canvas.height = 1;
-      }
-    }
+    await this.renderer.renderThumbnails(container);
   }
   thumbnailRailScrolled(event: Event): void {
     void this.renderThumbnails(event.currentTarget as HTMLElement);
-  }
-  private thumbnailIDs(d: ImportDraft, container?: HTMLElement): Set<string> {
-    const ids = new Set<string>();
-    if (this.step() === 'source') return ids;
-    const selected = d.manifest.pages[this.selected()];
-    if (selected) ids.add(selected.id);
-    if (this.step() === 'details') {
-      for (const page of d.manifest.pages.slice(0, 3)) ids.add(page.id);
-      return ids;
-    }
-    if (container) {
-      const root = container.getBoundingClientRect();
-      if (root.width > 0 && root.height > 0) {
-        for (const element of container.querySelectorAll<HTMLElement>('[data-thumbnail-id]')) {
-          const bounds = element.getBoundingClientRect();
-          if (
-            bounds.right >= root.left - 140 &&
-            bounds.left <= root.right + 140 &&
-            bounds.bottom >= root.top - 140 &&
-            bounds.top <= root.bottom + 140
-          )
-            ids.add(element.dataset['thumbnailId']!);
-        }
-        return ids;
-      }
-    }
-    const first = Math.max(0, this.selected() - 3);
-    for (const page of d.manifest.pages.slice(first, first + 7)) ids.add(page.id);
-    return ids;
-  }
-  private async canvasBlob(
-    canvas: HTMLCanvasElement,
-    type = 'image/png',
-    quality?: number,
-  ): Promise<Blob> {
-    return new Promise((resolve, reject) =>
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(Error('Page image could not be created.'))),
-        type,
-        quality,
-      ),
-    );
-  }
-  private async thumbnailCanvas(page: PageEdit): Promise<HTMLCanvasElement> {
-    const source = this.draft()?.sources.find((item) => item.id === page.sourceId);
-    if (!source?.mime.startsWith('image/') || this.page?.id !== page.id)
-      return this.sourceCanvas(page, 140);
-    const raster = await this.selectedDisplayRaster(page, source);
-    const bitmap = await createImageBitmap(raster.blob);
-    const scale = Math.min(1, 140 / bitmap.width);
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    try {
-      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    } finally {
-      bitmap.close();
-    }
-    return canvas;
-  }
-  private async selectedDisplayRaster(page: PageEdit, source: ImportAsset): Promise<DisplayRaster> {
-    const key = `${source.checksum}:${page.page}`;
-    if (this.displayRaster?.key === key) return this.displayRaster;
-    if (this.displayRasterLoad?.key === key) return this.displayRasterLoad.promise;
-    this.revokeDisplayRaster();
-    const controller = new AbortController();
-    const promise = measureAsync('noted.intake.source-decode', async () => {
-      const d = this.draft()!;
-      const response = await fetch(`/api/imports/${d.id}/sources/${source.id}`, {
-        signal: controller.signal,
-      });
-      if (!response.ok) throw Error('Photo could not be loaded.');
-      const bitmap = await createImageBitmap(await response.blob());
-      const scale = Math.min(1, 1050 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      try {
-        const context = canvas.getContext('2d')!;
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      } finally {
-        bitmap.close();
-      }
-      const blob = await this.canvasBlob(canvas);
-      const result = {
-        key,
-        blob,
-        url: URL.createObjectURL(blob),
-        width: canvas.width,
-        height: canvas.height,
-      };
-      canvas.width = canvas.height = 1;
-      return result;
-    });
-    this.displayRasterLoad = { key, promise, controller };
-    try {
-      const raster = await promise;
-      if (this.destroyed || this.source !== source || this.page?.page !== page.page) {
-        URL.revokeObjectURL(raster.url);
-        throw new ProcessingStoppedError('superseded');
-      }
-      this.displayRaster = raster;
-      return raster;
-    } finally {
-      if (this.displayRasterLoad?.promise === promise) this.displayRasterLoad = undefined;
-    }
   }
   private async runWorker(
     payload: Record<string, unknown>,
@@ -925,7 +623,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
           !page.margins?.some(Boolean));
       const source = this.source;
       if (source?.mime.startsWith('image/')) {
-        const raster = await this.selectedDisplayRaster(page, source);
+        const raster = await this.renderer.selectedDisplayRaster(page, source);
         if (revision !== this.previewRevision || this.destroyed) return;
         if (plain) {
           this.revokePreviewURL();
@@ -951,7 +649,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       }
       let canvas: HTMLCanvasElement;
       if (plain) {
-        canvas = await this.sourceCanvas(page, 1050);
+        canvas = await this.renderer.sourceCanvas(page, 1050);
       } else {
         await this.renderAuthoritativePreview(page, revision);
         return;
@@ -995,31 +693,12 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       }),
     );
     if (revision !== this.previewRevision || this.destroyed || !response.bytes) return;
-    const task = getDocument({
-      data: new Uint8Array(response.bytes),
-      wasmUrl: '/pdfjs/wasm/',
+    await this.renderer.renderPdfPreview(response.bytes, (canvas) => {
+      if (revision !== this.previewRevision || this.destroyed) return;
+      this.edgeAspect.set(canvas.width / canvas.height);
+      this.revokePreviewURL();
+      this.preview.set(canvas.toDataURL('image/png'));
     });
-    this.previewTask = task;
-    let canvas: HTMLCanvasElement | undefined;
-    try {
-      const pdf = await task.promise,
-        p = await pdf.getPage(1),
-        base = p.getViewport({ scale: 1 }),
-        v = p.getViewport({ scale: Math.min(2, 1050 / base.width) });
-      canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(v.width);
-      canvas.height = Math.ceil(v.height);
-      await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport: v }).promise;
-      if (revision === this.previewRevision && !this.destroyed) {
-        this.edgeAspect.set(canvas.width / canvas.height);
-        this.revokePreviewURL();
-        this.preview.set(canvas.toDataURL('image/png'));
-      }
-    } finally {
-      if (this.previewTask === task) this.previewTask = undefined;
-      await task.destroy();
-      if (canvas) canvas.width = canvas.height = 1;
-    }
   }
   private scheduleBackgroundPrepare(page: PageEdit, source: ImportAsset, revision: number): void {
     clearTimeout(this.backgroundTimer);
@@ -1086,8 +765,8 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       if (!referenced.has(key)) this.preparedPages.delete(key);
     this.preparedKeysByPage = current;
   }
-  setStep(step: 'source' | 'pages' | 'details'): void {
-    if (step !== 'source') this.cancelIMSLPSearch();
+  setStep(step: PrepareStep): void {
+    if (step !== 'source') this.imslp.cancel();
     this.step.set(step);
     void this.renderThumbnails();
     setTimeout(() => void this.renderThumbnails());
@@ -1096,17 +775,6 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     if (!this.objectURL) return;
     URL.revokeObjectURL(this.objectURL);
     this.objectURL = '';
-  }
-  private revokeDisplayRaster(): void {
-    this.displayRasterLoad?.controller.abort();
-    this.displayRasterLoad = undefined;
-    if (!this.displayRaster) return;
-    URL.revokeObjectURL(this.displayRaster.url);
-    this.displayRaster = undefined;
-  }
-  private revokeThumbnails(): void {
-    for (const url of Object.values(this.thumbs())) URL.revokeObjectURL(url);
-    this.thumbs.set({});
   }
   setCompare(value: boolean) {
     if (this.busy()) return;
@@ -1148,7 +816,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     this.edgeResetRequired.set(false);
   }
   cancelEdges() {
-    this.dragCleanup?.();
+    this.edgeEditor?.endDrag();
     this.handles.set(null);
     this.pendingEdges.set([]);
     this.compare.set(this.edgeCompare);
@@ -1169,107 +837,11 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
     if (this.isPhoto) p.corners = points;
     else p.crop = [points[0][0], points[0][1], points[2][0], points[2][1]];
     p.fitEdges = true;
-    this.dragCleanup?.();
+    this.edgeEditor?.endDrag();
     this.handles.set(null);
     this.pendingEdges.set([]);
     this.compare.set(false);
     this.changed();
-  }
-  private setEdge(index: number, x: number, y: number, rectangle = false) {
-    if (!this.edgeReady() || this.edgeResetRequired()) return;
-    x = Math.max(0, Math.min(1, x));
-    y = Math.max(0, Math.min(1, y));
-    const points = this.edgePoints.map((p) => [...p]);
-    if (this.handles() === 'crop' || rectangle) {
-      const anchor = points[(index + 2) % 4],
-        gap = 0.050001,
-        left = index === 0 || index === 3,
-        top = index < 2;
-      x = left ? Math.min(x, anchor[0] - gap) : Math.max(x, anchor[0] + gap);
-      y = top ? Math.min(y, anchor[1] - gap) : Math.max(y, anchor[1] + gap);
-      if (x < 0 || x > 1 || y < 0 || y > 1) return;
-      const l = left ? x : anchor[0],
-        r = left ? anchor[0] : x,
-        t = top ? y : anchor[1],
-        b = top ? anchor[1] : y;
-      this.pendingEdges.set([
-        [l, t],
-        [r, t],
-        [r, b],
-        [l, b],
-      ]);
-      return;
-    }
-    points[index] = [x, y];
-    // Reject crossed, collapsed, or nearly collinear quads, for pointer and keyboard alike.
-    for (let i = 0; i < 4; i++) {
-      const a = points[i],
-        b = points[(i + 1) % 4],
-        c = points[(i + 2) % 4];
-      if (
-        Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.05 ||
-        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) <= 0.0025
-      )
-        return;
-    }
-    this.pendingEdges.set(points);
-  }
-  dragCorner(event: PointerEvent, index: number) {
-    if (
-      this.busy() ||
-      !this.editingEdges ||
-      !this.edgeReady() ||
-      this.edgeResetRequired() ||
-      !this.surface ||
-      !event.isPrimary ||
-      event.button !== 0
-    )
-      return;
-    event.preventDefault();
-    event.stopPropagation();
-    document.getSelection()?.removeAllRanges();
-    this.dragCleanup?.();
-    const target = event.currentTarget as HTMLElement;
-    const rect = this.surface.nativeElement.querySelector('img')!.getBoundingClientRect();
-    target.setPointerCapture(event.pointerId);
-    const move = (e: PointerEvent) => {
-      if (e.pointerId !== event.pointerId) return;
-      e.preventDefault();
-      e.stopPropagation();
-      this.setEdge(
-        index,
-        (e.clientX - rect.left) / rect.width,
-        (e.clientY - rect.top) / rect.height,
-        e.shiftKey,
-      );
-    };
-    const cleanup = (e?: PointerEvent) => {
-      if (e && e.pointerId !== event.pointerId) return;
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', cleanup);
-      target.removeEventListener('pointercancel', cleanup);
-      target.removeEventListener('lostpointercapture', cleanup);
-      if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
-      this.dragCleanup = undefined;
-    };
-    this.dragCleanup = cleanup;
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', cleanup);
-    target.addEventListener('pointercancel', cleanup);
-    target.addEventListener('lostpointercapture', cleanup);
-  }
-  nudgeCorner(index: number, event: KeyboardEvent) {
-    const delta: Record<string, number[]> = {
-      ArrowLeft: [-0.01, 0],
-      ArrowRight: [0.01, 0],
-      ArrowUp: [0, -0.01],
-      ArrowDown: [0, 0.01],
-    };
-    if (!delta[event.key] || !this.edgeReady()) return;
-    event.preventDefault();
-    const p = this.edgePoints[index],
-      d = delta[event.key];
-    this.setEdge(index, p[0] + d[0], p[1] + d[1], event.shiftKey);
   }
   useRange() {
     const d = this.draft();
@@ -1306,284 +878,16 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       this.error.set(errorMessage(e));
     }
   }
-  private applyIMSLP() {
-    if (this.step() !== 'source' || !this.imslp.trim()) return;
-    const url = new URL(this.imslp);
-    if (
-      url.protocol !== 'https:' ||
-      !['imslp.org', 'www.imslp.org'].includes(url.host) ||
-      !url.pathname.startsWith('/wiki/') ||
-      url.username ||
-      url.password
-    )
-      throw Error('Use an HTTPS work link from imslp.org/wiki/.');
-    const metadata = this.draft()!.metadata;
-    const changedWork = metadata.sourceUrl !== url.href;
-    metadata.sourceUrl = url.href;
-    const { title, composer } = imslpWorkName(
-      decodeURIComponent(url.pathname.slice(6)).replaceAll('_', ' '),
-    );
-    if (changedWork || (!metadata.title && this.draft()?.imslpAutoFill?.title === undefined)) {
-      this.prefillIMSLPField('title', title);
-    }
-    if (
-      changedWork ||
-      (!metadata.composer && this.draft()?.imslpAutoFill?.composer === undefined)
-    ) {
-      this.prefillIMSLPField('composer', composer);
-    }
+  /** A pasted work link is stored on the draft whenever the Source step moves on. */
+  applyIMSLP(): string | undefined {
+    if (this.step() !== 'source' || !this.imslp.link.trim()) return;
+    const href = linkIMSLPWork(this.draft()!, this.imslp.link);
     this.mark();
-    return url.href;
-  }
-  private prefillIMSLPField(field: 'title' | 'composer', value: string) {
-    const d = this.draft()!;
-    const provenance = (d.imslpAutoFill ??= {});
-    const manuallyEdited = field === 'title' ? provenance.titleEdited : provenance.composerEdited;
-    if (manuallyEdited) return;
-    if (
-      !d.metadata[field] ||
-      (provenance[field] !== undefined && d.metadata[field] === provenance[field])
-    ) {
-      d.metadata[field] = value;
-      provenance[field] = value;
-    } else {
-      delete provenance[field];
-    }
-  }
-  /** Each keystroke restarts the debounce; below two characters nothing is sent. */
-  imslpInput() {
-    clearTimeout(this.imslpTimer);
-    if (this.imslpQuery.trim().length < 2) {
-      this.resetIMSLPSearch();
-      return;
-    }
-    if (imslpQueryKey(this.imslpQuery) !== this.imslpLastSent) {
-      // The visible results no longer answer the query in the field: no older
-      // response may land, and nothing on screen may be opened until the next one.
-      this.imslpRequest++;
-      this.imslpSearch?.unsubscribe();
-      this.imslpSearch = undefined;
-      this.imslpLastSent = '';
-      this.imslpStale.set(true);
-    }
-    this.imslpTimer = setTimeout(() => this.searchIMSLP(), IMSLP_DEBOUNCE_MS);
-  }
-  /** Results on screen during a pending, running or throttled search are not selectable. */
-  imslpResultsStale(): boolean {
-    return (
-      this.imslpStale() || this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled'
-    );
-  }
-  imslpEnter(event: Event) {
-    event.preventDefault();
-    this.searchIMSLP(true);
+    return href;
   }
   chooseSource(mode: string) {
-    if (mode !== 'imslp') this.cancelIMSLPSearch();
+    if (mode !== 'imslp') this.imslp.cancel();
     this.sourceMode.set(mode);
-  }
-  /**
-   * Enter (immediate) may repeat the last query; the debounce never does. A
-   * retry runs without the searching state and never schedules another retry.
-   */
-  searchIMSLP(immediate = false, retry = false) {
-    clearTimeout(this.imslpTimer);
-    const query = this.imslpQuery.trim();
-    if (query.length < 2 || query.length > 100) {
-      this.resetIMSLPSearch();
-      return;
-    }
-    const key = imslpQueryKey(query);
-    if (key === this.imslpLastSent && !immediate) return;
-    this.imslpLastSent = key;
-    const request = ++this.imslpRequest;
-    this.imslpSearch?.unsubscribe();
-    this.imslpSearch = undefined;
-    const cached = this.imslpCache.get(key);
-    if (cached) {
-      this.rememberIMSLPResults(key, cached);
-      this.imslpStatus.set('ready');
-      this.imslpResults.set(cached);
-      this.imslpStale.set(false);
-      return;
-    }
-    if (!retry) this.imslpStatus.set('searching');
-    const unavailable = () => {
-      this.imslpLastSent = '';
-      this.imslpStatus.set('unavailable');
-      this.imslpResults.set([]);
-      this.imslpStale.set(false);
-      this.imslpLinkOpen.set(true);
-      if (retry) return;
-      this.imslpTimer = setTimeout(() => {
-        if (
-          this.imslpQuery.trim() === query &&
-          this.sourceMode() === 'imslp' &&
-          this.step() === 'source'
-        )
-          this.searchIMSLP(true, true);
-      }, IMSLP_UNAVAILABLE_RETRY_MS);
-    };
-    this.imslpSearch = this.api.searchIMSLP(query).subscribe({
-      next: (result) => {
-        if (request !== this.imslpRequest || this.destroyed) return;
-        if (result.status === 'ready') {
-          this.rememberIMSLPResults(key, result.results);
-          this.imslpStatus.set('ready');
-          this.imslpResults.set(result.results);
-          this.imslpStale.set(false);
-        } else if (result.status === 'throttled') {
-          // Earlier results stay (faded) and the same query is retried once the limit refills.
-          this.imslpLastSent = '';
-          this.imslpStatus.set('throttled');
-          this.imslpTimer = setTimeout(() => this.searchIMSLP(true), IMSLP_THROTTLE_RETRY_MS);
-        } else unavailable();
-      },
-      error: () => {
-        if (request !== this.imslpRequest || this.destroyed) return;
-        unavailable();
-      },
-    });
-  }
-  imslpStatusText(): string {
-    switch (this.imslpStatus()) {
-      case 'idle':
-        return 'Type at least two characters.';
-      case 'searching':
-        return 'Searching IMSLP…';
-      case 'throttled':
-        return "You're searching quickly. Results will catch up in a moment.";
-      case 'unavailable':
-        return 'IMSLP is slow right now. Paste a work link or add a downloaded PDF, or press Enter to try again.';
-      default:
-        return this.imslpResults().length
-          ? ''
-          : 'No works match. Check the spelling, try the composer alone, or paste a work link.';
-    }
-  }
-  private resetIMSLPSearch() {
-    this.cancelIMSLPSearch();
-    this.imslpStatus.set('idle');
-    this.imslpResults.set([]);
-  }
-  /** Stops the pending debounce or retry and the in-flight request, e.g. on leaving the panel. */
-  private cancelIMSLPSearch() {
-    clearTimeout(this.imslpTimer);
-    this.imslpRequest++;
-    this.imslpSearch?.unsubscribe();
-    this.imslpSearch = undefined;
-    this.imslpLastSent = '';
-    this.imslpStale.set(false);
-    if (this.imslpStatus() === 'searching' || this.imslpStatus() === 'throttled')
-      this.imslpStatus.set(this.imslpResults().length ? 'ready' : 'idle');
-  }
-  private rememberIMSLPResults(key: string, works: IMSLPWork[]) {
-    this.imslpCache.delete(key);
-    this.imslpCache.set(key, works);
-    if (this.imslpCache.size > IMSLP_CACHE_ENTRIES)
-      this.imslpCache.delete(this.imslpCache.keys().next().value!);
-  }
-  /** One tap stores the link, prefills details and opens the work on IMSLP. */
-  async selectIMSLPWork(work: IMSLPWork) {
-    if (
-      !this.draft() ||
-      this.busy() ||
-      this.finalizing() ||
-      this.imslpResultsStale() ||
-      !this.imslpResults().includes(work)
-    )
-      return;
-    this.imslp = work.url;
-    const metadata = this.draft()!.metadata;
-    metadata.sourceUrl = work.url;
-    this.prefillIMSLPField('title', work.title);
-    this.prefillIMSLPField('composer', work.composer);
-    this.draft.update((d) =>
-      d
-        ? {
-            ...d,
-            metadata: { ...d.metadata },
-            imslpAutoFill: { ...d.imslpAutoFill },
-          }
-        : null,
-    );
-    this.mark();
-    this.imslpChanging.set(false);
-    this.imslpOpened.set(true);
-    // Still inside the click handler, so iPad Safari treats it as a user gesture.
-    window.open(work.url, '_blank', 'noopener,noreferrer');
-    try {
-      await this.persist();
-    } catch (e) {
-      this.error.set(errorMessage(e));
-    }
-  }
-  /** The work whose link the draft holds, parsed the same way as a pasted link. */
-  get chosenIMSLPWork(): IMSLPWork | null {
-    const url = this.draft()?.metadata.sourceUrl ?? '';
-    if (!isIMSLPWorkLink(url)) return null;
-    let name = url.slice(url.indexOf('/wiki/') + 6);
-    try {
-      name = decodeURIComponent(name);
-    } catch {
-      // Keep the raw path segment when it is not valid percent-encoding.
-    }
-    return { ...imslpWorkName(name.replaceAll('_', ' ')), url };
-  }
-  /** The provenance line appears only for fields IMSLP filled and nobody edited since. */
-  get imslpProvenance(): string {
-    const d = this.draft();
-    const title = !!d?.imslpAutoFill?.title && d.imslpAutoFill.title === d.metadata.title;
-    const composer =
-      !!d?.imslpAutoFill?.composer && d.imslpAutoFill.composer === d.metadata.composer;
-    if (title && composer) return 'Title and composer filled from IMSLP';
-    if (title) return 'Title filled from IMSLP';
-    return composer ? 'Composer filled from IMSLP' : '';
-  }
-  changeIMSLPWork() {
-    this.imslpChanging.set(true);
-    afterNextRender(() => this.imslpSearchInput?.nativeElement.focus(), {
-      injector: this.injector,
-    });
-  }
-  imslpDragOver(event: DragEvent) {
-    if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = this.busy() ? 'none' : 'copy';
-    this.imslpDropHot.set(!this.busy());
-  }
-  imslpDragLeave(event: DragEvent) {
-    const panel = event.currentTarget as HTMLElement | null;
-    if (event.relatedTarget instanceof Node && panel?.contains(event.relatedTarget)) return;
-    this.imslpDropHot.set(false);
-  }
-  async imslpDrop(event: DragEvent) {
-    event.preventDefault();
-    this.imslpDropHot.set(false);
-    if (this.busy()) return;
-    const files = Array.from(event.dataTransfer?.files ?? []);
-    const pdfs = files.filter(
-      (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name),
-    );
-    await this.uploadFiles(pdfs);
-    // uploadFiles clears earlier errors, so the skipped-file note is added afterwards.
-    if (pdfs.length < files.length) {
-      const warning = 'Only PDF files can be dropped here.';
-      this.error.set(this.error() ? `${this.error()} ${warning}` : warning);
-    }
-  }
-  async openIMSLP() {
-    try {
-      const url = this.applyIMSLP();
-      if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-        this.imslpChanging.set(false);
-        this.imslpOpened.set(true);
-      }
-      await this.persist();
-    } catch (e) {
-      this.error.set(errorMessage(e));
-    }
   }
   async continue() {
     try {
@@ -1684,39 +988,4 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded {
       (this.uploading && !this.skipRemainingUploads) || (this.busy() && this.foregroundWorker),
     );
   }
-}
-
-function isIMSLPWorkLink(url: string): boolean {
-  return /^https:\/\/(www\.)?imslp\.org\/wiki\//.test(url);
-}
-
-/** IMSLP work pages are titled "Work title (Last, First)". */
-function imslpWorkName(name: string): { title: string; composer: string } {
-  return {
-    title: name.replace(/\s*\([^)]*\)$/, ''),
-    composer: name.match(/\(([^()]+, [^()]+)\)$/)?.[1] ?? '',
-  };
-}
-
-/**
- * IMSLP names downloads "IMSLP<file number>-<composer>_-_<title>.pdf". The note is
- * informational only: a file number cannot be checked against a work without IMSLP.
- */
-function imslpFileMatch(filename: string, work: IMSLPWork | null): string {
-  const number = filename.match(/^IMSLP(\d+)-/)?.[1];
-  if (!number) return '';
-  const fold = (text: string) =>
-    text
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-  const lastName = fold(work?.composer.split(',')[0] ?? '');
-  return lastName && fold(filename).includes(lastName)
-    ? `IMSLP file ${number}, by the chosen work's composer.`
-    : `IMSLP file ${number}. Check it is an edition of the chosen work.`;
-}
-
-function imslpQueryKey(query: string): string {
-  return query.trim().replace(/\s+/g, ' ').toLowerCase();
 }

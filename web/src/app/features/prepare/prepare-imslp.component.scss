@@ -1,7 +1,47 @@
 /* IMSLP panel on the Source step: live search, chosen work and the PDF drop target.
-   Kept apart from prepare.component.scss so each stylesheet stays within its budget. */
+   The host is the panel's <article> in the Source options grid. */
 
-.source-options .imslp-query {
+/* Copy rules from prepare.component.scss that the panel's own elements use. */
+
+h2 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+p {
+  margin: 8px 0;
+  color: var(--ink-muted);
+  line-height: 1.6;
+}
+
+small {
+  display: block;
+  color: var(--ink-muted);
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  margin-top: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+}
+
+:host h2 {
+  margin-bottom: 4px;
+}
+
+:host > p {
+  margin-top: 6px;
+}
+
+:host .field {
+  margin: 16px 0 0;
+}
+
+:host .imslp-query {
   margin: 20px 0 6px;
 }
 
@@ -270,12 +310,12 @@
   content: 'PDF';
 }
 
-.imslp.drop-hot {
+:host(.drop-hot) {
   outline: 2px solid var(--green);
   outline-offset: 8px;
 }
 
-.source-options .imslp .actions {
+:host .actions {
   align-items: center;
   gap: 12px;
 }
@@ -296,7 +336,7 @@
     display: inline;
   }
 
-  .source-options .imslp .add-downloaded {
+  :host .add-downloaded {
     flex: 1 1 100%;
     justify-content: center;
   }

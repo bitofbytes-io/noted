@@ -1,0 +1,59 @@
+/* Shown only while the page edges are being edited, inside the preview's .page-surface. */
+:host {
+  display: contents;
+}
+
+// Safari can select or drag the handles during a long press on a corner.
+:host * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+.corner {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  touch-action: none;
+  z-index: 2;
+  cursor: grab;
+}
+
+.corner::after {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 15px;
+  border: 2px solid var(--green);
+  background: white;
+}
+
+.corner:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+}
+
+.edge-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.edge-overlay path {
+  fill: rgba(20, 35, 27, 0.45);
+}
+
+.edge-overlay polygon {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
