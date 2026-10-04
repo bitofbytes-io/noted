@@ -131,7 +131,9 @@ token.
 Merges to `main` use GitHub Actions to verify the app, publish the ARM64 API and
 UI images to the private registry, and trigger the Crystal deployment
 repository through its SSH hook. This follows the same Tailscale, registry, and
-deployment-ref flow as the other bitofbytes-io applications.
+deployment-ref flow as the other bitofbytes-io applications. The push passes
+each image's digest as an `image-digest` push option, so the hook deploys
+exactly the images that run built.
 
 The API image reads PostgreSQL and Google credentials from the external
 `noted_database_url`, `noted_google_client_id`, and

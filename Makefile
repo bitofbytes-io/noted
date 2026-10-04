@@ -74,6 +74,7 @@ docker-push: docker-push-api docker-push-ui
 
 docker-publish: docker-build docker-push
 
+# CI sets API_METADATA_FILE and UI_METADATA_FILE to read each pushed image digest from buildx's metadata.
 docker-buildx-api: ensure-image-tag
 	docker buildx build \
 		-f Docker/Dockerfile.api \
@@ -82,6 +83,7 @@ docker-buildx-api: ensure-image-tag
 		--build-arg REVISION=$(REVISION) \
 		--build-arg SOURCE_URL=$(SOURCE_URL) \
 		-t $(API_IMAGE) \
+		$(if $(API_METADATA_FILE),--metadata-file $(API_METADATA_FILE)) \
 		--push \
 		.
 
@@ -93,6 +95,7 @@ docker-buildx-ui: ensure-image-tag
 		--build-arg REVISION=$(REVISION) \
 		--build-arg SOURCE_URL=$(SOURCE_URL) \
 		-t $(UI_IMAGE) \
+		$(if $(UI_METADATA_FILE),--metadata-file $(UI_METADATA_FILE)) \
 		--push \
 		.
 
