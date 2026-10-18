@@ -127,6 +127,8 @@ export class LibraryComponent implements OnDestroy {
   /** Opens on the filter this user last chose, on any device. */
   protected filter: LibraryFilter = 'current';
   private filterChosen = false;
+  /** Saves run one at a time, so an older choice can never land after a newer one. */
+  private filterSave: Promise<void> = Promise.resolve();
   protected editing: Piece | null = null;
   protected form: PieceForm = emptyPiece();
   private searchTimer?: number;
@@ -195,12 +197,20 @@ export class LibraryComponent implements OnDestroy {
     this.filter = filter;
     this.filterChosen = true;
     const listed = this.load();
+    const saved = this.filterSave.then(() => this.saveFilter(filter));
+    this.filterSave = saved;
+    await saved;
+    await listed;
+  }
+
+  private async saveFilter(filter: LibraryFilter): Promise<void> {
+    // A newer choice is queued behind this one and saves itself.
+    if (filter !== this.filter) return;
     try {
       await firstValueFrom(this.api.savePreferences({ libraryFilter: filter }));
     } catch (error) {
       this.error.set(errorMessage(error));
     }
-    await listed;
   }
 
   /** Whether the piece still belongs in the list on screen. */

@@ -207,6 +207,31 @@ describe('LibraryComponent status and filter', () => {
     fixture.destroy();
   });
 
+  it('saves rapid filter choices one at a time, ending on the latest', async () => {
+    const { fixture, api } = await setup('current', [row('a', 'playing')]);
+    const component = fixture.componentInstance;
+    const inFlight = new Subject<unknown>();
+    api.savePreferences.mockImplementationOnce(() => inFlight);
+
+    const first = component.chooseFilter('shelved');
+    await vi.waitFor(() => expect(api.savePreferences).toHaveBeenCalledTimes(1));
+    // While the first save is still open, two quick choices follow it.
+    const second = component.chooseFilter('all');
+    const third = component.chooseFilter('favorites');
+    await Promise.resolve();
+    expect(api.savePreferences).toHaveBeenCalledTimes(1);
+
+    inFlight.next({ libraryFilter: 'shelved' });
+    inFlight.complete();
+    await Promise.all([first, second, third]);
+    // The superseded choice is skipped, and the latest is saved last.
+    expect(api.savePreferences.mock.calls).toEqual([
+      [{ libraryFilter: 'shelved' }],
+      [{ libraryFilter: 'favorites' }],
+    ]);
+    fixture.destroy();
+  });
+
   it('changes a status from the row and drops it when it leaves the filter', async () => {
     const { fixture, api, root, render, titles } = await setup('current', [
       row('a', 'playing'),
