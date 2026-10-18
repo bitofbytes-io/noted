@@ -39,9 +39,14 @@
           (ngModelChange)="onSearch()"
         />
       </label>
-      <label class="check-field favorite-filter">
-        <input type="checkbox" [(ngModel)]="favoritesOnly" (ngModelChange)="load()" />
-        <span>Favorites</span>
+      <label class="library-filter">
+        <span class="sr-only">Show</span>
+        <select [ngModel]="filter" (ngModelChange)="chooseFilter($event)">
+          @for (option of libraryFilters; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
+          }
+        </select>
+        <svg lucideChevronDown aria-hidden="true"></svg>
       </label>
     </div>
   </section>
@@ -92,15 +97,17 @@
     } @else if (!pieces().length) {
       <div class="empty-state">
         <svg lucideFileText aria-hidden="true"></svg>
-        <h2>{{ query || favoritesOnly ? 'No matching pieces' : 'Your binder is empty' }}</h2>
-        <p>
-          {{
-            query || favoritesOnly
-              ? 'Try another search or clear the favorites filter.'
-              : 'Add a scanned or downloaded PDF to begin.'
-          }}
-        </p>
-        @if (!query && !favoritesOnly) {
+        @if (query || filter !== 'current') {
+          <h2>No matching pieces</h2>
+          <p>Try another search or choose another filter.</p>
+        } @else if (onlyShelved()) {
+          <h2>Nothing in Learning or Playing</h2>
+          <p>Your pieces are shelved. Choose Shelved or All to see them.</p>
+        } @else {
+          <h2>Your binder is empty</h2>
+          <p>Add a scanned or downloaded PDF to begin.</p>
+        }
+        @if (!query && filter === 'current' && !onlyShelved()) {
           <button class="btn-quiet accent" type="button" (click)="beginImport()">
             Add the first piece
           </button>
@@ -145,6 +152,21 @@
                   <span>Listen</span>
                 </a>
               }
+              <label class="row-status" (click)="$event.stopPropagation()">
+                <span class="sr-only">Status of {{ piece.title }}</span>
+                <select
+                  [value]="piece.status"
+                  (change)="changeStatus(piece, $any($event.target).value)"
+                  (keydown)="$event.stopPropagation()"
+                >
+                  @for (option of pieceStatuses; track option.value) {
+                    <option [value]="option.value" [selected]="option.value === piece.status">
+                      {{ option.label }}
+                    </option>
+                  }
+                </select>
+                <svg lucideChevronDown aria-hidden="true"></svg>
+              </label>
               <button
                 class="icon-button"
                 type="button"
@@ -231,10 +253,20 @@
       <span>Notes</span>
       <textarea name="notes" rows="3" maxlength="10000" [(ngModel)]="form.notes"></textarea>
     </label>
-    <label class="check-field">
-      <input name="favorite" type="checkbox" [(ngModel)]="form.favorite" />
-      <span>Favorite</span>
-    </label>
+    <div class="status-favorite">
+      <label class="field">
+        <span>Status</span>
+        <select name="status" [(ngModel)]="form.status">
+          @for (option of pieceStatuses; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
+          }
+        </select>
+      </label>
+      <label class="check-field">
+        <input name="favorite" type="checkbox" [(ngModel)]="form.favorite" />
+        <span>Favorite</span>
+      </label>
+    </div>
 
     @if (editing) {
       <div class="pdf-actions">

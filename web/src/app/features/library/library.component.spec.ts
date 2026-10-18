@@ -20,6 +20,7 @@ describe('LibraryComponent', () => {
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieces: vi.fn().mockReturnValueOnce(stale).mockReturnValueOnce(latest),
     };
     await TestBed.configureTestingModule({
@@ -55,6 +56,7 @@ describe('LibraryComponent', () => {
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieces: vi.fn(() => of([])),
       createImport: vi.fn(() => of({ id: 'draft-1' })),
       updatePiece: vi.fn(),
@@ -134,6 +136,109 @@ describe('LibraryComponent', () => {
   });
 });
 
+describe('LibraryComponent status and filter', () => {
+  const row = (id: string, status: Piece['status'], favorite = false) =>
+    ({
+      id,
+      title: `Piece ${id}`,
+      composer: '',
+      favorite,
+      status,
+      sourceUrl: '',
+      listeningUrl: '',
+      notes: '',
+      pdf: null,
+    }) as Piece;
+
+  async function setup(libraryFilter: string, rows: Piece[], all: Piece[] = rows) {
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter })),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn((_query: string, filter: string) => of(filter === 'all' ? all : rows)),
+      updatePiece: vi.fn((id: string, change: Partial<Piece>) =>
+        of({ ...rows.find((piece) => piece.id === id)!, ...change }),
+      ),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const render = async () => {
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    const titles = () => [...root.querySelectorAll('.piece-row h2')].map((h) => h.textContent);
+    return { fixture, api, root, render, titles };
+  }
+
+  it('opens on the remembered filter and remembers a new choice', async () => {
+    const { fixture, api, root, render } = await setup('favorites', [row('a', 'shelved', true)]);
+    const select = root.querySelector('.library-filter select') as HTMLSelectElement;
+    expect(api.pieces).toHaveBeenCalledWith('', 'favorites');
+    expect(select.value).toBe('favorites');
+    expect([...select.options].map((option) => option.textContent?.trim())).toEqual([
+      'Learning & Playing',
+      'All',
+      'Favorites',
+      'Learning',
+      'Playing',
+      'Shelved',
+    ]);
+
+    select.value = 'shelved';
+    select.dispatchEvent(new Event('change'));
+    await render();
+    expect(api.savePreferences).toHaveBeenCalledWith({ libraryFilter: 'shelved' });
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved');
+    fixture.destroy();
+  });
+
+  it('changes a status from the row and drops it when it leaves the filter', async () => {
+    const { fixture, api, root, render, titles } = await setup('current', [
+      row('a', 'playing'),
+      row('b', 'learning'),
+    ]);
+    expect(titles()).toEqual(['Piece a', 'Piece b']);
+    const select = root.querySelector('.row-status select') as HTMLSelectElement;
+    expect(select.value).toBe('playing');
+
+    select.value = 'learning';
+    select.dispatchEvent(new Event('change'));
+    await render();
+    expect(api.updatePiece).toHaveBeenLastCalledWith('a', { status: 'learning' });
+    expect(titles()).toEqual(['Piece a', 'Piece b']);
+
+    (root.querySelector('.row-status select') as HTMLSelectElement).value = 'shelved';
+    root.querySelector('.row-status select')!.dispatchEvent(new Event('change'));
+    await render();
+    expect(api.updatePiece).toHaveBeenLastCalledWith('a', { status: 'shelved' });
+    expect(titles()).toEqual(['Piece b']);
+    fixture.destroy();
+  });
+
+  it('says when the default view is empty only because everything is shelved', async () => {
+    const { fixture, root } = await setup('current', [], [row('a', 'shelved')]);
+    expect(root.querySelector('.empty-state h2')?.textContent).toBe(
+      'Nothing in Learning or Playing',
+    );
+    fixture.destroy();
+  });
+});
+
 const TOKEN = 'pR8xQ2nVf7Lw0mKaZc4HtYe9BjUs1GdNoI3vXb6Fq5E';
 const REPLACEMENT = 'Zz9yXw8vUt7sRq6pOn5mLk4jIh3gFe2dCb1aZz9yXw8';
 
@@ -166,6 +271,7 @@ describe('LibraryComponent account dialog', () => {
     const api = {
       session: vi.fn(() => of(session)),
       imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieces: vi.fn(() => of([])),
       logout: vi.fn(() => of(undefined)),
       shortcutToken: vi.fn(() => of(status)),

@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
+  LucideChevronDown,
   LucideDownload,
   LucideFileText,
   LucideHeadphones,
@@ -35,9 +36,13 @@ import {
 } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import {
+  LIBRARY_FILTERS,
+  LibraryFilter,
   MAX_PREPARED_PAGES,
+  PIECE_STATUSES,
   Piece,
   PieceInput,
+  PieceStatus,
   Session,
   ImportDraft,
   ShortcutToken,
@@ -47,11 +52,15 @@ import { formatDay, lastUsedText, listeningUrlError } from './library.utils';
 
 interface PieceLoadRequest {
   query: string;
-  favoritesOnly: boolean;
+  filter: LibraryFilter;
   complete: () => void;
 }
 
-type PieceLoadResult = { pieces: Piece[] } | { error: unknown };
+/** `hidden` is set when the default view is empty only because everything is shelved. */
+type PieceLoadResult = { pieces: Piece[]; hidden: boolean } | { error: unknown };
+
+/** The details form always carries a status, unlike an import draft's metadata. */
+type PieceForm = PieceInput & { status: PieceStatus };
 
 /** The Send to Noted section: no token, a token just created (shown once), or an active one. */
 type ShortcutState = 'loading' | 'none' | 'created' | 'active';
@@ -60,6 +69,7 @@ type ShortcutState = 'loading' | 'none' | 'created' | 'active';
   selector: 'app-library',
   imports: [
     FormsModule,
+    LucideChevronDown,
     LucideDownload,
     LucideFileText,
     LucideHeadphones,
@@ -82,7 +92,11 @@ export class LibraryComponent implements OnDestroy {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  protected readonly libraryFilters = LIBRARY_FILTERS;
+  protected readonly pieceStatuses = PIECE_STATUSES;
   protected readonly pieces = signal<Piece[]>([]);
+  /** The default view is empty, but the binder is not: every piece is shelved. */
+  protected readonly onlyShelved = signal(false);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly error = signal('');
@@ -110,9 +124,11 @@ export class LibraryComponent implements OnDestroy {
   /** Ignores a status read that finishes after the dialog closed or the token changed. */
   private accountVisit = 0;
   protected query = '';
-  protected favoritesOnly = false;
+  /** Opens on the filter this user last chose, on any device. */
+  protected filter: LibraryFilter = 'current';
+  private filterChosen = false;
   protected editing: Piece | null = null;
-  protected form: PieceInput = emptyPiece();
+  protected form: PieceForm = emptyPiece();
   private searchTimer?: number;
   private readonly pieceLoadRequests = new Subject<PieceLoadRequest>();
   private readonly pieceLoadSubscription: Subscription;
@@ -125,16 +141,26 @@ export class LibraryComponent implements OnDestroy {
           this.error.set('');
         }),
         switchMap((request) =>
-          defer(() => this.api.pieces(request.query, request.favoritesOnly)).pipe(
-            map((pieces): PieceLoadResult => ({ pieces })),
+          defer(() => this.api.pieces(request.query, request.filter)).pipe(
+            switchMap((pieces) =>
+              pieces.length || request.filter !== 'current' || request.query.trim()
+                ? of<PieceLoadResult>({ pieces, hidden: false })
+                : this.api
+                    .pieces('', 'all')
+                    .pipe(map((all): PieceLoadResult => ({ pieces, hidden: all.length > 0 }))),
+            ),
             catchError((error: unknown) => of<PieceLoadResult>({ error })),
             finalize(request.complete),
           ),
         ),
       )
       .subscribe((result) => {
-        if ('pieces' in result) this.pieces.set(result.pieces);
-        else this.error.set(errorMessage(result.error));
+        if ('pieces' in result) {
+          this.pieces.set(result.pieces);
+          this.onlyShelved.set(result.hidden);
+        } else {
+          this.error.set(errorMessage(result.error));
+        }
         this.loading.set(false);
       });
     afterNextRender(() => {
@@ -144,8 +170,52 @@ export class LibraryComponent implements OnDestroy {
       }
     });
     void this.loadSession();
-    void this.load();
+    this.loadPreferences();
     void this.loadDrafts();
+  }
+
+  /** Loads the remembered filter, then the list; a first-time user gets the default. */
+  private loadPreferences(): void {
+    this.api.preferences().subscribe({
+      next: (preferences) => {
+        if (this.filterChosen) return;
+        if (LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)) {
+          this.filter = preferences.libraryFilter;
+        }
+        void this.load();
+      },
+      error: () => {
+        if (!this.filterChosen) void this.load();
+      },
+    });
+  }
+
+  /** Lists by the new filter and remembers it for this user's next visit. */
+  async chooseFilter(filter: LibraryFilter): Promise<void> {
+    this.filter = filter;
+    this.filterChosen = true;
+    const listed = this.load();
+    try {
+      await firstValueFrom(this.api.savePreferences({ libraryFilter: filter }));
+    } catch (error) {
+      this.error.set(errorMessage(error));
+    }
+    await listed;
+  }
+
+  /** Whether the piece still belongs in the list on screen. */
+  private shown(piece: Piece): boolean {
+    switch (this.filter) {
+      case 'current':
+        // A search never hides a shelved piece.
+        return piece.status !== 'shelved' || !!this.query.trim();
+      case 'all':
+        return true;
+      case 'favorites':
+        return piece.favorite;
+      default:
+        return piece.status === this.filter;
+    }
   }
 
   async loadSession(): Promise<void> {
@@ -273,7 +343,7 @@ export class LibraryComponent implements OnDestroy {
     return new Promise((complete) => {
       this.pieceLoadRequests.next({
         query: this.query,
-        favoritesOnly: this.favoritesOnly,
+        filter: this.filter,
         complete,
       });
     });
@@ -329,6 +399,7 @@ export class LibraryComponent implements OnDestroy {
       title: piece.title,
       composer: piece.composer,
       favorite: piece.favorite,
+      status: piece.status,
       sourceUrl: piece.sourceUrl,
       listeningUrl: piece.listeningUrl,
       notes: piece.notes,
@@ -355,6 +426,7 @@ export class LibraryComponent implements OnDestroy {
       this.form.title !== piece.title ||
       this.form.composer !== piece.composer ||
       this.form.favorite !== piece.favorite ||
+      this.form.status !== piece.status ||
       this.form.sourceUrl !== piece.sourceUrl ||
       this.form.listeningUrl.trim() !== piece.listeningUrl ||
       this.form.notes !== piece.notes
@@ -402,18 +474,31 @@ export class LibraryComponent implements OnDestroy {
 
   async toggleFavorite(piece: Piece, event: Event): Promise<void> {
     event.stopPropagation();
+    await this.updateRow(piece, { favorite: !piece.favorite });
+  }
+
+  async changeStatus(piece: Piece, status: PieceStatus): Promise<void> {
+    if (status === piece.status) return;
+    // Show the choice at once; a failed save puts the row back as it was.
+    this.replaceRow({ ...piece, status });
+    if (!(await this.updateRow(piece, { status }))) this.replaceRow(piece);
+  }
+
+  /** Saves one change from a row, then drops the row if it no longer fits the filter. */
+  private async updateRow(piece: Piece, change: Partial<PieceInput>): Promise<boolean> {
     try {
-      const updated = await firstValueFrom(
-        this.api.updatePiece(piece.id, { favorite: !piece.favorite }),
-      );
-      this.pieces.update((pieces) =>
-        this.favoritesOnly && !updated.favorite
-          ? pieces.filter((candidate) => candidate.id !== updated.id)
-          : pieces.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
-      );
+      const updated = await firstValueFrom(this.api.updatePiece(piece.id, change));
+      if (this.shown(updated)) this.replaceRow(updated);
+      else this.pieces.update((pieces) => pieces.filter((row) => row.id !== updated.id));
+      return true;
     } catch (error) {
       this.error.set(errorMessage(error));
+      return false;
     }
+  }
+
+  private replaceRow(piece: Piece): void {
+    this.pieces.update((pieces) => pieces.map((row) => (row.id === piece.id ? piece : row)));
   }
 
   async deletePiece(piece: Piece): Promise<void> {
@@ -431,11 +516,12 @@ export class LibraryComponent implements OnDestroy {
   }
 }
 
-function emptyPiece(): PieceInput {
+function emptyPiece(): PieceForm {
   return {
     title: '',
     composer: '',
     favorite: false,
+    status: 'playing',
     sourceUrl: '',
     listeningUrl: '',
     notes: '',
