@@ -2,11 +2,14 @@ package assets
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestLocalStoreUsesOpaqueKeysAndRejectsTraversal(t *testing.T) {
@@ -50,5 +53,34 @@ func TestLocalStoreCheckFailsWhenObjectsDirectoryIsGone(t *testing.T) {
 	}
 	if err := store.Check(context.Background()); err == nil {
 		t.Fatal("expected check to fail without the objects directory")
+	}
+}
+
+func TestLocalStoreCheckSharesOneStatWhileTheMountHangs(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	var calls atomic.Int32
+	store.stat = func(name string) (os.FileInfo, error) {
+		calls.Add(1)
+		<-release
+		return os.Stat(name)
+	}
+	for range 3 {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		err := store.Check(ctx)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("check against a hung mount = %v, want deadline exceeded", err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("stat calls while hung = %d, want 1", got)
+	}
+	close(release)
+	if err := store.Check(context.Background()); err != nil {
+		t.Fatalf("check after the mount recovers: %v", err)
 	}
 }
