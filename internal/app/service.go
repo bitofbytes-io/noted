@@ -43,6 +43,15 @@ func NewService(pool *pgxpool.Pool, store assets.Store, limits ...int64) *Servic
 	return s
 }
 
+// PingDatabase and CheckAssetStore back the API's readiness probe.
+func (s *Service) PingDatabase(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
+func (s *Service) CheckAssetStore(ctx context.Context) error {
+	return s.store.Check(ctx)
+}
+
 const pieceColumns = `
 	p.id, p.title, p.composer, p.favorite, p.source_url, p.listening_url, p.notes,
 	p.created_at, p.updated_at,
