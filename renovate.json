@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Weekly dependency updates for the Go API, the Angular UI, Dockerfiles, and GitHub Actions. See README \"Dependency updates (Renovate)\".",
+  "extends": ["config:recommended"],
+  "schedule": ["* * * * 4"],
+  "packageRules": [
+    {
+      "description": "One weekly PR for every non-major update. Majors stay separate PRs.",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "groupName": "all non-major dependencies"
+    },
+    {
+      "description": "One weekly PR for non-major GitHub Actions updates. Majors stay separate PRs.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Pin Dockerfile base images by digest.",
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true
+    }
+  ]
+}
