@@ -635,11 +635,17 @@ func (s *Service) CleanupImports(ctx context.Context) error {
 	}
 	return nil
 }
-func (s *Service) RunImportCleanup(ctx context.Context) {
+
+// RunImportCleanup cleans up every minute until ctx ends. A non-nil observe
+// receives each run's result, except runs cut short by shutdown.
+func (s *Service) RunImportCleanup(ctx context.Context, observe func(error)) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
-		_ = s.CleanupImports(ctx)
+		err := s.CleanupImports(ctx)
+		if observe != nil && ctx.Err() == nil {
+			observe(err)
+		}
 		select {
 		case <-ctx.Done():
 			return

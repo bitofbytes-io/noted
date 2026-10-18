@@ -15,6 +15,7 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/auth"
+	"github.com/bitofbytes-io/noted/internal/metrics"
 )
 
 const (
@@ -66,7 +67,9 @@ func (h *Handler) googleCallback(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, http.StatusNotFound, "google sign-in is not configured")
 		return
 	}
+	oauthFailure := func(reason string) { h.metrics.OAuthFailure("google", reason) }
 	if strings.TrimSpace(request.URL.Query().Get("error")) != "" {
+		oauthFailure(metrics.OAuthProviderError)
 		h.clearStateCookie(writer)
 		writeError(writer, http.StatusUnauthorized, "Google sign-in was not completed")
 		return
@@ -75,6 +78,7 @@ func (h *Handler) googleCallback(writer http.ResponseWriter, request *http.Reque
 	stateCookie, err := request.Cookie(auth.StateCookieName)
 	if err != nil || state == "" ||
 		subtle.ConstantTimeCompare([]byte(state), []byte(stateCookie.Value)) != 1 {
+		oauthFailure(metrics.OAuthInvalidState)
 		h.clearStateCookie(writer)
 		writeError(writer, http.StatusUnauthorized, "the sign-in request expired or was invalid")
 		return
@@ -82,32 +86,39 @@ func (h *Handler) googleCallback(writer http.ResponseWriter, request *http.Reque
 	returnPath, err := h.auth.ConsumeLoginState(request.Context(), state)
 	h.clearStateCookie(writer)
 	if errors.Is(err, auth.ErrInvalidState) {
+		oauthFailure(metrics.OAuthInvalidState)
 		writeError(writer, http.StatusUnauthorized, "the sign-in request expired or was already used")
 		return
 	}
 	if err != nil {
+		oauthFailure(metrics.OAuthInternal)
 		handleError(writer, err)
 		return
 	}
 	code := strings.TrimSpace(request.URL.Query().Get("code"))
 	if code == "" {
+		oauthFailure(metrics.OAuthMissingCode)
 		writeError(writer, http.StatusUnauthorized, "Google did not return an authorization code")
 		return
 	}
 	identity, err := h.exchangeGoogleIdentity(request, code)
 	if err != nil {
+		oauthFailure(metrics.OAuthExchange)
 		writeError(writer, http.StatusBadGateway, "Google sign-in could not be completed")
 		return
 	}
 	user, err := h.auth.AuthenticateGoogle(request.Context(), identity)
 	switch {
 	case errors.Is(err, auth.ErrEmailNotAllowed):
+		h.metrics.LoginFailure(metrics.LoginNotAllowed)
 		writeError(writer, http.StatusForbidden, "this Google account is not allowed to use Noted")
 		return
 	case errors.Is(err, auth.ErrIdentityConflict):
+		h.metrics.LoginFailure(metrics.LoginIdentityConflict)
 		writeError(writer, http.StatusConflict, "this email is linked to a different Google account")
 		return
 	case err != nil:
+		oauthFailure(metrics.OAuthInternal)
 		handleError(writer, err)
 		return
 	}
@@ -115,6 +126,7 @@ func (h *Handler) googleCallback(writer http.ResponseWriter, request *http.Reque
 		request.Context(), user.ID, request.UserAgent(), remoteIP(request.RemoteAddr),
 	)
 	if err != nil {
+		oauthFailure(metrics.OAuthInternal)
 		handleError(writer, err)
 		return
 	}

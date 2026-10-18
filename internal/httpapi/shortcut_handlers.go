@@ -15,6 +15,7 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/auth"
+	"github.com/bitofbytes-io/noted/internal/metrics"
 )
 
 // ShortcutTokens stores each user's one Send to Noted bearer token.
@@ -105,6 +106,7 @@ func (h *Handler) shortcutUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		reject := func() {
+			h.metrics.LoginFailure(metrics.LoginShortcutToken)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="noted"`)
 			writeError(w, http.StatusUnauthorized, shortcutTokenInvalid)
 		}

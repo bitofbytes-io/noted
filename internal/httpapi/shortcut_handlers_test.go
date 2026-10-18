@@ -121,7 +121,7 @@ func shortcutRouter(backend Backend, authenticator Authenticator, mode string, m
 		AppEnv: "test", AuthMode: mode, DevUserEmail: "learner@noted.local",
 		AllowedEmails:  []string{"learner@noted.local"},
 		MaxUploadBytes: maxUploadBytes, AllowedOrigin: testAllowedOrigin,
-	})
+	}, nil)
 }
 
 // shortcutUpload builds the Shortcut's multipart request: one "file" part.

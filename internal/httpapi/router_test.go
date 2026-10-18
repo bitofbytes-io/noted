@@ -175,7 +175,7 @@ func testRouter(backend Backend, maxUploadBytes int64) http.Handler {
 	return NewRouter(backend, &fakeAuthenticator{}, config.Config{
 		AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
 		MaxUploadBytes: maxUploadBytes, AllowedOrigin: testAllowedOrigin,
-	})
+	}, nil)
 }
 
 type seekReadCloser struct{ *bytes.Reader }
@@ -202,7 +202,7 @@ func TestCORSRejectsStateChangingRequestsFromMismatchedOriginBeforeAuthenticatio
 			router := NewRouter(fake, authenticator, config.Config{
 				AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
 				MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
-			})
+			}, nil)
 			request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
 			request.Header.Set("Origin", "https://untrusted.example.test")
 			request.Header.Set("Content-Type", "application/json")
@@ -233,7 +233,7 @@ func TestCORSRejectsMultipartMutationFromMismatchedOrigin(t *testing.T) {
 	router := NewRouter(fake, authenticator, config.Config{
 		AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
 		MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
-	})
+	}, nil)
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
 	_ = form.WriteField("revision", "1")

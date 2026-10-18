@@ -32,6 +32,19 @@ func TestLoadUsesSessionTTLOverride(t *testing.T) {
 	}
 }
 
+func TestLoadMetricsAddr(t *testing.T) {
+	for value, want := range map[string]string{"": ":9464", "127.0.0.1:9100": "127.0.0.1:9100", "off": "off"} {
+		t.Setenv("METRICS_ADDR", value)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.MetricsAddr != want {
+			t.Fatalf("METRICS_ADDR=%q: MetricsAddr = %q, want %q", value, cfg.MetricsAddr, want)
+		}
+	}
+}
+
 func TestLoadReadsDatabaseURLFromSecretFile(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	path := filepath.Join(t.TempDir(), "database-url")

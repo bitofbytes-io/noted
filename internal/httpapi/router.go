@@ -17,6 +17,7 @@ import (
 	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/assets"
 	"github.com/bitofbytes-io/noted/internal/config"
+	"github.com/bitofbytes-io/noted/internal/metrics"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -39,18 +40,24 @@ type Handler struct {
 	config         config.Config
 	maxUploadBytes int64
 	allowedOrigin  string
+	metrics        *metrics.Metrics
 	// Google's OAuth token and userinfo endpoints; tests point them at a fake.
 	googleTokenURL    string
 	googleUserInfoURL string
 }
 
-func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) http.Handler {
+// NewRouter builds the public API. A nil m records no metrics. /metrics is never
+// served here, only on the internal metrics listener.
+func NewRouter(
+	backend Backend, authenticator Authenticator, cfg config.Config, m *metrics.Metrics,
+) http.Handler {
 	handler := &Handler{
 		backend: backend, auth: authenticator, config: cfg,
-		maxUploadBytes: cfg.MaxUploadBytes, allowedOrigin: cfg.AllowedOrigin,
+		maxUploadBytes: cfg.MaxUploadBytes, allowedOrigin: cfg.AllowedOrigin, metrics: m,
 		googleTokenURL: googleTokenEndpoint, googleUserInfoURL: googleUserInfoEndpoint,
 	}
 	router := chi.NewRouter()
+	router.Use(m.Middleware("/api/health", "/api/ready"))
 	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
 	router.Use(handler.cors)
 	health := func(writer http.ResponseWriter, _ *http.Request) {
@@ -64,7 +71,8 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 	router.Get("/api/session", handler.session)
 	router.Delete("/api/session", handler.logout)
 	// Send to Noted: the only route a shortcut token opens, and it opens no other.
-	router.With(handler.shortcutUser).Post("/api/shortcut/import", handler.shortcutImport)
+	router.With(handler.shortcutUser, m.CountUploads(metrics.UploadShortcut)).
+		Post("/api/shortcut/import", handler.shortcutImport)
 	router.Group(func(router chi.Router) {
 		router.Use(handler.authenticatedUser)
 		router.Get("/api/account/shortcut-token", handler.shortcutTokenStatus)
@@ -78,10 +86,10 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 				router.Get("/", handler.getImport)
 				router.Patch("/", handler.updateImport)
 				router.Delete("/", handler.deleteImport)
-				router.Post("/sources", handler.uploadImportSource)
+				router.With(m.CountUploads(metrics.UploadSource)).Post("/sources", handler.uploadImportSource)
 				router.Get("/sources/{assetID}", handler.serveImportSource)
 				router.Head("/sources/{assetID}", handler.serveImportSource)
-				router.Post("/finalize", handler.finalizeImport)
+				router.With(m.CountUploads(metrics.UploadFinalize)).Post("/finalize", handler.finalizeImport)
 			})
 		})
 		router.Route("/api/pieces", func(router chi.Router) {

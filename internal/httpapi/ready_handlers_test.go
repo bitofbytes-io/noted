@@ -45,7 +45,7 @@ func remaining(ctx context.Context) time.Duration {
 func googleRouter(backend Backend) http.Handler {
 	return NewRouter(backend, &fakeAuthenticator{}, config.Config{
 		AppEnv: "test", AuthMode: "google", MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
-	})
+	}, nil)
 }
 
 func get(router http.Handler, path string) *httptest.ResponseRecorder {

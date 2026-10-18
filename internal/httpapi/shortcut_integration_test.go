@@ -42,7 +42,7 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 	router := NewRouter(app.NewService(pool, store, 1<<20), auth.NewService(pool, nil, time.Hour), config.Config{
 		AppEnv: "test", AuthMode: "development", DevUserEmail: email,
 		MaxUploadBytes: 1 << 20, AllowedOrigin: testAllowedOrigin,
-	})
+	}, nil)
 	pdf, err := os.ReadFile("../../testdata/fixtures/noted-exercise.pdf")
 	if err != nil {
 		t.Fatal(err)

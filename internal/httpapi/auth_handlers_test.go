@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/bitofbytes-io/noted/internal/auth"
 	"github.com/bitofbytes-io/noted/internal/config"
+	"github.com/bitofbytes-io/noted/internal/metrics"
 )
 
 func TestProductionSessionCookieSecurity(t *testing.T) {
@@ -57,7 +59,7 @@ func TestDevelopmentStateCookieWorksOnHTTP(t *testing.T) {
 func TestGoogleModeRejectsMissingSession(t *testing.T) {
 	router := NewRouter(&fakeBackend{}, &fakeAuthenticator{}, config.Config{
 		AppEnv: "test", AuthMode: "google", MaxUploadBytes: 1024,
-	})
+	}, nil)
 	request := httptest.NewRequest(http.MethodGet, "/api/pieces/", nil)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
@@ -69,7 +71,7 @@ func TestGoogleModeRejectsMissingSession(t *testing.T) {
 func TestGoogleModeRejectsUnauthenticatedPDFDownload(t *testing.T) {
 	router := NewRouter(&fakeBackend{}, &fakeAuthenticator{}, config.Config{
 		AppEnv: "test", AuthMode: "google", MaxUploadBytes: 1024,
-	})
+	}, nil)
 	request := httptest.NewRequest(
 		http.MethodGet,
 		"/api/pieces/"+testPieceID+"/pdf/download",
@@ -213,6 +215,10 @@ func TestGoogleCallbackSignsInAndReturnsToTheRequestedPage(t *testing.T) {
 }
 
 func TestGoogleCallbackFailuresNeverStartASession(t *testing.T) {
+	oauth := func(reason string) string {
+		return `noted_oauth_failures_total{provider="google",reason="` + reason + `"} 1`
+	}
+	login := func(reason string) string { return `noted_login_failures_total{reason="` + reason + `"} 1` }
 	for name, test := range map[string]struct {
 		mode          string
 		query, cookie string
@@ -222,31 +228,40 @@ func TestGoogleCallbackFailuresNeverStartASession(t *testing.T) {
 		status        int
 		message       string
 		reachesGoogle bool
+		failure       string // the one failure series this outcome increments
 	}{
 		"google sign-in off":   {mode: "development", query: "state=s&code=c", cookie: "s", status: 404, message: "google sign-in is not configured"},
-		"user cancelled":       {query: "error=access_denied&state=s", cookie: "s", status: 401, message: "Google sign-in was not completed"},
-		"no state cookie":      {query: "state=s&code=c", status: 401, message: "the sign-in request expired or was invalid"},
-		"no state":             {query: "code=c", cookie: "s", status: 401, message: "the sign-in request expired or was invalid"},
-		"state mismatch":       {query: "state=other&code=c", cookie: "s", status: 401, message: "the sign-in request expired or was invalid"},
-		"state already used":   {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{consumeErr: auth.ErrInvalidState}, status: 401, message: "the sign-in request expired or was already used"},
-		"state lookup failed":  {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{consumeErr: errors.New("connection reset")}, status: 500, message: "internal server error"},
-		"no code":              {query: "state=s", cookie: "s", status: 401, message: "Google did not return an authorization code"},
-		"token exchange fails": {query: "state=s&code=c", cookie: "s", tokenStatus: 400, status: 502, message: "Google sign-in could not be completed", reachesGoogle: true},
-		"userinfo fails":       {query: "state=s&code=c", cookie: "s", userStatus: 500, status: 502, message: "Google sign-in could not be completed", reachesGoogle: true},
-		"email not allowed":    {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{authErr: auth.ErrEmailNotAllowed}, status: 403, message: "this Google account is not allowed to use Noted", reachesGoogle: true},
-		"identity conflict":    {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{authErr: auth.ErrIdentityConflict}, status: 409, message: "this email is linked to a different Google account", reachesGoogle: true},
-		"user store fails":     {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{authErr: errors.New("connection reset")}, status: 500, message: "internal server error", reachesGoogle: true},
-		"session store fails":  {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{sessionErr: errors.New("connection reset")}, status: 500, message: "internal server error", reachesGoogle: true},
+		"user cancelled":       {query: "error=access_denied&state=s", cookie: "s", status: 401, message: "Google sign-in was not completed", failure: oauth("provider_error")},
+		"no state cookie":      {query: "state=s&code=c", status: 401, message: "the sign-in request expired or was invalid", failure: oauth("invalid_state")},
+		"no state":             {query: "code=c", cookie: "s", status: 401, message: "the sign-in request expired or was invalid", failure: oauth("invalid_state")},
+		"state mismatch":       {query: "state=other&code=c", cookie: "s", status: 401, message: "the sign-in request expired or was invalid", failure: oauth("invalid_state")},
+		"state already used":   {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{consumeErr: auth.ErrInvalidState}, status: 401, message: "the sign-in request expired or was already used", failure: oauth("invalid_state")},
+		"state lookup failed":  {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{consumeErr: errors.New("connection reset")}, status: 500, message: "internal server error", failure: oauth("internal")},
+		"no code":              {query: "state=s", cookie: "s", status: 401, message: "Google did not return an authorization code", failure: oauth("missing_code")},
+		"token exchange fails": {query: "state=s&code=c", cookie: "s", tokenStatus: 400, status: 502, message: "Google sign-in could not be completed", reachesGoogle: true, failure: oauth("exchange")},
+		"userinfo fails":       {query: "state=s&code=c", cookie: "s", userStatus: 500, status: 502, message: "Google sign-in could not be completed", reachesGoogle: true, failure: oauth("exchange")},
+		"email not allowed":    {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{authErr: auth.ErrEmailNotAllowed}, status: 403, message: "this Google account is not allowed to use Noted", reachesGoogle: true, failure: login("not_allowed")},
+		"identity conflict":    {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{authErr: auth.ErrIdentityConflict}, status: 409, message: "this email is linked to a different Google account", reachesGoogle: true, failure: login("identity_conflict")},
+		"user store fails":     {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{authErr: errors.New("connection reset")}, status: 500, message: "internal server error", reachesGoogle: true, failure: oauth("internal")},
+		"session store fails":  {query: "state=s&code=c", cookie: "s", authenticator: fakeAuthenticator{sessionErr: errors.New("connection reset")}, status: 500, message: "internal server error", reachesGoogle: true, failure: oauth("internal")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			google := newFakeGoogle(t)
 			google.tokenStatus, google.userStatus = test.tokenStatus, test.userStatus
 			authenticator := test.authenticator
 			handler := callbackHandler(&authenticator, google)
+			handler.metrics = metrics.New()
 			if test.mode != "" {
 				handler.config.AuthMode = test.mode
 			}
 			response := callback(handler, test.query, test.cookie)
+			var want []string
+			if test.failure != "" {
+				want = []string{test.failure}
+			}
+			if got := failures(t, handler.metrics); !slices.Equal(got, want) {
+				t.Fatalf("failure metrics = %v, want %v", got, want)
+			}
 
 			var body struct{ Error string }
 			_ = json.Unmarshal(response.Body.Bytes(), &body)
