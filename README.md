@@ -141,3 +141,16 @@ The API image reads PostgreSQL and Google credentials from the external
 which must be mounted from persistent storage. NAS PostgreSQL/NFS provisioning,
 backups, Traefik configuration, and monitoring remain deployment-environment
 work.
+
+## Dependency updates (Renovate)
+
+The Mend Renovate GitHub app, installed for the organization, reads
+`renovate.json` and opens update PRs on Thursdays. All non-major updates (Go
+modules, npm packages, Dockerfile base images) land in one "all non-major
+dependencies" PR, GitHub Actions updates land in one "GitHub Actions" PR, and
+each major update gets its own PR. Renovate pins Dockerfile base images by
+digest. The repository does not use Dependabot, and no secrets or environment
+variables are needed.
+
+Validate config changes with
+`npx --yes --package renovate -- renovate-config-validator`.
