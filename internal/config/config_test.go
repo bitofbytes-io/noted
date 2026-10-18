@@ -33,7 +33,9 @@ func TestLoadUsesSessionTTLOverride(t *testing.T) {
 }
 
 func TestLoadMetricsAddr(t *testing.T) {
-	for value, want := range map[string]string{"": ":9464", "127.0.0.1:9100": "127.0.0.1:9100", "off": "off"} {
+	// Like the API, the default metrics listener stays on loopback outside production.
+	t.Setenv("APP_ENV", "development")
+	for value, want := range map[string]string{"": "127.0.0.1:9464", ":9100": ":9100", "off": "off"} {
 		t.Setenv("METRICS_ADDR", value)
 		cfg, err := Load()
 		if err != nil {
@@ -42,6 +44,20 @@ func TestLoadMetricsAddr(t *testing.T) {
 		if cfg.MetricsAddr != want {
 			t.Fatalf("METRICS_ADDR=%q: MetricsAddr = %q, want %q", value, cfg.MetricsAddr, want)
 		}
+	}
+}
+
+func TestProductionMetricsAddrDefaultsToAllInterfaces(t *testing.T) {
+	setProductionGoogleEnvironment(t)
+	t.Setenv("ALLOWED_ORIGIN", "https://noted.example.test")
+	t.Setenv("FRONTEND_URL", "https://noted.example.test/app")
+	t.Setenv("METRICS_ADDR", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MetricsAddr != ":9464" {
+		t.Fatalf("production MetricsAddr = %q, want :9464", cfg.MetricsAddr)
 	}
 }
 

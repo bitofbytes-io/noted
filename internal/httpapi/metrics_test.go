@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bitofbytes-io/noted/internal/app"
 	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/bitofbytes-io/noted/internal/metrics"
 )
@@ -105,6 +107,34 @@ func TestMetricsLabelRoutePatternsAndCountDomainEvents(t *testing.T) {
 	for _, leaked := range []string{testPieceID, otherPieceID, "no-such-route", "/api/health", "/api/ready", `route="/metrics"`} {
 		if strings.Contains(output, leaked) {
 			t.Errorf("metrics contain %q", leaked)
+		}
+	}
+}
+
+type panickingShortcutBackend struct{ fakeShortcutBackend }
+
+func (*panickingShortcutBackend) ShortcutImport(context.Context, string, string, io.Reader) (app.ShortcutImport, error) {
+	panic("storage exploded")
+}
+
+func TestMetricsCountRecoveredUploadPanicAsError(t *testing.T) {
+	m := metrics.New()
+	tokens := newFakeShortcutAuth()
+	router := NewRouter(&panickingShortcutBackend{}, tokens, config.Config{
+		AppEnv: "test", AuthMode: "development", DevUserEmail: "learner@noted.local",
+		MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
+	}, m)
+	token := createToken(t, router)
+	if code := serve(router, shortcutUpload(token, "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusInternalServerError {
+		t.Fatalf("panicking shortcut upload = %d, want 500", code)
+	}
+	output := scrape(t, m)
+	for _, want := range []string{
+		`noted_uploads_total{kind="shortcut",result="error"} 1`,
+		`http_requests_total{method="POST",route="/api/shortcut/import",status="500"} 1`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("metrics missing %s", want)
 		}
 	}
 }

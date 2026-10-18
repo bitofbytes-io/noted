@@ -76,7 +76,7 @@ func Load() (Config, error) {
 		GoogleRedirect: strings.TrimSpace(os.Getenv("AUTH_GOOGLE_REDIRECT_URL")),
 		AllowedEmails:  normalizeEmails(parseCSV(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS"))),
 		SessionTTL:     defaultSessionTTL,
-		MetricsAddr:    value("METRICS_ADDR", ":9464"),
+		MetricsAddr:    value("METRICS_ADDR", net.JoinHostPort(defaultListenHost(appEnv), "9464")),
 	}
 	if raw := os.Getenv("MAX_UPLOAD_BYTES"); raw != "" {
 		size, err := strconv.ParseInt(raw, 10, 64)
@@ -100,6 +100,7 @@ func Load() (Config, error) {
 
 // defaultListenHost keeps non-production servers, whose development authentication
 // trusts every request, on loopback. Production containers listen on all interfaces.
+// The metrics listener's default host follows the same rule.
 func defaultListenHost(appEnv string) string {
 	if appEnv == "production" {
 		return ""

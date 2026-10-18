@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -83,6 +84,24 @@ func TestCountUploadsByResponseStatus(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("metrics missing %s", want)
 		}
+	}
+}
+
+func TestCountUploadsCountsRecoveredPanicsAsErrors(t *testing.T) {
+	m := New()
+	// The API's Recoverer runs outside the per-route upload counter.
+	router := chi.NewRouter()
+	router.Use(middleware.Recoverer)
+	router.With(m.CountUploads(UploadFinalize)).Post("/upload", func(http.ResponseWriter, *http.Request) {
+		panic("storage exploded")
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/upload", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", response.Code)
+	}
+	if output := scrape(t, m); !strings.Contains(output, `noted_uploads_total{kind="finalize",result="error"} 1`) {
+		t.Errorf("recovered panic not counted as an upload error")
 	}
 }
 

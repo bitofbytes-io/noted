@@ -185,13 +185,20 @@ func (m *Metrics) Middleware(skip ...string) func(http.Handler) http.Handler {
 }
 
 // CountUploads records one upload of kind per request, with its result taken
-// from the response status.
+// from the response status. A panic counts as an error and is re-raised for
+// the router's recoverer to answer.
 func (m *Metrics) CountUploads(kind string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if m == nil {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					m.uploads.WithLabelValues(kind, ResultError).Inc()
+					panic(recovered)
+				}
+			}()
 			wrapped := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(wrapped, r)
 			result := ResultSuccess

@@ -140,9 +140,11 @@ Point stack healthchecks and uptime monitors at `/api/ready`.
 The API serves Prometheus metrics at `GET /metrics` on a separate internal
 listener, never on the public API port, so public Traefik routers cannot expose
 it (`/metrics` on the API port is a 404). Set the address with `METRICS_ADDR`
-(optional, default `:9464`); `METRICS_ADDR=off` disables the listener. A
-listener that cannot bind is logged and the API keeps running. The image does
-not `EXPOSE` the port; Prometheus scrapes it over the overlay network.
+(optional). Like the API, it defaults to loopback outside production
+(`127.0.0.1:9464`) and to all interfaces in production (`:9464`);
+`METRICS_ADDR=off` disables the listener. A listener that cannot bind is logged
+and the API keeps running. The image does not `EXPOSE` the port; Prometheus
+scrapes it over the overlay network.
 
 - `http_requests_total` and `http_request_duration_seconds` by `method`,
   `route` (the chi route pattern such as `/api/pieces/{pieceID}`; requests that
