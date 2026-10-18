@@ -3,6 +3,8 @@ package assets
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -30,5 +32,23 @@ func TestLocalStoreUsesOpaqueKeysAndRejectsTraversal(t *testing.T) {
 	body, _ := io.ReadAll(reader)
 	if string(body) != "%PDF-fixture" {
 		t.Fatalf("unexpected stored body %q", body)
+	}
+}
+
+func TestLocalStoreCheckFailsWhenObjectsDirectoryIsGone(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewLocalStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Check(context.Background()); err != nil {
+		t.Fatalf("check on a fresh store: %v", err)
+	}
+	// An unmounted volume leaves only the empty mount point behind.
+	if err := os.RemoveAll(filepath.Join(root, "objects")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Check(context.Background()); err == nil {
+		t.Fatal("expected check to fail without the objects directory")
 	}
 }

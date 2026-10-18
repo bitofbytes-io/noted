@@ -56,8 +56,9 @@ func NewRouter(backend Backend, authenticator Authenticator, cfg config.Config) 
 	health := func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 	}
+	// Health means the process is up; ready means its database and asset store answer too.
 	router.Get("/api/health", health)
-	router.Get("/api/ready", health)
+	router.Get("/api/ready", handler.ready)
 	router.Get("/api/auth/google", handler.startGoogleLogin)
 	router.Get("/api/auth/google/callback", handler.googleCallback)
 	router.Get("/api/session", handler.session)

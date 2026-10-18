@@ -29,6 +29,8 @@ type Store interface {
 	Save(context.Context, io.Reader) (Object, error)
 	Open(context.Context, string) (ReadSeekCloser, error)
 	Delete(context.Context, string) error
+	// Check reports whether the store's backing storage is reachable.
+	Check(context.Context) error
 }
 
 type LocalStore struct {
@@ -104,6 +106,27 @@ func (s *LocalStore) Delete(_ context.Context, key string) error {
 		return err
 	}
 	return nil
+}
+
+// Check stats the objects directory, which NewLocalStore created, so an
+// unmounted asset volume fails even when its empty mount point remains. A hung
+// mount can block the stat indefinitely, so the caller's context bounds the
+// wait and the stat goroutine is left to finish on its own.
+func (s *LocalStore) Check(ctx context.Context) error {
+	result := make(chan error, 1)
+	go func() {
+		info, err := os.Stat(filepath.Join(s.root, "objects"))
+		if err == nil && !info.IsDir() {
+			err = fmt.Errorf("asset objects path is not a directory")
+		}
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *LocalStore) path(key string) (string, error) {

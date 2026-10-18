@@ -108,6 +108,7 @@ that:
 - `GET/HEAD /api/pieces/{id}/pdf/download`
 - `GET/PUT /api/pieces/{id}/reader-state`
 - `GET /api/health`
+- `GET /api/ready`
 - `GET/POST/DELETE /api/account/shortcut-token`
 - `POST /api/shortcut/import` (shortcut bearer token only)
 - `GET /api/session`
@@ -125,6 +126,14 @@ server-side; another user's identifier is returned as not found.
 `POST /api/shortcut/import` is the only route that takes a Send to Noted
 bearer token. It accepts no session cookie, and no other route accepts the
 token.
+
+`/api/health` and `/api/ready` need no session. `/api/health` always returns
+200 `{"status":"ok"}` while the process is up, and the image `HEALTHCHECK` uses
+it. `/api/ready` pings the database and checks the asset store's `objects`
+directory within 2 seconds. It returns 200
+`{"assets":"ok","db":"ok","status":"ok"}`, or 503 with `"status":"degraded"`
+and `"error"` for each failing dependency. Error details go only to the API log.
+Point stack healthchecks and uptime monitors at `/api/ready`.
 
 ## Deployment
 
