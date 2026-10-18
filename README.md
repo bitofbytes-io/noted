@@ -135,6 +135,37 @@ directory within 2 seconds. It returns 200
 and `"error"` for each failing dependency. Error details go only to the API log.
 Point stack healthchecks and uptime monitors at `/api/ready`.
 
+## Metrics
+
+The API serves Prometheus metrics at `GET /metrics` on a separate internal
+listener, never on the public API port, so public Traefik routers cannot expose
+it (`/metrics` on the API port is a 404). Set the address with `METRICS_ADDR`
+(optional). Like the API, it defaults to loopback outside production
+(`127.0.0.1:9464`) and to all interfaces in production (`:9464`);
+`METRICS_ADDR=off` disables the listener. A listener that cannot bind is logged
+and the API keeps running. The image does not `EXPOSE` the port; Prometheus
+scrapes it over the overlay network.
+
+- `http_requests_total` and `http_request_duration_seconds` by `method`,
+  `route` (the chi route pattern such as `/api/pieces/{pieceID}`; requests that
+  match no route, including CORS preflights, are `unmatched`), and `status`.
+  `/api/health` and `/api/ready` are not recorded.
+- `pgxpool_*`: the PostgreSQL pool's acquired, idle, constructing, total, and
+  maximum connections, plus acquire counts, acquire time, and waits for an
+  empty pool.
+- `noted_uploads_total{kind,result}`: `kind` is `source` (a Prepare page or
+  scan), `finalize` (the PDF that creates a piece), or `shortcut` (Send to
+  Noted); `result` is `success`, `rejected` (4xx), or `error` (5xx).
+- `noted_oauth_failures_total{provider="google",reason}`: Google callbacks that
+  failed before a user was identified (`provider_error`, `invalid_state`,
+  `missing_code`, `exchange`, `internal`).
+- `noted_login_failures_total{reason}`: identified users Noted rejected
+  (`not_allowed`, `identity_conflict`) and rejected shortcut tokens
+  (`shortcut_token`).
+- `noted_jobs_total{job="import_cleanup",result}`: each run of the draft and
+  orphaned-file cleanup.
+- Go runtime (`go_*`) and process (`process_*`) metrics.
+
 ## Deployment
 
 Merges to `main` use GitHub Actions to verify the app, publish the ARM64 API and

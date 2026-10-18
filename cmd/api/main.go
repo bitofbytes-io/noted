@@ -16,6 +16,7 @@ import (
 	"github.com/bitofbytes-io/noted/internal/auth"
 	"github.com/bitofbytes-io/noted/internal/config"
 	"github.com/bitofbytes-io/noted/internal/httpapi"
+	"github.com/bitofbytes-io/noted/internal/metrics"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -40,14 +41,21 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	appMetrics := metrics.New()
+	if err := appMetrics.RegisterPool(pool); err != nil {
+		log.Fatal(err)
+	}
 	service := app.NewService(pool, store, cfg.MaxUploadBytes)
-	go service.RunImportCleanup(ctx)
+	go service.RunImportCleanup(ctx, func(err error) {
+		appMetrics.JobRun(metrics.JobImportCleanup, err)
+	})
 	server := &http.Server{
 		Addr: net.JoinHostPort(cfg.ListenHost, cfg.Port),
 		Handler: httpapi.NewRouter(
 			service,
 			auth.NewService(pool, cfg.AllowedEmails, cfg.SessionTTL),
 			cfg,
+			appMetrics,
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
@@ -58,10 +66,17 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
+	// Metrics stay off the public server; a failure to bind is logged, not fatal.
+	metricsServer := appMetrics.Serve(cfg.MetricsAddr)
 	<-ctx.Done()
 	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()
 	if err := server.Shutdown(shutdown); err != nil {
 		slog.Error("API shutdown failed", "error", err)
+	}
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(shutdown); err != nil {
+			slog.Error("metrics shutdown failed", "error", err)
+		}
 	}
 }
