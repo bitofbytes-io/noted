@@ -102,7 +102,8 @@ that:
 - `POST /api/imports/{draftID}/sources`
 - `GET/HEAD /api/imports/{draftID}/sources/{assetID}`
 - `POST /api/imports/{draftID}/finalize`
-- `GET/POST /api/pieces/`
+- `GET/POST /api/pieces/` (`q`, `favorite=true`, `status=learning,playing,shelved|all`;
+  without `status` it lists Learning and Playing, or every status when `q` is set)
 - `GET/PATCH/DELETE /api/pieces/{id}/`
 - `GET/HEAD /api/pieces/{id}/pdf`
 - `GET/HEAD /api/pieces/{id}/pdf/download`
@@ -110,6 +111,7 @@ that:
 - `GET /api/health`
 - `GET /api/ready`
 - `GET/POST/DELETE /api/account/shortcut-token`
+- `GET/PUT /api/account/preferences` (the remembered library filter)
 - `POST /api/shortcut/import` (shortcut bearer token only)
 - `GET /api/session`
 - `DELETE /api/session`
