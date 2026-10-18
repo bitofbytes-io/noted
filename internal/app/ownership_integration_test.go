@@ -112,14 +112,14 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	listA, err := service.ListPieces(ctx, userA.ID, "", nil)
+	listA, err := service.ListPieces(ctx, userA.ID, "", nil, nil)
 	if err != nil || len(listA) != 1 || listA[0].ID != pieceA.ID {
 		t.Fatalf("user A list = %+v, error = %v", listA, err)
 	}
 	if listA[0].ListeningURL != pieceA.ListeningURL {
 		t.Fatalf("user A list listening URL = %q, want %q", listA[0].ListeningURL, pieceA.ListeningURL)
 	}
-	listB, err := service.ListPieces(ctx, userB.ID, "", nil)
+	listB, err := service.ListPieces(ctx, userB.ID, "", nil, nil)
 	if err != nil || len(listB) != 1 || listB[0].ID != pieceB.ID {
 		t.Fatalf("user B list = %+v, error = %v", listB, err)
 	}

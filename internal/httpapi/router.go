@@ -24,7 +24,7 @@ import (
 )
 
 type Backend interface {
-	ListPieces(context.Context, string, string, *bool) ([]app.Piece, error)
+	ListPieces(context.Context, string, string, *bool, []string) ([]app.Piece, error)
 	GetPiece(context.Context, string, string) (app.Piece, error)
 	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
 	UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error)
@@ -78,6 +78,8 @@ func NewRouter(
 		router.Get("/api/account/shortcut-token", handler.shortcutTokenStatus)
 		router.Post("/api/account/shortcut-token", handler.createShortcutToken)
 		router.Delete("/api/account/shortcut-token", handler.deleteShortcutToken)
+		router.Get("/api/account/preferences", handler.getPreferences)
+		router.Put("/api/account/preferences", handler.putPreferences)
 		router.Get("/api/imslp/works", handler.searchIMSLPWorks)
 		router.Route("/api/imports", func(router chi.Router) {
 			router.Get("/", handler.listImports)
@@ -121,8 +123,14 @@ func (h *Handler) listPieces(writer http.ResponseWriter, request *http.Request) 
 		}
 		favorite = &parsed
 	}
+	query := request.URL.Query().Get("q")
+	statuses, err := app.ParseStatusFilter(request.URL.Query().Get("status"), query)
+	if err != nil {
+		handleError(writer, err)
+		return
+	}
 	pieces, err := h.backend.ListPieces(
-		request.Context(), currentUser(request).ID, request.URL.Query().Get("q"), favorite,
+		request.Context(), currentUser(request).ID, query, favorite, statuses,
 	)
 	if err != nil {
 		handleError(writer, err)

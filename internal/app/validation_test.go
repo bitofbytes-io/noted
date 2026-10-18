@@ -38,6 +38,22 @@ func TestValidation(t *testing.T) {
 	}); err == nil || err.Error() != "listening URL must be at most 2000 characters" {
 		t.Fatalf("oversized listening URL validation error = %v", err)
 	}
+	if piece, err := validatePiece(PieceInput{Title: "Piece", Status: "shelved"}); err != nil || piece.Status != "shelved" {
+		t.Fatalf("shelved status: %+v %v", piece, err)
+	}
+	if _, err := validatePiece(PieceInput{Title: "Piece", Status: "archived"}); err == nil {
+		t.Fatal("expected unknown status to fail")
+	}
+	for _, filter := range []string{"current", "all", "favorites", "learning", "playing", "shelved"} {
+		if err := validatePreferences(Preferences{LibraryFilter: filter}); err != nil {
+			t.Fatalf("library filter %q: %v", filter, err)
+		}
+	}
+	for _, filter := range []string{"", "Favorites", "learning,playing"} {
+		if err := validatePreferences(Preferences{LibraryFilter: filter}); err == nil {
+			t.Fatalf("expected library filter %q to fail", filter)
+		}
+	}
 	if err := ValidateReaderState(ReaderState{PDFChecksumSHA256: checksum, Mode: "scroll", LastPage: 1, Zoom: 1, ScrollSpeed: 5}); err != nil {
 		t.Fatal(err)
 	}
