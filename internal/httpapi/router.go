@@ -25,6 +25,7 @@ import (
 
 type Backend interface {
 	ListPieces(context.Context, string, app.ListOptions) ([]app.Piece, error)
+	ListPieceSummaries(context.Context, string, app.ListOptions) ([]app.PieceSummary, error)
 	ContinuePiece(context.Context, string) (*app.Piece, error)
 	GetPiece(context.Context, string, string) (app.Piece, error)
 	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
@@ -134,6 +135,22 @@ func (h *Handler) listPieces(writer http.ResponseWriter, request *http.Request) 
 	options.Sort, err = app.ParseSort(request.URL.Query().Get("sort"))
 	if err != nil {
 		handleError(writer, err)
+		return
+	}
+	// The library loads summaries once and filters them itself; fields=summary
+	// leaves out the notes and adds each piece's folded search text.
+	switch request.URL.Query().Get("fields") {
+	case "":
+	case "summary":
+		summaries, err := h.backend.ListPieceSummaries(request.Context(), currentUser(request).ID, options)
+		if err != nil {
+			handleError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, summaries)
+		return
+	default:
+		writeError(writer, http.StatusBadRequest, "fields must be summary")
 		return
 	}
 	pieces, err := h.backend.ListPieces(request.Context(), currentUser(request).ID, options)

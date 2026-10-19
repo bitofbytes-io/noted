@@ -1,0 +1,22 @@
+[
+  { "composer": "Johann Sebastian Bach", "surname": "Bach" },
+  { "composer": "  J. S. Bach ", "surname": "Bach" },
+  { "composer": "Ludwig van Beethoven", "surname": "Beethoven" },
+  { "composer": "Claude Debussy", "surname": "Debussy" },
+  { "composer": "Bach, Johann Sebastian", "surname": "Bach" },
+  { "composer": "Vaughan Williams, Ralph", "surname": "Vaughan Williams" },
+  { "composer": "Harry Connick, Jr.", "surname": "Connick" },
+  { "composer": "Martin Luther King Jr", "surname": "King" },
+  { "composer": "Richard Rodgers and Oscar Hammerstein II", "surname": "Rodgers" },
+  { "composer": "Rodgers & Hammerstein", "surname": "Rodgers" },
+  { "composer": "Lennon/McCartney", "surname": "Lennon" },
+  { "composer": "Bach / Gounod", "surname": "Bach" },
+  { "composer": "Franz Liszt (arr. Busoni)", "surname": "Liszt" },
+  { "composer": "Domenico Scarlatti [attrib.]", "surname": "Scarlatti" },
+  { "composer": "Antonín Dvořák", "surname": "Dvořák" },
+  { "composer": "Satie", "surname": "Satie" },
+  { "composer": "Traditional", "surname": "Traditional" },
+  { "composer": "", "surname": "" },
+  { "composer": "   ", "surname": "" },
+  { "composer": "(anon.)", "surname": "" }
+]

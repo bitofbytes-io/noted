@@ -1,33 +1,29 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
 	"slices"
 	"testing"
 )
 
-func TestComposerSurname(t *testing.T) {
-	for composer, want := range map[string]string{
-		"Johann Sebastian Bach":                    "Bach",
-		"  J. S. Bach ":                            "Bach",
-		"Ludwig van Beethoven":                     "Beethoven",
-		"Claude Debussy":                           "Debussy",
-		"Bach, Johann Sebastian":                   "Bach",
-		"Vaughan Williams, Ralph":                  "Vaughan Williams",
-		"Harry Connick, Jr.":                       "Connick",
-		"Martin Luther King Jr":                    "King",
-		"Richard Rodgers and Oscar Hammerstein II": "Rodgers",
-		"Lennon/McCartney":                         "Lennon",
-		"Bach / Gounod":                            "Bach",
-		"Franz Liszt (arr. Busoni)":                "Liszt",
-		"Antonín Dvořák":                           "Dvořák",
-		"Satie":                                    "Satie",
-		"Traditional":                              "Traditional",
-		"":                                         "",
-		"   ":                                      "",
-		"(anon.)":                                  "",
-	} {
-		if got := composerSurname(composer); got != want {
-			t.Errorf("composerSurname(%q) = %q, want %q", composer, got, want)
+// The web app's composerSurname reads the same vectors
+// (web/src/app/features/library/library.utils.spec.ts).
+func TestComposerSurnameVectors(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/composer-surname-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors []struct{ Composer, Surname string }
+	if err := json.Unmarshal(data, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	if len(vectors) == 0 {
+		t.Fatal("no composer surname vectors")
+	}
+	for _, vector := range vectors {
+		if got := composerSurname(vector.Composer); got != vector.Surname {
+			t.Errorf("composerSurname(%q) = %q, want %q", vector.Composer, got, vector.Surname)
 		}
 	}
 }
@@ -46,7 +42,7 @@ func TestSortByComposer(t *testing.T) {
 		{Title: "Solfeggietto", Composer: "C. P. E. Bach"},
 		{Title: "Ännchen", Composer: "Émile Waldteufel"},
 	}
-	sortByComposer(pieces)
+	sortByComposer(pieces, func(piece Piece) string { return piece.Composer })
 	got := []string{}
 	for _, piece := range pieces {
 		got = append(got, piece.Title)

@@ -22,7 +22,9 @@ var composerSuffixes = []string{"jr", "sr", "ii", "iii", "iv"}
 // composerSurname is the surname a piece is filed under: the last word of the
 // first composer named ("Johann Sebastian Bach", "Ludwig van Beethoven"), or
 // what comes before a comma ("Bach, J. S."). Suffixes such as "Jr." and asides
-// in brackets are skipped. It is empty when no composer is set.
+// in brackets are skipped. It is empty when no composer is set. The web app's
+// composerSurname is the same function; both are tested against
+// testdata/composer-surname-vectors.json.
 func composerSurname(composer string) string {
 	name := composerAsides.ReplaceAllString(composer, " ")
 	name = composerJoins.Split(strings.TrimSpace(name), 2)[0]
@@ -52,11 +54,13 @@ func isComposerSuffix(word string) bool {
 // sortByComposer orders pieces by composer surname, then the composer's full
 // name (so C. P. E. Bach and J. S. Bach stay apart), keeping the existing
 // order within one composer. Case and accents are ignored, so Dvořák files
-// with D. Pieces without a composer go last.
-func sortByComposer(pieces []Piece) {
+// with D. Pieces without a composer go last. The web app's composerOrder in
+// web/src/app/features/library/library.utils.ts is the same order.
+func sortByComposer[T any](pieces []T, composerOf func(T) string) {
 	collator := collate.New(language.Und, collate.Loose)
-	slices.SortStableFunc(pieces, func(a, b Piece) int {
-		aSurname, bSurname := composerSurname(a.Composer), composerSurname(b.Composer)
+	slices.SortStableFunc(pieces, func(a, b T) int {
+		aComposer, bComposer := composerOf(a), composerOf(b)
+		aSurname, bSurname := composerSurname(aComposer), composerSurname(bComposer)
 		if (aSurname == "") != (bSurname == "") {
 			if aSurname == "" {
 				return 1
@@ -66,6 +70,6 @@ func sortByComposer(pieces []Piece) {
 		if order := collator.CompareString(aSurname, bSurname); order != 0 {
 			return order
 		}
-		return collator.CompareString(strings.TrimSpace(a.Composer), strings.TrimSpace(b.Composer))
+		return collator.CompareString(strings.TrimSpace(aComposer), strings.TrimSpace(bComposer))
 	})
 }

@@ -6,6 +6,11 @@ phrases. The API (`internal/app/search_test.go`) and the web app
 (`web/src/app/core/search.spec.ts`) both test their fold against it, so the two
 cannot drift apart.
 
+`composer-surname-vectors.json` lists composer names and the surname the Composer
+sort files each under. It was written for this repository and holds only public
+composer names. The API (`internal/app/composer_sort_test.go`) and the web app
+(`web/src/app/features/library/library.utils.spec.ts`) both test against it.
+
 `fixtures/noted-exercise.pdf` is an original synthetic score-like PDF created
 for this repository and dedicated to the public domain under CC0-1.0. Its
 generator sources are in `fixtures/generate/`.

@@ -31,6 +31,8 @@ type fakeBackend struct {
 	listStatuses []string
 	listSort     string
 	listCalls    int
+	summaryCalls int
+	summaries    []app.PieceSummary
 	createInput  app.PieceInput
 	createUserID string
 	createErr    error
@@ -61,6 +63,15 @@ func (fake *fakeBackend) ListPieces(_ context.Context, userID string, options ap
 	fake.listStatuses, fake.listSort = options.Statuses, options.Sort
 	fake.listCalls++
 	return []app.Piece{}, nil
+}
+func (fake *fakeBackend) ListPieceSummaries(_ context.Context, userID string, options app.ListOptions) ([]app.PieceSummary, error) {
+	fake.listUserID, fake.listQuery, fake.listFavorite = userID, options.Query, options.Favorite
+	fake.listStatuses, fake.listSort = options.Statuses, options.Sort
+	fake.summaryCalls++
+	if fake.summaries == nil {
+		return []app.PieceSummary{}, nil
+	}
+	return fake.summaries, nil
 }
 func (fake *fakeBackend) ContinuePiece(_ context.Context, userID string) (*app.Piece, error) {
 	fake.continueUserID = userID
@@ -416,6 +427,52 @@ func TestListSort(t *testing.T) {
 			!strings.Contains(response.Body.String(), "sort must be") {
 			t.Fatalf("%s: status=%d calls=%d body=%s", path, response.Code, fake.listCalls, response.Body.String())
 		}
+	}
+}
+
+func TestListSummaries(t *testing.T) {
+	played := time.Date(2026, 10, 18, 20, 0, 0, 0, time.UTC)
+	fake := &fakeBackend{summaries: []app.PieceSummary{{
+		ID: testPieceID, Title: "Humoresque", Composer: "Antonín Dvořák", Aliases: "Op. 101",
+		Status: "playing", PDF: &app.SummaryPDF{PageCount: 3, ContentURL: "/api/pieces/" + testPieceID + "/pdf"},
+		LastPlayedAt: &played, CreatedAt: played.Add(-time.Hour),
+		SearchText: "humoresque antonin dvorak op 101 slow and singing",
+	}}}
+	response := httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response,
+		httptest.NewRequest(http.MethodGet, "/api/pieces/?fields=summary&status=all", nil))
+	want := `[{"id":"` + testPieceID + `","title":"Humoresque","composer":"Antonín Dvořák",` +
+		`"aliases":"Op. 101","favorite":false,"status":"playing","listeningUrl":"",` +
+		`"pdf":{"pageCount":3,"contentUrl":"/api/pieces/` + testPieceID + `/pdf"},` +
+		`"lastPlayedAt":"2026-10-18T20:00:00Z","createdAt":"2026-10-18T19:00:00Z",` +
+		`"searchText":"humoresque antonin dvorak op 101 slow and singing"}]` + "\n"
+	if response.Code != http.StatusOK || response.Body.String() != want ||
+		fake.summaryCalls != 1 || fake.listCalls != 0 || fake.listUserID != testUserID ||
+		fake.listStatuses != nil || fake.listSort != "title" {
+		t.Fatalf("summaries: %d %s calls=%d/%d statuses=%v sort=%q",
+			response.Code, response.Body.String(), fake.summaryCalls, fake.listCalls, fake.listStatuses, fake.listSort)
+	}
+	// No notes in a summary.
+	if strings.Contains(response.Body.String(), "notes") {
+		t.Fatalf("summary carries notes: %s", response.Body.String())
+	}
+
+	// The filters apply to summaries as to the full list.
+	fake = &fakeBackend{}
+	response = httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response,
+		httptest.NewRequest(http.MethodGet, "/api/pieces/?fields=summary&q=bach&favorite=true&sort=recent", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "[]\n" || fake.listQuery != "bach" ||
+		fake.listFavorite == nil || !*fake.listFavorite || fake.listSort != "recent" {
+		t.Fatalf("filtered summaries: %d %s", response.Code, response.Body.String())
+	}
+
+	fake = &fakeBackend{}
+	response = httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/pieces/?fields=notes", nil))
+	if response.Code != http.StatusBadRequest || fake.listCalls+fake.summaryCalls != 0 ||
+		!strings.Contains(response.Body.String(), "fields must be summary") {
+		t.Fatalf("unknown fields: %d %s", response.Code, response.Body.String())
 	}
 }
 

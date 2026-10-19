@@ -80,30 +80,14 @@ var pieceOrders = map[string]string{
 
 // ListPieces lists the user's pieces that match the options, in their sort.
 func (s *Service) ListPieces(ctx context.Context, userID string, options ListOptions) ([]Piece, error) {
-	order, ok := pieceOrders[options.Sort]
-	if !ok {
-		return nil, invalid("sort must be title, composer, recent, added or fresh")
-	}
-	args := []any{userID}
-	clauses := []string{"p.user_id=$1"}
-	// Each word may match anywhere, so "chopin nocturne" finds the Chopin
-	// nocturnes and "dvorak" finds Dvořák.
-	for _, token := range searchTokens(options.Query) {
-		args = append(args, "%"+likeEscape(token)+"%")
-		clauses = append(clauses, fmt.Sprintf(`p.search_text LIKE $%d ESCAPE '\'`, len(args)))
-	}
-	if options.Favorite != nil {
-		args = append(args, *options.Favorite)
-		clauses = append(clauses, fmt.Sprintf("p.favorite = $%d", len(args)))
-	}
-	if options.Statuses != nil {
-		args = append(args, options.Statuses)
-		clauses = append(clauses, fmt.Sprintf("p.status = ANY($%d)", len(args)))
+	where, order, args, err := listClauses(userID, options)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+pieceColumns+`
 		FROM `+pieceTables+`
-		WHERE `+strings.Join(clauses, " AND ")+`
+		WHERE `+where+`
 		ORDER BY `+order, args...)
 	if err != nil {
 		return nil, err
@@ -121,9 +105,80 @@ func (s *Service) ListPieces(ctx context.Context, userID string, options ListOpt
 		return nil, err
 	}
 	if options.Sort == SortComposer {
-		sortByComposer(pieces)
+		sortByComposer(pieces, func(piece Piece) string { return piece.Composer })
 	}
 	return pieces, nil
+}
+
+// ListPieceSummaries lists the same pieces as ListPieces, as summaries.
+func (s *Service) ListPieceSummaries(
+	ctx context.Context,
+	userID string,
+	options ListOptions,
+) ([]PieceSummary, error) {
+	where, order, args, err := listClauses(userID, options)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.id, p.title, p.composer, p.aliases, p.favorite, p.status, p.listening_url,
+			f.page_count, r.updated_at, p.created_at, p.search_text
+		FROM `+pieceTables+`
+		WHERE `+where+`
+		ORDER BY `+order, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	summaries := []PieceSummary{}
+	for rows.Next() {
+		var summary PieceSummary
+		var pages *int
+		if err := rows.Scan(
+			&summary.ID, &summary.Title, &summary.Composer, &summary.Aliases, &summary.Favorite,
+			&summary.Status, &summary.ListeningURL, &pages, &summary.LastPlayedAt, &summary.CreatedAt,
+			&summary.SearchText,
+		); err != nil {
+			return nil, err
+		}
+		if pages != nil {
+			summary.PDF = &SummaryPDF{PageCount: *pages, ContentURL: "/api/pieces/" + summary.ID + "/pdf"}
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if options.Sort == SortComposer {
+		sortByComposer(summaries, func(summary PieceSummary) string { return summary.Composer })
+	}
+	return summaries, nil
+}
+
+// listClauses are the WHERE and ORDER BY of the user's pieces that match the
+// options, and their arguments.
+func listClauses(userID string, options ListOptions) (string, string, []any, error) {
+	order, ok := pieceOrders[options.Sort]
+	if !ok {
+		return "", "", nil, invalid("sort must be title, composer, recent, added or fresh")
+	}
+	args := []any{userID}
+	clauses := []string{"p.user_id=$1"}
+	// Each word may match anywhere, so "chopin nocturne" finds the Chopin
+	// nocturnes and "dvorak" finds Dvořák.
+	for _, token := range searchTokens(options.Query) {
+		args = append(args, "%"+likeEscape(token)+"%")
+		clauses = append(clauses, fmt.Sprintf(`p.search_text LIKE $%d ESCAPE '\'`, len(args)))
+	}
+	if options.Favorite != nil {
+		args = append(args, *options.Favorite)
+		clauses = append(clauses, fmt.Sprintf("p.favorite = $%d", len(args)))
+	}
+	if options.Statuses != nil {
+		args = append(args, options.Statuses)
+		clauses = append(clauses, fmt.Sprintf("p.status = ANY($%d)", len(args)))
+	}
+	return strings.Join(clauses, " AND "), order, args, nil
 }
 
 // ContinueWithinDays is how recently a piece must have been played for the
