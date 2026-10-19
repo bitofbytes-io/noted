@@ -1,7 +1,7 @@
 # Noted Digital Binder v1 Requirements
 
 Status: Authoritative implementation scope
-Last updated: 2026-07-28
+Last updated: 2026-10-18
 
 ## Product outcome
 
@@ -17,6 +17,15 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   favorite, optional source URL, optional listening URL, and optional notes.
 - BND-003: Choosing a PDF prefills its filename as the editable title.
 - BND-004: A user can search title and composer and filter favorites.
+- BND-037: Search ignores accents, case and punctuation, so "dvorak" finds
+  Dvořák, "op 28 4" finds Op.28/4 and "C#" finds C♯. Every word of a search
+  must appear, in any order, in the piece's title, composer, notes or "Also
+  known as" names (aliases such as "Moonlight Sonata", set in the details
+  dialog and not shown on the library row). `%` and `_` are ordinary
+  punctuation, never wildcards. The API and web app share one fold, tested
+  against `testdata/search-fold-vectors.json`; the API stores each piece's
+  folded text, so search needs no database extension. A search keeps the
+  chosen sort and only ever matches the searcher's own pieces.
 - BND-035: Each piece is Learning, Playing or Shelved (new and existing pieces
   start as Playing), separate from Favorite, and its status can be changed from
   the library row or the details dialog. One library dropdown filters by
