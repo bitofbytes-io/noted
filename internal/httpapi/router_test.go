@@ -28,6 +28,8 @@ type fakeBackend struct {
 	listQuery    string
 	listFavorite *bool
 	listUserID   string
+	listStatuses []string
+	listCalls    int
 	createInput  app.PieceInput
 	createUserID string
 	createErr    error
@@ -44,11 +46,24 @@ type fakeBackend struct {
 	imslpQuery   string
 	imslpUserID  string
 	imslpErr     error
+
+	preferences       app.Preferences
+	preferencesUserID string
+	preferencesErr    error
 }
 
-func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool) ([]app.Piece, error) {
-	fake.listUserID, fake.listQuery, fake.listFavorite = userID, query, favorite
+func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool, statuses []string) ([]app.Piece, error) {
+	fake.listUserID, fake.listQuery, fake.listFavorite, fake.listStatuses = userID, query, favorite, statuses
+	fake.listCalls++
 	return []app.Piece{}, nil
+}
+func (fake *fakeBackend) GetPreferences(_ context.Context, userID string) (app.Preferences, error) {
+	fake.preferencesUserID = userID
+	return app.Preferences{LibraryFilter: "current"}, nil
+}
+func (fake *fakeBackend) PutPreferences(_ context.Context, userID string, preferences app.Preferences) (app.Preferences, error) {
+	fake.preferencesUserID, fake.preferences = userID, preferences
+	return preferences, fake.preferencesErr
 }
 func (*fakeBackend) GetPiece(context.Context, string, string) (app.Piece, error) {
 	return app.Piece{ID: testPieceID}, nil
@@ -313,6 +328,80 @@ func TestListPassesSearchAndFavoriteFilters(t *testing.T) {
 	if response.Code != http.StatusOK || fake.listQuery != "bach" ||
 		fake.listUserID != testUserID || fake.listFavorite == nil || !*fake.listFavorite {
 		t.Fatalf("filters not passed: status=%d query=%q favorite=%v", response.Code, fake.listQuery, fake.listFavorite)
+	}
+}
+
+func TestListStatusFilter(t *testing.T) {
+	for _, test := range []struct {
+		path string
+		want []string
+	}{
+		// Absent means Learning and Playing.
+		{"/api/pieces/", []string{"learning", "playing"}},
+		// A search never hides a Shelved piece.
+		{"/api/pieces/?q=bach", nil},
+		{"/api/pieces/?status=all", nil},
+		{"/api/pieces/?status=shelved", []string{"shelved"}},
+		// An explicit filter still applies while searching.
+		{"/api/pieces/?q=bach&status=learning", []string{"learning"}},
+		{"/api/pieces/?status=playing,learning,playing", []string{"playing", "learning"}},
+	} {
+		fake := &fakeBackend{}
+		response := httptest.NewRecorder()
+		testRouter(fake, 1024).ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if response.Code != http.StatusOK || fmt.Sprint(fake.listStatuses) != fmt.Sprint(test.want) ||
+			(test.want == nil) != (fake.listStatuses == nil) {
+			t.Fatalf("%s: status=%d statuses=%v, want %v", test.path, response.Code, fake.listStatuses, test.want)
+		}
+	}
+	for _, path := range []string{"/api/pieces/?status=archived", "/api/pieces/?status=learning,"} {
+		fake := &fakeBackend{}
+		response := httptest.NewRecorder()
+		testRouter(fake, 1024).ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusBadRequest || fake.listCalls != 0 {
+			t.Fatalf("%s: status=%d calls=%d", path, response.Code, fake.listCalls)
+		}
+	}
+}
+
+func TestPreferencesReadAndWriteForTheCurrentUser(t *testing.T) {
+	fake := &fakeBackend{}
+	router := testRouter(fake, 1024)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/account/preferences", nil))
+	if response.Code != http.StatusOK || fake.preferencesUserID != testUserID ||
+		!strings.Contains(response.Body.String(), `"libraryFilter":"current"`) {
+		t.Fatalf("get preferences: %d %s", response.Code, response.Body.String())
+	}
+	request := httptest.NewRequest(http.MethodPut, "/api/account/preferences", strings.NewReader(`{"libraryFilter":"favorites"}`))
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || fake.preferences.LibraryFilter != "favorites" ||
+		!strings.Contains(response.Body.String(), `"libraryFilter":"favorites"`) {
+		t.Fatalf("put preferences: %d %s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPut, "/api/account/preferences", strings.NewReader(`{"sort":"title"}`))
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unknown preference: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestCreateAndPatchPassStatus(t *testing.T) {
+	fake := &fakeBackend{}
+	router := testRouter(fake, 1024)
+	request := httptest.NewRequest(http.MethodPost, "/api/pieces/", strings.NewReader(`{"title":"Prelude","status":"learning"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || fake.createInput.Status == nil || *fake.createInput.Status != "learning" {
+		t.Fatalf("create: %d %+v", response.Code, fake.createInput)
+	}
+	request = httptest.NewRequest(http.MethodPatch, "/api/pieces/"+testPieceID+"/", strings.NewReader(`{"status":"shelved"}`))
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || fake.patchInput.Status == nil || *fake.patchInput.Status != "shelved" {
+		t.Fatalf("patch: %d %+v", response.Code, fake.patchInput)
 	}
 }
 

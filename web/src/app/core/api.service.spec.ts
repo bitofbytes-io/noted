@@ -39,6 +39,37 @@ describe('ApiService IMSLP search', () => {
   });
 });
 
+describe('ApiService library filter', () => {
+  it('maps each filter to the list parameters and saves the choice', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const api = TestBed.inject(ApiService);
+    const http = TestBed.inject(HttpTestingController);
+    const cases = [
+      ['current', ''],
+      ['all', 'status=all'],
+      ['favorites', 'favorite=true&status=all'],
+      ['shelved', 'status=shelved'],
+    ] as const;
+    for (const [filter, params] of cases) {
+      const listed = firstValueFrom(api.pieces('', filter));
+      const request = http.expectOne((r) => r.url === '/api/pieces/');
+      expect(request.request.params.toString()).toBe(params);
+      request.flush([]);
+      await listed;
+    }
+
+    const saved = firstValueFrom(api.savePreferences({ libraryFilter: 'favorites' }));
+    const put = http.expectOne('/api/account/preferences');
+    expect(put.request.method).toBe('PUT');
+    expect(put.request.body).toEqual({ libraryFilter: 'favorites' });
+    put.flush({ libraryFilter: 'favorites' });
+    await expect(saved).resolves.toEqual({ libraryFilter: 'favorites' });
+    http.verify();
+  });
+});
+
 describe('ApiService shortcut token', () => {
   it('reads, creates and turns off the account token', async () => {
     TestBed.configureTestingModule({

@@ -34,11 +34,36 @@ export interface PiecePdf {
   contentUrl: string;
 }
 
+/** Where a piece sits in the pianist's work. Favorites are separate. */
+export type PieceStatus = 'learning' | 'playing' | 'shelved';
+
+export const PIECE_STATUSES: readonly { value: PieceStatus; label: string }[] = [
+  { value: 'learning', label: 'Learning' },
+  { value: 'playing', label: 'Playing' },
+  { value: 'shelved', label: 'Shelved' },
+];
+
+/** The library's filter. `current` is Learning and Playing, the first-time default. */
+export type LibraryFilter = 'current' | 'all' | 'favorites' | PieceStatus;
+
+export const LIBRARY_FILTERS: readonly { value: LibraryFilter; label: string }[] = [
+  { value: 'current', label: 'Learning & Playing' },
+  { value: 'all', label: 'All' },
+  { value: 'favorites', label: 'Favorites' },
+  ...PIECE_STATUSES,
+];
+
+/** Per-user settings kept on the server, so they follow the user across devices. */
+export interface Preferences {
+  libraryFilter: LibraryFilter;
+}
+
 export interface Piece {
   id: string;
   title: string;
   composer: string;
   favorite: boolean;
+  status: PieceStatus;
   sourceUrl: string;
   listeningUrl: string;
   notes: string;
@@ -51,6 +76,8 @@ export interface PieceInput {
   title: string;
   composer: string;
   favorite: boolean;
+  /** Set from the library only; import drafts leave it out. */
+  status?: PieceStatus;
   sourceUrl: string;
   listeningUrl: string;
   notes: string;

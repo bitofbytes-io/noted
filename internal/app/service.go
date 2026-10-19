@@ -53,14 +53,16 @@ func (s *Service) CheckAssetStore(ctx context.Context) error {
 }
 
 const pieceColumns = `
-	p.id, p.title, p.composer, p.favorite, p.source_url, p.listening_url, p.notes,
+	p.id, p.title, p.composer, p.favorite, p.status, p.source_url, p.listening_url, p.notes,
 	p.created_at, p.updated_at,
 	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at`
 
+// ListPieces lists the user's pieces. A nil statuses lists every status.
 func (s *Service) ListPieces(
 	ctx context.Context,
 	userID, query string,
 	favorite *bool,
+	statuses []string,
 ) ([]Piece, error) {
 	args := []any{userID}
 	clauses := []string{"p.user_id=$1"}
@@ -71,6 +73,10 @@ func (s *Service) ListPieces(
 	if favorite != nil {
 		args = append(args, *favorite)
 		clauses = append(clauses, fmt.Sprintf("p.favorite = $%d", len(args)))
+	}
+	if statuses != nil {
+		args = append(args, statuses)
+		clauses = append(clauses, fmt.Sprintf("p.status = ANY($%d)", len(args)))
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+pieceColumns+`
@@ -105,6 +111,10 @@ func (s *Service) GetPiece(ctx context.Context, userID, id string) (Piece, error
 }
 
 func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInput) (Piece, error) {
+	if input.Status == nil {
+		playing := StatusPlaying
+		input.Status = &playing
+	}
 	input, err := validatePiece(input)
 	if err != nil {
 		return Piece{}, err
@@ -113,9 +123,9 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 	id = uuid.NewString()
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO pieces
-			(id, user_id, title, composer, favorite, source_url, listening_url, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		id, userID, input.Title, input.Composer, input.Favorite, input.SourceURL,
+			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+		id, userID, input.Title, input.Composer, input.Favorite, *input.Status, input.SourceURL,
 		input.ListeningURL, input.Notes,
 	).Scan(&id)
 	if err != nil {
@@ -143,7 +153,8 @@ func (s *Service) UpdatePiece(
 	}
 	input := PieceInput{
 		Title: current.Title, Composer: current.Composer, Favorite: current.Favorite,
-		SourceURL: current.SourceURL, ListeningURL: current.ListeningURL, Notes: current.Notes,
+		Status: &current.Status, SourceURL: current.SourceURL, ListeningURL: current.ListeningURL,
+		Notes: current.Notes,
 	}
 	if patch.Title != nil {
 		input.Title = *patch.Title
@@ -153,6 +164,9 @@ func (s *Service) UpdatePiece(
 	}
 	if patch.Favorite != nil {
 		input.Favorite = *patch.Favorite
+	}
+	if patch.Status != nil {
+		input.Status = patch.Status
 	}
 	if patch.SourceURL != nil {
 		input.SourceURL = *patch.SourceURL
@@ -169,9 +183,9 @@ func (s *Service) UpdatePiece(
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			listening_url=$6, notes=$7, updated_at=now() WHERE id=$1 AND user_id=$8`,
+			listening_url=$6, notes=$7, status=$9, updated_at=now() WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
-		input.ListeningURL, input.Notes, userID)
+		input.ListeningURL, input.Notes, userID, *input.Status)
 	if err != nil {
 		return Piece{}, err
 	}
@@ -213,6 +227,34 @@ func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) GetPreferences(ctx context.Context, userID string) (Preferences, error) {
+	var preferences Preferences
+	err := s.pool.QueryRow(ctx, `SELECT library_filter FROM users WHERE id=$1`, userID).
+		Scan(&preferences.LibraryFilter)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Preferences{}, ErrNotFound
+	}
+	return preferences, err
+}
+
+func (s *Service) PutPreferences(
+	ctx context.Context,
+	userID string,
+	preferences Preferences,
+) (Preferences, error) {
+	if err := validatePreferences(preferences); err != nil {
+		return Preferences{}, err
+	}
+	err := s.pool.QueryRow(ctx, `
+		UPDATE users SET library_filter=$2 WHERE id=$1 RETURNING library_filter`,
+		userID, preferences.LibraryFilter,
+	).Scan(&preferences.LibraryFilter)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Preferences{}, ErrNotFound
+	}
+	return preferences, err
 }
 
 func (s *Service) PDFSource(
@@ -342,7 +384,7 @@ func scanPiece(row rowScanner) (Piece, error) {
 	var pages *int
 	var uploaded *time.Time
 	err := row.Scan(
-		&piece.ID, &piece.Title, &piece.Composer, &piece.Favorite,
+		&piece.ID, &piece.Title, &piece.Composer, &piece.Favorite, &piece.Status,
 		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.CreatedAt, &piece.UpdatedAt,
 		&filename, &size, &checksum, &pages, &uploaded,
 	)

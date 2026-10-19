@@ -20,6 +20,7 @@ describe('LibraryComponent', () => {
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieces: vi.fn().mockReturnValueOnce(stale).mockReturnValueOnce(latest),
     };
     await TestBed.configureTestingModule({
@@ -55,6 +56,7 @@ describe('LibraryComponent', () => {
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieces: vi.fn(() => of([])),
       createImport: vi.fn(() => of({ id: 'draft-1' })),
       updatePiece: vi.fn(),
@@ -134,6 +136,177 @@ describe('LibraryComponent', () => {
   });
 });
 
+describe('LibraryComponent status and filter', () => {
+  const row = (id: string, status: Piece['status'], favorite = false) =>
+    ({
+      id,
+      title: `Piece ${id}`,
+      composer: '',
+      favorite,
+      status,
+      sourceUrl: '',
+      listeningUrl: '',
+      notes: '',
+      pdf: null,
+    }) as Piece;
+
+  async function setup(libraryFilter: string, rows: Piece[], all: Piece[] = rows) {
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter })),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn((_query: string, filter: string) => of(filter === 'all' ? all : rows)),
+      updatePiece: vi.fn((id: string, change: Partial<Piece>) =>
+        of({ ...rows.find((piece) => piece.id === id)!, ...change }),
+      ),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const render = async () => {
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    const titles = () => [...root.querySelectorAll('.piece-row h2')].map((h) => h.textContent);
+    return { fixture, api, root, render, titles };
+  }
+
+  it('opens on the remembered filter and remembers a new choice', async () => {
+    const { fixture, api, root, render } = await setup('favorites', [row('a', 'shelved', true)]);
+    const select = root.querySelector('.library-filter select') as HTMLSelectElement;
+    expect(api.pieces).toHaveBeenCalledWith('', 'favorites');
+    expect(select.value).toBe('favorites');
+    expect([...select.options].map((option) => option.textContent?.trim())).toEqual([
+      'Learning & Playing',
+      'All',
+      'Favorites',
+      'Learning',
+      'Playing',
+      'Shelved',
+    ]);
+
+    select.value = 'shelved';
+    select.dispatchEvent(new Event('change'));
+    await render();
+    expect(api.savePreferences).toHaveBeenCalledWith({ libraryFilter: 'shelved' });
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved');
+    fixture.destroy();
+  });
+
+  it('saves rapid filter choices one at a time, ending on the latest', async () => {
+    const { fixture, api } = await setup('current', [row('a', 'playing')]);
+    const component = fixture.componentInstance;
+    const inFlight = new Subject<unknown>();
+    api.savePreferences.mockImplementationOnce(() => inFlight);
+
+    const first = component.chooseFilter('shelved');
+    await vi.waitFor(() => expect(api.savePreferences).toHaveBeenCalledTimes(1));
+    // While the first save is still open, two quick choices follow it.
+    const second = component.chooseFilter('all');
+    const third = component.chooseFilter('favorites');
+    await Promise.resolve();
+    expect(api.savePreferences).toHaveBeenCalledTimes(1);
+
+    inFlight.next({ libraryFilter: 'shelved' });
+    inFlight.complete();
+    await Promise.all([first, second, third]);
+    // The superseded choice is skipped, and the latest is saved last.
+    expect(api.savePreferences.mock.calls).toEqual([
+      [{ libraryFilter: 'shelved' }],
+      [{ libraryFilter: 'favorites' }],
+    ]);
+    fixture.destroy();
+  });
+
+  it('changes a status from the row and drops it when it leaves the filter', async () => {
+    const { fixture, api, root, render, titles } = await setup('current', [
+      row('a', 'playing'),
+      row('b', 'learning'),
+    ]);
+    expect(titles()).toEqual(['Piece a', 'Piece b']);
+    const select = root.querySelector('.row-status select') as HTMLSelectElement;
+    expect(select.value).toBe('playing');
+
+    select.value = 'learning';
+    select.dispatchEvent(new Event('change'));
+    await render();
+    expect(api.updatePiece).toHaveBeenLastCalledWith('a', { status: 'learning' });
+    expect(titles()).toEqual(['Piece a', 'Piece b']);
+
+    (root.querySelector('.row-status select') as HTMLSelectElement).value = 'shelved';
+    root.querySelector('.row-status select')!.dispatchEvent(new Event('change'));
+    await render();
+    expect(api.updatePiece).toHaveBeenLastCalledWith('a', { status: 'shelved' });
+    expect(titles()).toEqual(['Piece b']);
+    fixture.destroy();
+  });
+
+  it('saves rapid status changes on a row in order and never shows a stale reply', async () => {
+    const { fixture, api, root, render } = await setup('all', [row('a', 'playing')]);
+    const inFlight = new Subject<Piece>();
+    api.updatePiece.mockImplementationOnce(() => inFlight);
+    const select = () => root.querySelector('.row-status select') as HTMLSelectElement;
+    const choose = async (status: string) => {
+      select().value = status;
+      select().dispatchEvent(new Event('change'));
+      await render();
+    };
+
+    await choose('learning');
+    await choose('shelved');
+    expect(api.updatePiece).toHaveBeenCalledTimes(1);
+    expect(select().value).toBe('shelved');
+
+    // The older reply arrives after the newer choice: it must not win.
+    inFlight.next(row('a', 'learning'));
+    inFlight.complete();
+    await vi.waitFor(() => expect(api.updatePiece).toHaveBeenCalledTimes(2));
+    await render();
+    expect(api.updatePiece.mock.calls).toEqual([
+      ['a', { status: 'learning' }],
+      ['a', { status: 'shelved' }],
+    ]);
+    expect(select().value).toBe('shelved');
+    fixture.destroy();
+  });
+
+  it('puts a row back to its saved status when a status change fails', async () => {
+    const { fixture, api, root, render } = await setup('all', [row('a', 'playing')]);
+    api.updatePiece.mockImplementationOnce(() => throwError(() => new Error('offline')));
+    const select = root.querySelector('.row-status select') as HTMLSelectElement;
+    select.value = 'shelved';
+    select.dispatchEvent(new Event('change'));
+    await vi.waitFor(async () => {
+      await render();
+      expect(root.querySelector('.notice')?.textContent).toContain('Offline.');
+    });
+    expect((root.querySelector('.row-status select') as HTMLSelectElement).value).toBe('playing');
+    fixture.destroy();
+  });
+
+  it('says when the default view is empty only because everything is shelved', async () => {
+    const { fixture, root } = await setup('current', [], [row('a', 'shelved')]);
+    expect(root.querySelector('.empty-state h2')?.textContent).toBe(
+      'Nothing in Learning or Playing',
+    );
+    fixture.destroy();
+  });
+});
+
 const TOKEN = 'pR8xQ2nVf7Lw0mKaZc4HtYe9BjUs1GdNoI3vXb6Fq5E';
 const REPLACEMENT = 'Zz9yXw8vUt7sRq6pOn5mLk4jIh3gFe2dCb1aZz9yXw8';
 
@@ -166,6 +339,7 @@ describe('LibraryComponent account dialog', () => {
     const api = {
       session: vi.fn(() => of(session)),
       imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieces: vi.fn(() => of([])),
       logout: vi.fn(() => of(undefined)),
       shortcutToken: vi.fn(() => of(status)),

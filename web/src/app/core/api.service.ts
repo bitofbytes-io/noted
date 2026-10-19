@@ -2,8 +2,10 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, of, throwError } from 'rxjs';
 import {
+  LibraryFilter,
   Piece,
   PieceInput,
+  Preferences,
   ReaderState,
   Session,
   ImportDraft,
@@ -83,11 +85,25 @@ export class ApiService {
     return this.http.delete<void>('/api/account/shortcut-token');
   }
 
-  pieces(query = '', favorite = false): Observable<Piece[]> {
+  /**
+   * Without a status the API lists Learning and Playing, or every status while
+   * searching, so the default filter sends none.
+   */
+  pieces(query = '', filter: LibraryFilter = 'current'): Observable<Piece[]> {
     let params = new HttpParams();
     if (query.trim()) params = params.set('q', query.trim());
-    if (favorite) params = params.set('favorite', 'true');
+    if (filter === 'favorites') params = params.set('favorite', 'true');
+    if (filter === 'all' || filter === 'favorites') params = params.set('status', 'all');
+    else if (filter !== 'current') params = params.set('status', filter);
     return this.http.get<Piece[]>('/api/pieces/', { params });
+  }
+
+  preferences(): Observable<Preferences> {
+    return this.http.get<Preferences>('/api/account/preferences');
+  }
+
+  savePreferences(preferences: Preferences): Observable<Preferences> {
+    return this.http.put<Preferences>('/api/account/preferences', preferences);
   }
 
   piece(id: string): Observable<Piece> {

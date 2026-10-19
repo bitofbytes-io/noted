@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -44,7 +45,49 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 	if len(input.Notes) > 10000 {
 		return input, invalid("notes must be at most 10000 characters")
 	}
+	// Absent in import draft metadata; CreatePiece defaults it to playing.
+	if input.Status != nil && !validStatus(*input.Status) {
+		return input, invalid("status must be learning, playing or shelved")
+	}
 	return input, nil
+}
+
+func validStatus(status string) bool {
+	return status == StatusLearning || status == StatusPlaying || status == StatusShelved
+}
+
+// ParseStatusFilter reads the library's status= parameter: a comma-separated
+// list of statuses, or all. Absent means Learning and Playing, except that a
+// search never hides a Shelved piece. A nil result means every status.
+func ParseStatusFilter(value, query string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	switch {
+	case value == "" && strings.TrimSpace(query) != "":
+		return nil, nil
+	case value == "":
+		return []string{StatusLearning, StatusPlaying}, nil
+	case value == "all":
+		return nil, nil
+	}
+	statuses := []string{}
+	for _, status := range strings.Split(value, ",") {
+		status = strings.TrimSpace(status)
+		if !validStatus(status) {
+			return nil, invalid("status must be all or a comma-separated list of learning, playing and shelved")
+		}
+		if !slices.Contains(statuses, status) {
+			statuses = append(statuses, status)
+		}
+	}
+	return statuses, nil
+}
+
+func validatePreferences(preferences Preferences) error {
+	switch preferences.LibraryFilter {
+	case "current", "all", "favorites", StatusLearning, StatusPlaying, StatusShelved:
+		return nil
+	}
+	return invalid("library filter must be current, all, favorites, learning, playing or shelved")
 }
 
 func validateOptionalURL(label, value string) error {

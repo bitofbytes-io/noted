@@ -26,6 +26,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -210,7 +211,8 @@ if [ "$version" != "000001_binder
 000005_reader_scroll_speed
 000006_imslp_catalog
 000007_drop_imslp_catalog
-000008_shortcut_tokens" ]; then
+000008_shortcut_tokens
+000009_library_metadata" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -259,6 +261,49 @@ if docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE reader_states SET scroll_speed=11" >/dev/null 2>&1; then
   echo "reader scroll speed constraint unexpectedly accepted 11" >&2
+  exit 1
+fi
+
+# Existing pieces start as Playing and users on the default library filter;
+# both columns accept only their known values.
+library_defaults=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT p.status || '|' || u.library_filter FROM pieces p JOIN users u ON u.id=p.user_id
+     WHERE p.id='4f607127-fb97-4b22-90f5-1b9bec77b739'"
+)
+if [ "$library_defaults" != "playing|current" ]; then
+  printf 'unexpected piece status or library filter default: %s\n' "$library_defaults" >&2
+  exit 1
+fi
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE pieces SET status='archived'" >/dev/null 2>&1; then
+  echo "piece status constraint unexpectedly accepted archived" >&2
+  exit 1
+fi
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE users SET library_filter='archived'" >/dev/null 2>&1; then
+  echo "library filter constraint unexpectedly accepted archived" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE pieces SET status='shelved'; UPDATE users SET library_filter='favorites'" >/dev/null
+
+# Rolling back 000009 removes only its two columns and index.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+library_columns=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT count(*) FROM information_schema.columns
+     WHERE table_schema='public'
+       AND ((table_name='pieces' AND column_name='status')
+         OR (table_name='users' AND column_name='library_filter'))"
+)
+if [ "$library_columns" != "0" ]; then
+  echo "library metadata columns survived rolling back 000009" >&2
   exit 1
 fi
 
@@ -324,6 +369,8 @@ VALUES (
 INSERT INTO reader_states (piece_id, scroll_speed)
 VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
 SQL
+# Roll back 000009, then 000008.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # Rolling back the catalogue removal restores both tables and the single

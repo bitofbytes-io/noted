@@ -23,6 +23,7 @@ type Piece struct {
 	Title        string    `json:"title"`
 	Composer     string    `json:"composer"`
 	Favorite     bool      `json:"favorite"`
+	Status       string    `json:"status"`
 	SourceURL    string    `json:"sourceUrl"`
 	ListeningURL string    `json:"listeningUrl"`
 	Notes        string    `json:"notes"`
@@ -32,21 +33,40 @@ type Piece struct {
 }
 
 type PieceInput struct {
-	Title        string `json:"title"`
-	Composer     string `json:"composer"`
-	Favorite     bool   `json:"favorite"`
-	SourceURL    string `json:"sourceUrl"`
-	ListeningURL string `json:"listeningUrl"`
-	Notes        string `json:"notes"`
+	Title    string `json:"title"`
+	Composer string `json:"composer"`
+	Favorite bool   `json:"favorite"`
+	// Status is optional on create: absent defaults to playing, while an explicit
+	// empty status is rejected. Import drafts cannot set it, so finalizing one
+	// leaves the piece's status as it was.
+	Status       *string `json:"status,omitempty"`
+	SourceURL    string  `json:"sourceUrl"`
+	ListeningURL string  `json:"listeningUrl"`
+	Notes        string  `json:"notes"`
 }
 
 type PiecePatch struct {
 	Title        *string `json:"title"`
 	Composer     *string `json:"composer"`
 	Favorite     *bool   `json:"favorite"`
+	Status       *string `json:"status"`
 	SourceURL    *string `json:"sourceUrl"`
 	ListeningURL *string `json:"listeningUrl"`
 	Notes        *string `json:"notes"`
+}
+
+// Piece statuses. The library's default view shows Learning and Playing.
+const (
+	StatusLearning = "learning"
+	StatusPlaying  = "playing"
+	StatusShelved  = "shelved"
+)
+
+// Preferences are per-user settings that follow the user across devices.
+type Preferences struct {
+	// LibraryFilter is the library filter the user last chose: current
+	// (Learning and Playing), all, favorites, learning, playing or shelved.
+	LibraryFilter string `json:"libraryFilter"`
 }
 
 type ReaderState struct {

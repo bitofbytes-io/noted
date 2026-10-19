@@ -17,6 +17,13 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   favorite, optional source URL, optional listening URL, and optional notes.
 - BND-003: Choosing a PDF prefills its filename as the editable title.
 - BND-004: A user can search title and composer and filter favorites.
+- BND-035: Each piece is Learning, Playing or Shelved (new and existing pieces
+  start as Playing), separate from Favorite, and its status can be changed from
+  the library row or the details dialog. One library dropdown filters by
+  Learning & Playing (the first-time default), All, Favorites, Learning,
+  Playing or Shelved. A search never hides a Shelved piece in the default view.
+  The library opens on the filter the user last chose, stored on the server so
+  it follows them across devices.
 - BND-005: Selecting a piece with a PDF opens its reader directly.
 - BND-006: A user can add or replace the one PDF attached to a piece through
   Prepare (Add PDF, or Edit or replace PDF, in the details dialog). There is no

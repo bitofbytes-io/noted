@@ -163,6 +163,7 @@ describe('ReaderComponent', () => {
             title: 'Reloaded score',
             composer: '',
             favorite: false,
+            status: 'playing',
             sourceUrl: '',
             listeningUrl: '',
             notes: '',
