@@ -9,7 +9,7 @@ import (
 
 type preferencesBackend interface {
 	GetPreferences(context.Context, string) (app.Preferences, error)
-	PutPreferences(context.Context, string, app.Preferences) (app.Preferences, error)
+	PutPreferences(context.Context, string, app.PreferencesPatch) (app.Preferences, error)
 }
 
 // The router finds preferences by type assertion, so a signature drift must fail the build.
@@ -41,12 +41,13 @@ func (h *Handler) putPreferences(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var preferences app.Preferences
-	if err := decodeJSON(r, &preferences); err != nil {
+	// Preferences left out of the body keep their saved value.
+	var patch app.PreferencesPatch
+	if err := decodeJSON(r, &patch); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	preferences, err := backend.PutPreferences(r.Context(), currentUser(r).ID, preferences)
+	preferences, err := backend.PutPreferences(r.Context(), currentUser(r).ID, patch)
 	if err != nil {
 		handleError(w, err)
 		return

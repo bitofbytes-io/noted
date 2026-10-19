@@ -24,7 +24,7 @@ import (
 )
 
 type Backend interface {
-	ListPieces(context.Context, string, string, *bool, []string) ([]app.Piece, error)
+	ListPieces(context.Context, string, string, *bool, []string, string) ([]app.Piece, error)
 	GetPiece(context.Context, string, string) (app.Piece, error)
 	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
 	UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error)
@@ -129,8 +129,13 @@ func (h *Handler) listPieces(writer http.ResponseWriter, request *http.Request) 
 		handleError(writer, err)
 		return
 	}
+	sort, err := app.ParseSort(request.URL.Query().Get("sort"))
+	if err != nil {
+		handleError(writer, err)
+		return
+	}
 	pieces, err := h.backend.ListPieces(
-		request.Context(), currentUser(request).ID, query, favorite, statuses,
+		request.Context(), currentUser(request).ID, query, favorite, statuses, sort,
 	)
 	if err != nil {
 		handleError(writer, err)

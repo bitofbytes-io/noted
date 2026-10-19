@@ -27,6 +27,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -212,7 +213,8 @@ if [ "$version" != "000001_binder
 000006_imslp_catalog
 000007_drop_imslp_catalog
 000008_shortcut_tokens
-000009_library_metadata" ]; then
+000009_library_metadata
+000010_library_sort" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -292,6 +294,40 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE pieces SET status='shelved'; UPDATE users SET library_filter='favorites'" >/dev/null
 
+# Existing users start on the Title sort, which accepts only the known sorts.
+library_sort=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT library_sort FROM users WHERE id='db53bb2a-b720-407a-8941-cd4459f69e79'"
+)
+if [ "$library_sort" != "title" ]; then
+  printf 'unexpected library sort default: %s\n' "$library_sort" >&2
+  exit 1
+fi
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE users SET library_sort='played'" >/dev/null 2>&1; then
+  echo "library sort constraint unexpectedly accepted played" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE users SET library_sort='fresh'" >/dev/null
+
+# Rolling back 000010 removes only the sort and keeps the filter.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+library_after_sort=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT u.library_filter || '|' || (SELECT count(*) FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='users' AND column_name='library_sort')
+     FROM users u WHERE u.id='db53bb2a-b720-407a-8941-cd4459f69e79'"
+)
+if [ "$library_after_sort" != "favorites|0" ]; then
+  printf 'unexpected users after rolling back 000010: %s\n' "$library_after_sort" >&2
+  exit 1
+fi
+
 # Rolling back 000009 removes only its two columns and index.
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 library_columns=$(
@@ -369,7 +405,8 @@ VALUES (
 INSERT INTO reader_states (piece_id, scroll_speed)
 VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
 SQL
-# Roll back 000009, then 000008.
+# Roll back 000010, 000009, then 000008.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 

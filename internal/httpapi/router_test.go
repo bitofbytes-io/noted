@@ -29,6 +29,7 @@ type fakeBackend struct {
 	listFavorite *bool
 	listUserID   string
 	listStatuses []string
+	listSort     string
 	listCalls    int
 	createInput  app.PieceInput
 	createUserID string
@@ -47,22 +48,30 @@ type fakeBackend struct {
 	imslpUserID  string
 	imslpErr     error
 
-	preferences       app.Preferences
+	preferencesPatch  app.PreferencesPatch
 	preferencesUserID string
 	preferencesErr    error
 }
 
-func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool, statuses []string) ([]app.Piece, error) {
+func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool, statuses []string, sort string) ([]app.Piece, error) {
 	fake.listUserID, fake.listQuery, fake.listFavorite, fake.listStatuses = userID, query, favorite, statuses
+	fake.listSort = sort
 	fake.listCalls++
 	return []app.Piece{}, nil
 }
 func (fake *fakeBackend) GetPreferences(_ context.Context, userID string) (app.Preferences, error) {
 	fake.preferencesUserID = userID
-	return app.Preferences{LibraryFilter: "current"}, nil
+	return app.Preferences{LibraryFilter: "current", LibrarySort: "title"}, nil
 }
-func (fake *fakeBackend) PutPreferences(_ context.Context, userID string, preferences app.Preferences) (app.Preferences, error) {
-	fake.preferencesUserID, fake.preferences = userID, preferences
+func (fake *fakeBackend) PutPreferences(_ context.Context, userID string, patch app.PreferencesPatch) (app.Preferences, error) {
+	fake.preferencesUserID, fake.preferencesPatch = userID, patch
+	preferences := app.Preferences{LibraryFilter: "current", LibrarySort: "title"}
+	if patch.LibraryFilter != nil {
+		preferences.LibraryFilter = *patch.LibraryFilter
+	}
+	if patch.LibrarySort != nil {
+		preferences.LibrarySort = *patch.LibrarySort
+	}
 	return preferences, fake.preferencesErr
 }
 func (*fakeBackend) GetPiece(context.Context, string, string) (app.Piece, error) {
@@ -364,23 +373,61 @@ func TestListStatusFilter(t *testing.T) {
 	}
 }
 
+func TestListSort(t *testing.T) {
+	for path, want := range map[string]string{
+		"/api/pieces/":                       "title",
+		"/api/pieces/?sort=composer":         "composer",
+		"/api/pieces/?sort=recent":           "recent",
+		"/api/pieces/?sort=added":            "added",
+		"/api/pieces/?q=bach&sort=fresh":     "fresh",
+		"/api/pieces/?sort=title&status=all": "title",
+	} {
+		fake := &fakeBackend{}
+		response := httptest.NewRecorder()
+		testRouter(fake, 1024).ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || fake.listSort != want {
+			t.Fatalf("%s: status=%d sort=%q, want %q", path, response.Code, fake.listSort, want)
+		}
+	}
+	for _, path := range []string{"/api/pieces/?sort=favorite", "/api/pieces/?sort=title%20DESC", "/api/pieces/?sort=Recent"} {
+		fake := &fakeBackend{}
+		response := httptest.NewRecorder()
+		testRouter(fake, 1024).ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusBadRequest || fake.listCalls != 0 ||
+			!strings.Contains(response.Body.String(), "sort must be") {
+			t.Fatalf("%s: status=%d calls=%d body=%s", path, response.Code, fake.listCalls, response.Body.String())
+		}
+	}
+}
+
 func TestPreferencesReadAndWriteForTheCurrentUser(t *testing.T) {
 	fake := &fakeBackend{}
 	router := testRouter(fake, 1024)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/account/preferences", nil))
 	if response.Code != http.StatusOK || fake.preferencesUserID != testUserID ||
-		!strings.Contains(response.Body.String(), `"libraryFilter":"current"`) {
+		!strings.Contains(response.Body.String(), `"libraryFilter":"current"`) ||
+		!strings.Contains(response.Body.String(), `"librarySort":"title"`) {
 		t.Fatalf("get preferences: %d %s", response.Code, response.Body.String())
 	}
 	request := httptest.NewRequest(http.MethodPut, "/api/account/preferences", strings.NewReader(`{"libraryFilter":"favorites"}`))
 	response = httptest.NewRecorder()
 	router.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || fake.preferences.LibraryFilter != "favorites" ||
+	if response.Code != http.StatusOK || fake.preferencesPatch.LibraryFilter == nil ||
+		*fake.preferencesPatch.LibraryFilter != "favorites" || fake.preferencesPatch.LibrarySort != nil ||
 		!strings.Contains(response.Body.String(), `"libraryFilter":"favorites"`) {
 		t.Fatalf("put preferences: %d %s", response.Code, response.Body.String())
 	}
-	request = httptest.NewRequest(http.MethodPut, "/api/account/preferences", strings.NewReader(`{"sort":"title"}`))
+	// Only the sort: the filter is left as it was saved.
+	request = httptest.NewRequest(http.MethodPut, "/api/account/preferences", strings.NewReader(`{"librarySort":"composer"}`))
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || fake.preferencesPatch.LibraryFilter != nil ||
+		fake.preferencesPatch.LibrarySort == nil || *fake.preferencesPatch.LibrarySort != "composer" ||
+		!strings.Contains(response.Body.String(), `"librarySort":"composer"`) {
+		t.Fatalf("put sort preference: %d %s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPut, "/api/account/preferences", strings.NewReader(`{"theme":"dark"}`))
 	response = httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {

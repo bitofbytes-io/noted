@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -51,14 +52,37 @@ func TestValidation(t *testing.T) {
 		}
 	}
 	for _, filter := range []string{"current", "all", "favorites", "learning", "playing", "shelved"} {
-		if err := validatePreferences(Preferences{LibraryFilter: filter}); err != nil {
+		if err := validatePreferences(PreferencesPatch{LibraryFilter: &filter}); err != nil {
 			t.Fatalf("library filter %q: %v", filter, err)
 		}
 	}
 	for _, filter := range []string{"", "Favorites", "learning,playing"} {
-		if err := validatePreferences(Preferences{LibraryFilter: filter}); err == nil {
+		if err := validatePreferences(PreferencesPatch{LibraryFilter: &filter}); err == nil {
 			t.Fatalf("expected library filter %q to fail", filter)
 		}
+	}
+	for _, sort := range []string{"title", "composer", "recent", "added", "fresh"} {
+		if err := validatePreferences(PreferencesPatch{LibrarySort: &sort}); err != nil {
+			t.Fatalf("library sort %q: %v", sort, err)
+		}
+		if parsed, err := ParseSort(sort); err != nil || parsed != sort {
+			t.Fatalf("sort=%s parsed as %q, %v", sort, parsed, err)
+		}
+	}
+	for _, sort := range []string{"", "Title", "played", "title,composer"} {
+		if err := validatePreferences(PreferencesPatch{LibrarySort: &sort}); err == nil {
+			t.Fatalf("expected library sort %q to fail", sort)
+		}
+	}
+	if err := validatePreferences(PreferencesPatch{}); err != nil {
+		t.Fatalf("an empty patch changes nothing: %v", err)
+	}
+	if parsed, err := ParseSort(" "); err != nil || parsed != SortTitle {
+		t.Fatalf("absent sort parsed as %q, %v", parsed, err)
+	}
+	var validationError *ValidationError
+	if _, err := ParseSort("favorite DESC"); !errors.As(err, &validationError) {
+		t.Fatalf("unknown sort error = %v, want a ValidationError", err)
 	}
 	if err := ValidateReaderState(ReaderState{PDFChecksumSHA256: checksum, Mode: "scroll", LastPage: 1, Zoom: 1, ScrollSpeed: 5}); err != nil {
 		t.Fatal(err)

@@ -55,15 +55,42 @@ func (s *Service) CheckAssetStore(ctx context.Context) error {
 const pieceColumns = `
 	p.id, p.title, p.composer, p.favorite, p.status, p.source_url, p.listening_url, p.notes,
 	p.created_at, p.updated_at,
-	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at`
+	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at,
+	r.updated_at`
 
-// ListPieces lists the user's pieces. A nil statuses lists every status.
+// The reader saves its state on every checkpoint, so r.updated_at is when the
+// piece was last played.
+const pieceTables = `
+	pieces p
+	LEFT JOIN piece_pdfs f ON f.piece_id=p.id
+	LEFT JOIN reader_states r ON r.piece_id=p.id`
+
+const titleOrder = `lower(p.title), lower(p.composer), p.id`
+
+// pieceOrders are the library's sorts. Composer starts in title order and is
+// then sorted by surname, which SQL cannot pick out reliably. Fresh leaves
+// pieces without a PDF, which cannot be played, until last.
+var pieceOrders = map[string]string{
+	SortTitle:    titleOrder,
+	SortComposer: titleOrder,
+	SortRecent:   `r.updated_at DESC NULLS LAST, ` + titleOrder,
+	SortAdded:    `p.created_at DESC, ` + titleOrder,
+	SortFresh:    `f.piece_id IS NULL, r.updated_at ASC NULLS FIRST, ` + titleOrder,
+}
+
+// ListPieces lists the user's pieces in the given sort (see ParseSort). A nil
+// statuses lists every status.
 func (s *Service) ListPieces(
 	ctx context.Context,
 	userID, query string,
 	favorite *bool,
 	statuses []string,
+	sort string,
 ) ([]Piece, error) {
+	order, ok := pieceOrders[sort]
+	if !ok {
+		return nil, invalid("sort must be title, composer, recent, added or fresh")
+	}
 	args := []any{userID}
 	clauses := []string{"p.user_id=$1"}
 	if query = strings.TrimSpace(query); query != "" {
@@ -80,9 +107,9 @@ func (s *Service) ListPieces(
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+pieceColumns+`
-		FROM pieces p LEFT JOIN piece_pdfs f ON f.piece_id=p.id
+		FROM `+pieceTables+`
 		WHERE `+strings.Join(clauses, " AND ")+`
-		ORDER BY p.favorite DESC, lower(p.title), lower(p.composer)`, args...)
+		ORDER BY `+order, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,13 +122,19 @@ func (s *Service) ListPieces(
 		}
 		pieces = append(pieces, piece)
 	}
-	return pieces, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if sort == SortComposer {
+		sortByComposer(pieces)
+	}
+	return pieces, nil
 }
 
 func (s *Service) GetPiece(ctx context.Context, userID, id string) (Piece, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+pieceColumns+`
-		FROM pieces p LEFT JOIN piece_pdfs f ON f.piece_id=p.id
+		FROM `+pieceTables+`
 		WHERE p.id=$1 AND p.user_id=$2`, id, userID)
 	piece, err := scanPiece(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -144,7 +177,7 @@ func (s *Service) UpdatePiece(
 		return Piece{}, err
 	}
 	defer tx.Rollback(ctx)
-	current, err := scanPiece(tx.QueryRow(ctx, `SELECT `+pieceColumns+` FROM pieces p LEFT JOIN piece_pdfs f ON f.piece_id=p.id WHERE p.id=$1 AND p.user_id=$2`, id, userID))
+	current, err := scanPiece(tx.QueryRow(ctx, `SELECT `+pieceColumns+` FROM `+pieceTables+` WHERE p.id=$1 AND p.user_id=$2`, id, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Piece{}, ErrNotFound
 	}
@@ -231,26 +264,31 @@ func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
 
 func (s *Service) GetPreferences(ctx context.Context, userID string) (Preferences, error) {
 	var preferences Preferences
-	err := s.pool.QueryRow(ctx, `SELECT library_filter FROM users WHERE id=$1`, userID).
-		Scan(&preferences.LibraryFilter)
+	err := s.pool.QueryRow(ctx, `SELECT library_filter, library_sort FROM users WHERE id=$1`, userID).
+		Scan(&preferences.LibraryFilter, &preferences.LibrarySort)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Preferences{}, ErrNotFound
 	}
 	return preferences, err
 }
 
+// PutPreferences saves the preferences the patch sets and keeps the others.
 func (s *Service) PutPreferences(
 	ctx context.Context,
 	userID string,
-	preferences Preferences,
+	patch PreferencesPatch,
 ) (Preferences, error) {
-	if err := validatePreferences(preferences); err != nil {
+	if err := validatePreferences(patch); err != nil {
 		return Preferences{}, err
 	}
+	var preferences Preferences
 	err := s.pool.QueryRow(ctx, `
-		UPDATE users SET library_filter=$2 WHERE id=$1 RETURNING library_filter`,
-		userID, preferences.LibraryFilter,
-	).Scan(&preferences.LibraryFilter)
+		UPDATE users SET
+			library_filter=COALESCE($2, library_filter),
+			library_sort=COALESCE($3, library_sort)
+		WHERE id=$1 RETURNING library_filter, library_sort`,
+		userID, patch.LibraryFilter, patch.LibrarySort,
+	).Scan(&preferences.LibraryFilter, &preferences.LibrarySort)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Preferences{}, ErrNotFound
 	}
@@ -386,7 +424,7 @@ func scanPiece(row rowScanner) (Piece, error) {
 	err := row.Scan(
 		&piece.ID, &piece.Title, &piece.Composer, &piece.Favorite, &piece.Status,
 		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.CreatedAt, &piece.UpdatedAt,
-		&filename, &size, &checksum, &pages, &uploaded,
+		&filename, &size, &checksum, &pages, &uploaded, &piece.LastPlayedAt,
 	)
 	if err != nil {
 		return Piece{}, err
