@@ -1,4 +1,5 @@
 import {
+  ChangeDetectorRef,
   Component,
   ElementRef,
   computed,
@@ -112,6 +113,7 @@ export class LibraryComponent implements OnDestroy {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly changes = inject(ChangeDetectorRef);
   protected readonly libraryFilters = LIBRARY_FILTERS;
   protected readonly librarySorts = LIBRARY_SORTS;
   protected readonly pieceStatuses = PIECE_STATUSES;
@@ -493,6 +495,8 @@ export class LibraryComponent implements OnDestroy {
       notes: piece.notes,
       aliases: piece.aliases,
     };
+    // The form fields are not signals, and nothing else marks the view after the read.
+    this.changes.markForCheck();
     this.editor?.nativeElement.showModal();
   }
 

@@ -276,10 +276,15 @@ describe('LibraryComponent', () => {
     // A library row has no notes or source; the form reads them from the whole piece.
     await component.openEdit(saved);
     expect(api.piece).toHaveBeenCalledWith('sonata');
-    fixture.componentRef.changeDetectorRef.markForCheck();
-    fixture.detectChanges();
+    // The form fills itself once the whole piece arrives, with no change detection forced here.
     await fixture.whenStable();
     expect(aliasesInput().value).toBe('Moonlight');
+    expect(
+      (fixture.nativeElement.querySelector('textarea[name="notes"]') as HTMLTextAreaElement).value,
+    ).toBe('Pedal through each bar');
+    expect(fixture.nativeElement.querySelector('.editor-head h2').textContent).toBe(
+      'Piano Sonata No. 14',
+    );
     expect(Reflect.get(component, 'form').notes).toBe('Pedal through each bar');
     expect(Reflect.get(component, 'form').sourceUrl).toBe('https://example.test/sonata');
     aliasesInput().value = 'Moonlight Sonata';
