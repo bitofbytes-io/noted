@@ -59,6 +59,15 @@ interface PieceLoadRequest {
 /** `hidden` is set when the default view is empty only because everything is shelved. */
 type PieceLoadResult = { pieces: Piece[]; hidden: boolean } | { error: unknown };
 
+/** One row's status saves: the latest choice, the last saved row, and the save queue. */
+interface StatusSave {
+  latest: PieceStatus;
+  saved: Piece;
+  queue: Promise<void>;
+  /** The row's select, reset directly on failure: a fast failure leaves no binding change. */
+  control: HTMLSelectElement;
+}
+
 /** The details form always carries a status, unlike an import draft's metadata. */
 type PieceForm = PieceInput & { status: PieceStatus };
 
@@ -129,6 +138,8 @@ export class LibraryComponent implements OnDestroy {
   private filterChosen = false;
   /** Saves run one at a time, so an older choice can never land after a newer one. */
   private filterSave: Promise<void> = Promise.resolve();
+  /** Status saves still running, by piece. */
+  private readonly statusSaves = new Map<string, StatusSave>();
   protected editing: Piece | null = null;
   protected form: PieceForm = emptyPiece();
   private searchTimer?: number;
@@ -484,27 +495,57 @@ export class LibraryComponent implements OnDestroy {
 
   async toggleFavorite(piece: Piece, event: Event): Promise<void> {
     event.stopPropagation();
-    await this.updateRow(piece, { favorite: !piece.favorite });
-  }
-
-  async changeStatus(piece: Piece, status: PieceStatus): Promise<void> {
-    if (status === piece.status) return;
-    // Show the choice at once; a failed save puts the row back as it was.
-    this.replaceRow({ ...piece, status });
-    if (!(await this.updateRow(piece, { status }))) this.replaceRow(piece);
-  }
-
-  /** Saves one change from a row, then drops the row if it no longer fits the filter. */
-  private async updateRow(piece: Piece, change: Partial<PieceInput>): Promise<boolean> {
     try {
-      const updated = await firstValueFrom(this.api.updatePiece(piece.id, change));
-      if (this.shown(updated)) this.replaceRow(updated);
-      else this.pieces.update((pieces) => pieces.filter((row) => row.id !== updated.id));
-      return true;
+      this.showSaved(
+        await firstValueFrom(this.api.updatePiece(piece.id, { favorite: !piece.favorite })),
+      );
     } catch (error) {
       this.error.set(errorMessage(error));
-      return false;
     }
+  }
+
+  /**
+   * Shows the choice at once and saves it. A row's saves run one at a time, and
+   * only the latest choice is saved or shown, so a slow older request can never
+   * overwrite a newer status. A failed save puts back the last saved row.
+   */
+  async changeStatus(piece: Piece, control: HTMLSelectElement): Promise<void> {
+    const status = control.value as PieceStatus;
+    if (status === piece.status) return;
+    const pending = this.statusSaves.get(piece.id) ?? {
+      latest: status,
+      saved: piece,
+      queue: Promise.resolve(),
+      control,
+    };
+    pending.latest = status;
+    pending.control = control;
+    this.statusSaves.set(piece.id, pending);
+    this.replaceRow({ ...piece, status });
+    const done = pending.queue.then(() => this.saveStatus(piece.id, status, pending));
+    pending.queue = done;
+    await done;
+    if (pending.queue === done) this.statusSaves.delete(piece.id);
+  }
+
+  private async saveStatus(id: string, status: PieceStatus, pending: StatusSave): Promise<void> {
+    if (pending.latest !== status) return;
+    try {
+      const updated = await firstValueFrom(this.api.updatePiece(id, { status }));
+      pending.saved = updated;
+      if (pending.latest === status) this.showSaved(updated);
+    } catch (error) {
+      if (pending.latest !== status) return;
+      this.error.set(errorMessage(error));
+      this.replaceRow(pending.saved);
+      pending.control.value = pending.saved.status;
+    }
+  }
+
+  /** Shows a saved row, or drops it if it no longer fits the filter. */
+  private showSaved(updated: Piece): void {
+    if (this.shown(updated)) this.replaceRow(updated);
+    else this.pieces.update((pieces) => pieces.filter((row) => row.id !== updated.id));
   }
 
   private replaceRow(piece: Piece): void {

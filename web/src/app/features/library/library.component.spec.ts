@@ -255,6 +255,49 @@ describe('LibraryComponent status and filter', () => {
     fixture.destroy();
   });
 
+  it('saves rapid status changes on a row in order and never shows a stale reply', async () => {
+    const { fixture, api, root, render } = await setup('all', [row('a', 'playing')]);
+    const inFlight = new Subject<Piece>();
+    api.updatePiece.mockImplementationOnce(() => inFlight);
+    const select = () => root.querySelector('.row-status select') as HTMLSelectElement;
+    const choose = async (status: string) => {
+      select().value = status;
+      select().dispatchEvent(new Event('change'));
+      await render();
+    };
+
+    await choose('learning');
+    await choose('shelved');
+    expect(api.updatePiece).toHaveBeenCalledTimes(1);
+    expect(select().value).toBe('shelved');
+
+    // The older reply arrives after the newer choice: it must not win.
+    inFlight.next(row('a', 'learning'));
+    inFlight.complete();
+    await vi.waitFor(() => expect(api.updatePiece).toHaveBeenCalledTimes(2));
+    await render();
+    expect(api.updatePiece.mock.calls).toEqual([
+      ['a', { status: 'learning' }],
+      ['a', { status: 'shelved' }],
+    ]);
+    expect(select().value).toBe('shelved');
+    fixture.destroy();
+  });
+
+  it('puts a row back to its saved status when a status change fails', async () => {
+    const { fixture, api, root, render } = await setup('all', [row('a', 'playing')]);
+    api.updatePiece.mockImplementationOnce(() => throwError(() => new Error('offline')));
+    const select = root.querySelector('.row-status select') as HTMLSelectElement;
+    select.value = 'shelved';
+    select.dispatchEvent(new Event('change'));
+    await vi.waitFor(async () => {
+      await render();
+      expect(root.querySelector('.notice')?.textContent).toContain('Offline.');
+    });
+    expect((root.querySelector('.row-status select') as HTMLSelectElement).value).toBe('playing');
+    fixture.destroy();
+  });
+
   it('says when the default view is empty only because everything is shelved', async () => {
     const { fixture, root } = await setup('current', [], [row('a', 'shelved')]);
     expect(root.querySelector('.empty-state h2')?.textContent).toBe(

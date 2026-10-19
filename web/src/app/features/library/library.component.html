@@ -156,7 +156,7 @@
                 <span class="sr-only">Status of {{ piece.title }}</span>
                 <select
                   [value]="piece.status"
-                  (change)="changeStatus(piece, $any($event.target).value)"
+                  (change)="changeStatus(piece, $any($event.target))"
                   (keydown)="$event.stopPropagation()"
                 >
                   @for (option of pieceStatuses; track option.value) {
