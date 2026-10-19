@@ -26,14 +26,48 @@ const LEFTOVER = new RegExp(`[${Object.keys(LEFTOVERS).join('')}]`, 'gu');
  * are tested against testdata/search-fold-vectors.json.
  */
 export function fold(text: string): string {
+  return foldLetters(text).trim();
+}
+
+/** fold without the trim: every run of other characters is still one space. */
+function foldLetters(text: string): string {
   return text
     .replace(/[nN][°º]/gu, 'no ')
     .normalize('NFKD')
     .toLowerCase()
     .replace(LEFTOVER, (letter) => LEFTOVERS[letter] ?? letter)
     .replace(/\p{M}/gu, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+    .replace(/[^\p{L}\p{N}]+/gu, ' ');
+}
+
+/**
+ * A text folded one character at a time, with where in the text each folded
+ * character came from, so a match in the fold can be marked in the text as
+ * written: "Dvořák" folds to "dvorak", and its "r" came from the "ř".
+ */
+export interface FoldedText {
+  folded: string;
+  /** For each folded character, the start and end of its character in the text. */
+  starts: number[];
+  ends: number[];
+}
+
+export function foldWithOffsets(text: string): FoldedText {
+  const result: FoldedText = { folded: '', starts: [], ends: [] };
+  let at = 0;
+  for (const letter of text) {
+    const end = at + letter.length;
+    const folded = foldLetters(letter);
+    // A combining mark folds away; it belongs to the letter before it.
+    if (!folded && result.ends.length) result.ends[result.ends.length - 1] = end;
+    result.folded += folded;
+    for (let i = 0; i < folded.length; i++) {
+      result.starts.push(at);
+      result.ends.push(end);
+    }
+    at = end;
+  }
+  return result;
 }
 
 /**

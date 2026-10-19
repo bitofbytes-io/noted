@@ -2,11 +2,14 @@ import {
   ChangeDetectorRef,
   Component,
   ElementRef,
+  HostListener,
   computed,
+  effect,
   OnDestroy,
   ViewChild,
   inject,
   signal,
+  untracked,
   afterNextRender,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
@@ -55,17 +58,23 @@ import {
   ShortcutTokenCreated,
 } from '../../core/models';
 import {
+  LibraryParams,
+  LibraryView,
   filterAndSort,
   formatDay,
   lastUsedText,
   listeningUrlError,
+  paramsOfView,
   playedText,
   summaryOf,
+  viewFromParams,
 } from './library.utils';
 import { fold } from '../../core/search';
 import { SuggestionsComponent } from '../suggestions/suggestions.component';
 import { ComposerFieldComponent } from '../composers/composer-field.component';
+import { rememberLibraryParams } from '../../core/library-address';
 import { ChoiceMenuComponent } from './choice-menu.component';
+import { MatchPartsPipe } from './match-parts.pipe';
 
 /** The whole library, and the piece to continue whatever the filter. */
 type PieceLoadResult =
@@ -105,6 +114,7 @@ type ShortcutState = 'loading' | 'none' | 'created' | 'active';
     LucideSearch,
     LucideTrash2,
     LucideX,
+    MatchPartsPipe,
   ],
   templateUrl: './library.component.html',
   styleUrl: './library.component.scss',
@@ -115,20 +125,27 @@ export class LibraryComponent implements OnDestroy {
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   @ViewChild('account') private account?: ElementRef<HTMLDialogElement>;
   @ViewChild('tokenText') private tokenText?: ElementRef<HTMLElement>;
+  @ViewChild('searchInput') private searchInput?: ElementRef<HTMLInputElement>;
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly changes = inject(ChangeDetectorRef);
+  /** The search, filter and sort in the address, which win over the remembered ones. */
+  private readonly addressed = viewFromParams(this.route.snapshot.queryParamMap);
   protected readonly libraryFilters = LIBRARY_FILTERS;
   protected readonly librarySorts = LIBRARY_SORTS;
   protected readonly pieceStatuses = PIECE_STATUSES;
   /** The whole library, loaded once and again after a save or delete. */
   private readonly allPieces = signal<PieceSummary[]>([]);
-  protected readonly query = signal('');
-  /** Opens on the filter this user last chose, on any device. */
-  protected readonly filter = signal<LibraryFilter>('current');
-  /** Opens on the sort this user last chose, on any device; new users get Title. */
-  protected readonly sort = signal<LibrarySort>('title');
+  protected readonly query = signal(this.addressed.query ?? '');
+  /** Opens on the address's filter, or else the one this user last chose, on any device. */
+  protected readonly filter = signal<LibraryFilter>(this.addressed.filter ?? 'current');
+  /** Opens on the address's sort, or else the one this user last chose; new users get Title. */
+  protected readonly sort = signal<LibrarySort>(this.addressed.sort ?? 'title');
+  /** The filter and sort the library opens on without them in the address. */
+  private readonly rememberedFilter = signal<LibraryFilter>('current');
+  private readonly rememberedSort = signal<LibrarySort>('title');
   /** Punctuation alone folds to no search, as on the server. */
   protected readonly searching = computed(() => !!fold(this.query()));
   /** The pieces matching the search and filter, in order: filtered here on every keystroke. */
@@ -197,6 +214,14 @@ export class LibraryComponent implements OnDestroy {
   /** A filter or sort chosen before the remembered ones arrive wins over that one alone. */
   private filterChosen = false;
   private sortChosen = false;
+  /**
+   * The address last written, so only a change is written. Add a piece opened
+   * from Prepare leaves details=new to drop, so that address counts as unwritten.
+   */
+  private writtenAddress: string | null =
+    this.route.snapshot.queryParamMap.get('details') === 'new'
+      ? null
+      : addressKey(paramsFromSnapshot(this.route.snapshot.queryParamMap));
   /** Saves run one at a time, so an older choice can never land after a newer one. */
   private preferenceSave: Promise<void> = Promise.resolve();
   /** Status saves still running, by piece. */
@@ -248,15 +273,37 @@ export class LibraryComponent implements OnDestroy {
         this.listedOnce.set(true);
       });
     afterNextRender(() => {
-      if (this.route.snapshot.queryParamMap.get('details') === 'new') {
-        this.openCreate();
-        void this.router.navigate([], { queryParams: {}, replaceUrl: true });
-      }
+      // The address is written again below, without details=new.
+      if (this.route.snapshot.queryParamMap.get('details') === 'new') this.openCreate();
+    });
+    // The address follows the view, so a reload keeps it and the reader can return to it.
+    effect(() => {
+      // Until then, the filter and sort shown may not be the ones the library opens on.
+      if (!this.preferencesSettled()) return;
+      const params = paramsOfView(this.view(), this.remembered());
+      untracked(() => this.writeAddress(params));
     });
     void this.loadSession();
     this.loadPreferences();
     void this.load();
     void this.loadDrafts();
+  }
+
+  private view(): LibraryView {
+    return { query: this.query(), filter: this.filter(), sort: this.sort() };
+  }
+
+  private remembered(): Pick<LibraryView, 'filter' | 'sort'> {
+    return { filter: this.rememberedFilter(), sort: this.rememberedSort() };
+  }
+
+  private writeAddress(params: LibraryParams): void {
+    rememberLibraryParams(params);
+    const key = addressKey(params);
+    if (key === this.writtenAddress) return;
+    this.writtenAddress = key;
+    // Replaced, not pushed: Back leaves the library rather than undoing a keystroke.
+    void this.router.navigate([], { queryParams: params, replaceUrl: true });
   }
 
   /** Loads the remembered filter and sort; a first-time user gets the defaults. */
@@ -267,13 +314,15 @@ export class LibraryComponent implements OnDestroy {
           !this.filterChosen &&
           LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)
         ) {
-          this.filter.set(preferences.libraryFilter);
+          this.rememberedFilter.set(preferences.libraryFilter);
+          if (!this.addressed.filter) this.filter.set(preferences.libraryFilter);
         }
         if (
           !this.sortChosen &&
           LIBRARY_SORTS.some((option) => option.value === preferences.librarySort)
         ) {
-          this.sort.set(preferences.librarySort);
+          this.rememberedSort.set(preferences.librarySort);
+          if (!this.addressed.sort) this.sort.set(preferences.librarySort);
         }
         this.preferencesSettled.set(true);
       },
@@ -285,24 +334,22 @@ export class LibraryComponent implements OnDestroy {
   /** Shows the new filter at once and remembers it for this user's next visit. */
   async chooseFilter(filter: LibraryFilter): Promise<void> {
     this.filterChosen = true;
-    if (filter === this.filter()) {
-      // Before the remembered filter arrives, choosing the default shown still counts.
-      if (!this.preferencesSettled()) await this.remember({ libraryFilter: filter });
-      return;
-    }
+    // Before the remembered filter arrives, or over the address's, choosing the one shown counts.
+    const remembered = this.preferencesSettled() && filter === this.rememberedFilter();
+    if (filter === this.filter() && remembered) return;
     this.filter.set(filter);
+    this.rememberedFilter.set(filter);
     await this.remember({ libraryFilter: filter });
   }
 
   /** Shows the new order at once and remembers it for this user's next visit. */
   async chooseSort(sort: LibrarySort): Promise<void> {
     this.sortChosen = true;
-    if (sort === this.sort()) {
-      // Before the remembered sort arrives, choosing the default shown still counts.
-      if (!this.preferencesSettled()) await this.remember({ librarySort: sort });
-      return;
-    }
+    // Before the remembered sort arrives, or over the address's, choosing the one shown counts.
+    const remembered = this.preferencesSettled() && sort === this.rememberedSort();
+    if (sort === this.sort() && remembered) return;
     this.sort.set(sort);
+    this.rememberedSort.set(sort);
     await this.remember({ librarySort: sort });
   }
 
@@ -581,6 +628,62 @@ export class LibraryComponent implements OnDestroy {
     if (event.target === event.currentTarget) this.openPiece(piece);
   }
 
+  /** "/" goes to the search from anywhere but a field or a dialog. */
+  @HostListener('document:keydown', ['$event'])
+  protected focusSearch(event: KeyboardEvent): void {
+    if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.isContentEditable || target?.closest('input, textarea, select, dialog')) return;
+    if (this.host.nativeElement.querySelector('dialog[open]')) return;
+    event.preventDefault();
+    this.searchInput?.nativeElement.focus();
+  }
+
+  /** Enter opens the first result, Down goes to the rows, and Escape clears the search. */
+  protected searchKey(event: KeyboardEvent): void {
+    if (event.isComposing) return;
+    if (event.key === 'Enter') {
+      const first = this.listed()[0];
+      if (!this.searching() || !first) return;
+      event.preventDefault();
+      this.openPiece(first);
+    } else if (event.key === 'ArrowDown') {
+      const row = this.rows()[0];
+      if (!row) return;
+      event.preventDefault();
+      row.focus();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      if (this.query()) this.query.set('');
+      else this.searchInput?.nativeElement.blur();
+    }
+  }
+
+  /** Up and Down move between rows, Up from the first back to the search; Escape clears it. */
+  protected rowKey(event: KeyboardEvent): void {
+    const rows = this.rows();
+    const at = rows.indexOf(event.currentTarget as HTMLElement);
+    let next: HTMLElement | undefined;
+    if (event.key === 'ArrowDown') {
+      next = rows[at + 1];
+    } else if (event.key === 'ArrowUp') {
+      next = at > 0 ? rows[at - 1] : this.searchInput?.nativeElement;
+    } else if (event.key === 'Escape') {
+      this.query.set('');
+      next = this.searchInput?.nativeElement;
+    }
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+  }
+
+  /** The rows that open a piece, as shown: Continue first. */
+  private rows(): HTMLElement[] {
+    return [
+      ...this.host.nativeElement.querySelectorAll<HTMLElement>('.results .piece-row[tabindex]'),
+    ];
+  }
+
   protected listeningUrlValidationError(): string {
     return listeningUrlError(this.form.listeningUrl);
   }
@@ -656,6 +759,20 @@ export class LibraryComponent implements OnDestroy {
       this.saving.set(false);
     }
   }
+}
+
+/** The search, filter and sort an address names as written, known or not. */
+function paramsFromSnapshot(params: { get(name: string): string | null }): LibraryParams {
+  return {
+    q: params.get('q') ?? undefined,
+    show: params.get('show') ?? undefined,
+    sort: params.get('sort') ?? undefined,
+  };
+}
+
+/** One address, however its parameters were put together. */
+function addressKey(params: LibraryParams): string {
+  return JSON.stringify([params.q ?? '', params.show ?? '', params.sort ?? '']);
 }
 
 function emptyPiece(): PieceForm {

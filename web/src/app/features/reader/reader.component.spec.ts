@@ -1,15 +1,26 @@
-import { ElementRef, QueryList } from '@angular/core';
+import { ElementRef, QueryList, signal } from '@angular/core';
+import { Location } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import {
+  ActivatedRoute,
+  DefaultUrlSerializer,
+  Navigation,
+  Router,
+  convertToParamMap,
+} from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
 import { Piece, ReaderState } from '../../core/models';
 import { ReaderComponent } from './reader.component';
 import { pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 
-function createReaderComponent(api: object = {}): ReaderComponent {
+function createReaderComponent(
+  api: object = {},
+  router: object = { navigate: vi.fn() },
+  location: object = { back: vi.fn() },
+): ReaderComponent {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -18,7 +29,8 @@ function createReaderComponent(api: object = {}): ReaderComponent {
         provide: ActivatedRoute,
         useValue: { snapshot: { paramMap: convertToParamMap({ pieceId: 'piece' }) } },
       },
-      { provide: Router, useValue: { navigate: vi.fn() } },
+      { provide: Router, useValue: router },
+      { provide: Location, useValue: location },
     ],
   });
   return TestBed.runInInjectionContext(() => new ReaderComponent());
@@ -31,6 +43,47 @@ function spyOnCanvasPublishing(canvas: HTMLCanvasElement) {
   } as unknown as CanvasRenderingContext2D);
   return drawImage;
 }
+
+describe('ReaderComponent back', () => {
+  afterEach(() => sessionStorage.clear());
+
+  /** A router whose last navigation, to the reader, came from `previous`. */
+  function routerFrom(previous: string | null) {
+    const parse = new DefaultUrlSerializer();
+    const previousNavigation = previous
+      ? ({ finalUrl: parse.parse(previous) } as Navigation)
+      : null;
+    return {
+      navigate: vi.fn(),
+      lastSuccessfulNavigation: signal({ previousNavigation } as Navigation),
+    };
+  }
+
+  it('goes back to the library it was opened from, with its search', () => {
+    const router = routerFrom('/?q=bach&show=all');
+    const location = { back: vi.fn() };
+    createReaderComponent({}, router, location).back();
+    expect(location.back).toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('opens the library with its last search when opened from elsewhere', () => {
+    sessionStorage.setItem('noted.libraryQuery', JSON.stringify({ q: 'bach', sort: 7 }));
+    for (const previous of [null, '/prepare/draft-1']) {
+      const router = routerFrom(previous);
+      const location = { back: vi.fn() };
+      createReaderComponent({}, router, location).back();
+      expect(location.back).not.toHaveBeenCalled();
+      expect(router.navigate).toHaveBeenCalledWith(['/'], { queryParams: { q: 'bach' } });
+    }
+  });
+
+  it('opens the plain library without a search saved in this tab', () => {
+    const router = routerFrom(null);
+    createReaderComponent({}, router).back();
+    expect(router.navigate).toHaveBeenCalledWith(['/'], { queryParams: {} });
+  });
+});
 
 describe('ReaderComponent', () => {
   it('caches a completed page render against its captured page request', async () => {

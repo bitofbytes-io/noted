@@ -238,6 +238,16 @@ h1 {
   line-height: 1.5;
 }
 
+/* What matches the search: underlined in green, like the search field, not highlighted. */
+.piece-copy mark {
+  background: none;
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: var(--green);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
 /* "– Played yesterday" wraps as one piece, never splitting the day from "Played". */
 .piece-note {
   color: var(--ink-faint);
