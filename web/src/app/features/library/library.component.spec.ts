@@ -331,6 +331,13 @@ describe('LibraryComponent', () => {
     query.set(' % ');
     expect(Reflect.get(component, 'onlyShelved')()).toBe(true);
     expect(Reflect.get(component, 'visible')()).toEqual([]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.results-count p')?.textContent).not.toContain('matching');
+    expect(root.querySelector('.empty-state h2')?.textContent).toBe(
+      'Nothing in Learning or Playing',
+    );
 
     query.set('Dvořák');
     expect(Reflect.get(component, 'onlyShelved')()).toBe(false);

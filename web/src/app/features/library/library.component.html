@@ -59,7 +59,7 @@
       <p aria-live="polite">
         @if (!loading()) {
           {{ visible().length }} {{ visible().length === 1 ? 'piece' : 'pieces' }}
-          @if (query()) {
+          @if (searching()) {
             matching “{{ query() }}”
           }
         }
@@ -114,7 +114,7 @@
     } @else if (!visible().length) {
       <div class="empty-state">
         <svg lucideFileText aria-hidden="true"></svg>
-        @if (query() || filter() !== 'current') {
+        @if (searching() || filter() !== 'current') {
           <h2>No matching pieces</h2>
           <p>Try another search or choose another filter.</p>
         } @else if (onlyShelved()) {
@@ -124,7 +124,7 @@
           <h2>Your binder is empty</h2>
           <p>Add a scanned or downloaded PDF to begin.</p>
         }
-        @if (!query() && filter() === 'current' && !onlyShelved()) {
+        @if (!searching() && filter() === 'current' && !onlyShelved()) {
           <button class="btn-quiet accent" type="button" (click)="beginImport()">
             Add the first piece
           </button>
