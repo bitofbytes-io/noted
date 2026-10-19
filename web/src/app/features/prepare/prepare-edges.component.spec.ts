@@ -8,12 +8,16 @@ describe('PrepareEdgesComponent', () => {
   let fixture: ComponentFixture<PrepareComponent>;
   let openWindow: ReturnType<typeof vi.spyOn>;
 
+  // Specs share one jsdom document, and jsdom ignores addRange while any range is selected,
+  // so start and end with no selection whatever ran before.
   beforeEach(async () => {
+    document.getSelection()?.removeAllRanges();
     ({ fixture, openWindow } = await createPrepareFixture());
   });
 
   afterEach(() => {
     openWindow.mockRestore();
+    document.getSelection()?.removeAllRanges();
   });
 
   async function openEdgeEditor() {

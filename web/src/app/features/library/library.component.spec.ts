@@ -408,7 +408,12 @@ describe('LibraryComponent status and filter', () => {
 });
 
 describe('LibraryComponent sort and Continue', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    // Focusing the sort menu leaves a document selection later specs rely on being empty.
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.getSelection()?.removeAllRanges();
+  });
 
   const NOW = new Date(2026, 9, 18, 20);
   const daysAgo = (days: number) => new Date(NOW.getTime() - days * 86_400_000).toISOString();
