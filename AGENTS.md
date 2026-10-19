@@ -28,7 +28,8 @@ they remain in git history as historical context only.
 - Every piece is owned by exactly one user. Its PDF and reader state inherit
   authorization through that piece and are never shared implicitly.
 - Library search covers title, composer, aliases and notes, folding accents and
-  matching every word (BND-037); favorites are a filter.
+  matching every word, with catalogue numbers and keys in one form
+  (BND-037); favorites are a filter.
 - The reader has page and auto-scroll modes and persists per-piece state.
 - Score intake now includes private preparation drafts, original PDF/JPEG/PNG
   retention, page organization/correction, phone capture, assisted IMSLP links,
