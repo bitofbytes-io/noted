@@ -1,4 +1,4 @@
-import { searchIndex, searchTerms } from '../../core/search';
+import { fold, searchIndex, searchTerms } from '../../core/search';
 import { LibraryFilter, LibrarySort, Piece, PieceSummary } from '../../core/models';
 
 /** What the library shows: the search as typed, the filter and the sort. */
@@ -24,7 +24,8 @@ export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView
   );
   const order = ORDERS[view.sort];
   if (!words.length) return shown.sort(order);
-  const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, query, words)]));
+  const folded = fold(view.query);
+  const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, folded, query, words)]));
   return shown.sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)! || order(a, b));
 }
 
@@ -42,8 +43,17 @@ export function inFilter(piece: PieceSummary, filter: LibraryFilter, searching: 
   }
 }
 
-function matchRank(piece: PieceSummary, query: string, words: string[]): number {
-  if (searchTerms(piece.title).join(' ').startsWith(query)) return 0;
+/**
+ * A title starts with the search either as typed ("opus" or "cis" before
+ * "Opus 28" or "cis-Moll") or in its search terms ("op28/4" before "Op. 28").
+ */
+function matchRank(piece: PieceSummary, folded: string, query: string, words: string[]): number {
+  if (
+    fold(piece.title).startsWith(folded) ||
+    searchTerms(piece.title).join(' ').startsWith(query)
+  ) {
+    return 0;
+  }
   const text = ` ${piece.searchText}`;
   return words.every((word) => text.includes(` ${word}`)) ? 1 : 2;
 }

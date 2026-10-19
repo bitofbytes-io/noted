@@ -159,6 +159,27 @@ describe('filterAndSort', () => {
     expect(found('bwv 84')).toEqual(['Prelude and Fugue in C, BWV 846']);
   });
 
+  it('keeps a year after an opus in view while it is typed', () => {
+    const pieces = [summary({ title: 'Études, Op. 10 (1833)', composer: 'Frédéric Chopin' })];
+    for (const query of ['op 10 1', 'op 10 18', 'op 10 183', 'op 10 1833']) {
+      expect(titles(filterAndSort(pieces, view({ query })))).toEqual(['Études, Op. 10 (1833)']);
+    }
+  });
+
+  it('ranks a title that starts with the search as typed first', () => {
+    const pieces = [
+      summary({ title: 'Allegro', aliases: 'Opus 28' }),
+      summary({ title: 'Opus 28' }),
+      summary({ title: 'Ballade', aliases: 'cis-Moll' }),
+      summary({ title: 'cis-Moll Prelude' }),
+    ];
+    const found = (query: string) => titles(filterAndSort(pieces, view({ query })));
+    expect(found('opus')).toEqual(['Opus 28', 'Allegro']);
+    expect(found('cis')).toEqual(['cis-Moll Prelude', 'Ballade']);
+    // The search terms still rank a title start: "op28" begins "Opus 28".
+    expect(found('op28')).toEqual(['Opus 28', 'Allegro']);
+  });
+
   it('folds a saved piece into the same search text as the server', () => {
     expect(
       summary({

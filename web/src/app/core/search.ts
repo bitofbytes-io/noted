@@ -107,8 +107,20 @@ const ENGLISH_FLAT = /^[a-g]b$/;
  * "C# minor" and "c-sharp minor" are all c sharp minor. Each word of a search
  * is one of these terms. It is the API's searchTerms (internal/app/search.go);
  * both are tested against testdata/search-fold-vectors.json.
+ *
+ * A search keeps a bare number after an opus as typed: while "op 10 1833" is
+ * typed, "op 10 18" must still find Op. 10 (1833). The stored text has both
+ * forms of "op28/4", so the search "op28 4" still finds it.
  */
 export function searchTerms(text: string): string[] {
+  return catalogueTerms(text, false);
+}
+
+/**
+ * searchTerms, with a 1–3 digit number straight after an opus read as its
+ * number within it ("Op. 28/4" is op28 no4) when opusParts.
+ */
+function catalogueTerms(text: string, opusParts: boolean): string[] {
   const words: string[] = [];
   for (const word of fold(text).split(' ').filter(Boolean)) {
     const parts = GLUED_CATALOGUE.exec(word);
@@ -127,7 +139,7 @@ export function searchTerms(text: string): string[] {
     } else if (catalogue && CATALOGUE_NUMBER.test(next)) {
       terms.push(catalogue + next);
       i++;
-      if (catalogue === 'op' && OPUS_PART.test(at(i + 1))) {
+      if (opusParts && catalogue === 'op' && OPUS_PART.test(at(i + 1))) {
         terms.push('no' + at(i + 1));
         i++;
       }
@@ -146,15 +158,15 @@ export function searchTerms(text: string): string[] {
 }
 
 /**
- * The search text stored for a text: its fold, then any of its search terms
- * the fold lacks, so "Prelude Op. 28 No. 4" is stored as "prelude op 28 no 4
- * op28 no4". It is the API's searchIndex.
+ * The search text stored for a text: its fold, then any of its catalogue
+ * terms the fold lacks, opus parts included, so "Prelude Op.28/4" is stored as
+ * "prelude op 28 4 op28 no4". It is the API's searchIndex.
  */
 export function searchIndex(text: string): string {
   const folded = fold(text);
   const seen = new Set(folded.split(' '));
   let index = folded;
-  for (const term of searchTerms(text)) {
+  for (const term of catalogueTerms(text, true)) {
     if (!seen.has(term)) {
       seen.add(term);
       index += ` ${term}`;

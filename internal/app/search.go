@@ -83,7 +83,17 @@ var (
 // all c sharp minor. Each word of a search is one of these terms. The web
 // app's searchTerms in web/src/app/core/search.ts is the same function; both
 // are tested against testdata/search-fold-vectors.json.
+//
+// A search keeps a bare number after an opus as typed: while "op 10 1833" is
+// typed, "op 10 18" must still find Op. 10 (1833). The stored text has both
+// forms of "op28/4", so the search "op28 4" still finds it.
 func searchTerms(text string) []string {
+	return catalogueTerms(text, false)
+}
+
+// catalogueTerms are searchTerms, with a 1–3 digit number straight after an
+// opus read as its number within it ("Op. 28/4" is op28 no4) when opusParts.
+func catalogueTerms(text string, opusParts bool) []string {
 	words := []string{}
 	for _, word := range strings.Fields(foldSearch(text)) {
 		if parts := gluedCatalogue.FindStringSubmatch(word); parts != nil && catalogues[parts[1]] != "" {
@@ -109,7 +119,7 @@ func searchTerms(text string) []string {
 		case catalogue != "" && catalogueNumber.MatchString(next):
 			terms = append(terms, catalogue+next)
 			i++
-			if catalogue == "op" && opusPart.MatchString(at(i+1)) {
+			if opusParts && catalogue == "op" && opusPart.MatchString(at(i+1)) {
 				terms = append(terms, "no"+at(i+1))
 				i++
 			}
@@ -128,8 +138,9 @@ func searchTerms(text string) []string {
 }
 
 // searchIndex is the search text stored for a text: its fold, then any of its
-// search terms the fold lacks. "Prelude Op. 28 No. 4" is stored as "prelude op
-// 28 no 4 op28 no4", so searches for "op28/4" and for "op" both find it.
+// catalogue terms the fold lacks, opus parts included. "Prelude Op.28/4" is
+// stored as "prelude op 28 4 op28 no4", so searches for "op28/4", "op 28 no 4"
+// and "op" all find it.
 func searchIndex(text string) string {
 	folded := foldSearch(text)
 	seen := map[string]bool{}
@@ -137,7 +148,7 @@ func searchIndex(text string) string {
 		seen[word] = true
 	}
 	index := folded
-	for _, term := range searchTerms(text) {
+	for _, term := range catalogueTerms(text, true) {
 		if !seen[term] {
 			seen[term] = true
 			index += " " + term

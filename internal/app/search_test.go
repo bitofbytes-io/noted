@@ -38,8 +38,9 @@ func TestSearchTerms(t *testing.T) {
 	for query, want := range map[string][]string{
 		"chopin nocturne": {"chopin", "nocturne"},
 		"  Dvořák  ":      {"dvorak"},
-		"Op.28/4":         {"op28", "no4"},
+		"Op.28/4":         {"op28", "4"},
 		"op 28 no":        {"op28", "no"},
+		"op 28 no 4":      {"op28", "no4"},
 		"%":               {},
 		"":                {},
 	} {
@@ -54,6 +55,9 @@ func TestSearchTerms(t *testing.T) {
 func TestSearchTermsMatchAcrossSpellings(t *testing.T) {
 	for _, group := range [][]string{
 		{"Prelude Op. 28 No. 4", "op 28 no 4", "op28/4", "Op.28 Nr.4", "opus 28 4", "op28 no4"},
+		{"Prelude Op.28/4", "op 28 no 4", "op28/4", "Op.28 Nr.4", "opus 28 4", "op28 no4"},
+		// A year after an opus still matches a digit at a time.
+		{"Études, Op. 10 (1833)", "op 10 1", "op 10 18", "op 10 183", "op 10 1833"},
 		{"WTC I Prelude BWV 846", "bwv846", "BWV 846", "bwv 846"},
 		{"Sonata K. 545", "k545", "KV 545", "kv545", "K.545"},
 		{"Sonata Hob. XVI:52", "hob xvi 52", "hobxvi52", "Hob.XVI/52"},
