@@ -2,15 +2,17 @@ package app
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
 )
 
-// searchFoldVersion changes whenever foldSearch does, so the API refolds every
-// piece's search_text once on its next start (see RefoldSearchText).
-const searchFoldVersion = 1
+// searchFoldVersion changes whenever foldSearch or searchTerms does, so the API
+// refolds every piece's search_text once on its next start (see
+// RefoldSearchText).
+const searchFoldVersion = 2
 
 // foldLeftovers are letters that keep no combining mark to strip, and the
 // accidentals, which become words so "C#" finds "C♯".
@@ -45,9 +47,114 @@ func foldSearch(text string) string {
 	return folded.String()
 }
 
-// searchTokens are the words of a search, each of which a piece must contain.
-func searchTokens(query string) []string {
-	return strings.Fields(foldSearch(query))
+// catalogues are the opus and catalogue abbreviations that join the number
+// after them, mapped to the form search keeps: "Op. 28" and "opus 28" are op28,
+// "K. 545" and "KV 545" k545, and "No. 4" and "Nr. 4" no4.
+var catalogues = map[string]string{
+	"op": "op", "opus": "op", "no": "no", "nr": "no",
+	"bwv": "bwv", "k": "k", "kv": "k", "hob": "hob", "d": "d", "l": "l", "s": "s",
+	"hwv": "hwv", "rv": "rv", "bb": "bb", "woo": "woo", "sz": "sz",
+}
+
+// germanKeys are the German note names that name a key before dur or moll:
+// cis-moll is C♯ minor, Es-Dur E♭ major, h-moll B minor and b-moll B♭ minor.
+var germanKeys = map[string]string{
+	"c": "c", "d": "d", "e": "e", "f": "f", "g": "g", "a": "a", "h": "b", "b": "b flat",
+	"cis": "c sharp", "dis": "d sharp", "eis": "e sharp", "fis": "f sharp",
+	"gis": "g sharp", "ais": "a sharp", "his": "b sharp",
+	"ces": "c flat", "des": "d flat", "es": "e flat", "fes": "f flat", "ges": "g flat", "as": "a flat",
+}
+
+var germanModes = map[string]string{"dur": "major", "moll": "minor"}
+
+var (
+	catalogueNumber = regexp.MustCompile(`^[0-9]+[a-z]?$`)
+	gluedCatalogue  = regexp.MustCompile(`^([a-z]+)([0-9]+[a-z]?)$`)
+	// "Op. 28/4": a short number straight after an opus is its number within it.
+	opusPart     = regexp.MustCompile(`^[0-9]{1,3}$`)
+	romanNumeral = regexp.MustCompile(`^[ivxl]+$`)
+	englishFlat  = regexp.MustCompile(`^[a-g]b$`)
+)
+
+// searchTerms are the words search matches for a text: its fold, with
+// catalogue numbers and keys written one way however they were typed.
+// "Op. 28 No. 4" and "op28/4" are both op28 no4, "KV 545" is k545,
+// "Hob. XVI:52" hobxvi52, and "cis-moll", "C# minor" and "c-sharp minor" are
+// all c sharp minor. Each word of a search is one of these terms. The web
+// app's searchTerms in web/src/app/core/search.ts is the same function; both
+// are tested against testdata/search-fold-vectors.json.
+//
+// A search keeps a bare number after an opus as typed: while "op 10 1833" is
+// typed, "op 10 18" must still find Op. 10 (1833). The stored text has both
+// forms of "op28/4", so the search "op28 4" still finds it.
+func searchTerms(text string) []string {
+	return catalogueTerms(text, false)
+}
+
+// catalogueTerms are searchTerms, with a 1–3 digit number straight after an
+// opus read as its number within it ("Op. 28/4" is op28 no4) when opusParts.
+func catalogueTerms(text string, opusParts bool) []string {
+	words := []string{}
+	for _, word := range strings.Fields(foldSearch(text)) {
+		if parts := gluedCatalogue.FindStringSubmatch(word); parts != nil && catalogues[parts[1]] != "" {
+			words = append(words, parts[1], parts[2])
+		} else {
+			words = append(words, word)
+		}
+	}
+	at := func(i int) string {
+		if i < len(words) {
+			return words[i]
+		}
+		return ""
+	}
+	terms := []string{}
+	for i := 0; i < len(words); i++ {
+		word, next := words[i], at(i+1)
+		catalogue := catalogues[word]
+		switch {
+		case catalogue == "hob" && romanNumeral.MatchString(next) && catalogueNumber.MatchString(at(i+2)):
+			terms = append(terms, catalogue+next+at(i+2))
+			i += 2
+		case catalogue != "" && catalogueNumber.MatchString(next):
+			terms = append(terms, catalogue+next)
+			i++
+			if opusParts && catalogue == "op" && opusPart.MatchString(at(i+1)) {
+				terms = append(terms, "no"+at(i+1))
+				i++
+			}
+		case germanKeys[word] != "" && germanModes[next] != "":
+			terms = append(terms, strings.Fields(germanKeys[word]+" "+germanModes[next])...)
+			i++
+		case englishFlat.MatchString(word) && (next == "major" || next == "minor"):
+			// "Bb major" is B♭ major.
+			terms = append(terms, word[:1], "flat", next)
+			i++
+		default:
+			terms = append(terms, word)
+		}
+	}
+	return terms
+}
+
+// searchIndex is the search text stored for a text: its fold, then any of its
+// catalogue terms the fold lacks, opus parts included. "Prelude Op.28/4" is
+// stored as "prelude op 28 4 op28 no4", so searches for "op28/4", "op 28 no 4"
+// and "op" all find it.
+func searchIndex(text string) string {
+	folded := foldSearch(text)
+	seen := map[string]bool{}
+	for _, word := range strings.Fields(folded) {
+		seen[word] = true
+	}
+	index := folded
+	for _, term := range catalogueTerms(text, true) {
+		if !seen[term] {
+			seen[term] = true
+			index += " " + term
+		}
+	}
+	return index
 }
 
 // likeEscape makes every character of a LIKE pattern literal, for ESCAPE '\'.

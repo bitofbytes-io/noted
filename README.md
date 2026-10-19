@@ -107,8 +107,9 @@ that:
   Playing, or every status when `q` is set; without `sort` it lists by title. Each
   piece carries `lastPlayedAt`, its reader state's last save. `fields=summary`
   lists the same pieces without `notes`, `sourceUrl` or PDF file details, adding
-  `searchText`, the folded title, composer, aliases and notes the library
-  filters by)
+  `searchText`, the folded title, composer, aliases and notes, with catalogue
+  numbers and keys in one form such as `op28 no4`, `k545` or `c sharp minor`,
+  that the library filters by)
 - `GET /api/pieces/continue` (`{"piece": …}`: the most recently played piece with
   a PDF from the whole library, whatever its status, if played in the last 14
   days; otherwise `{"piece": null}`)

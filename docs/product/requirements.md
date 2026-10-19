@@ -22,9 +22,16 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   must appear, in any order, in the piece's title, composer, notes or "Also
   known as" names (aliases such as "Moonlight Sonata", set in the details
   dialog and not shown on the library row). `%` and `_` are ordinary
-  punctuation, never wildcards. The API and web app share one fold, tested
-  against `testdata/search-fold-vectors.json`; the API stores each piece's
-  folded text, so search needs no database extension. The library loads the
+  punctuation, never wildcards. Catalogue numbers and keys match however
+  either side wrote them: "op 28 no 4", "op28/4" and "Opus 28, Nr. 4" are
+  all op28 no4; "BWV 846" is bwv846; "K. 545" and "KV 545" are k545; "Hob.
+  XVI:52" is hobxvi52 (D., L., S., HWV, RV, BB, WoO and Sz. likewise); and
+  "c# minor", "c-sharp minor" and "cis-moll" are all c sharp minor. These
+  are read from the title, composer, aliases and notes, so a piece needs no
+  separate opus or key field. The API and web app share one fold and these
+  search terms, tested against `testdata/search-fold-vectors.json`; the API
+  stores each piece's folded text followed by the search terms it lacks, so
+  search needs no database extension. The library loads the
   user's pieces once, as summaries carrying that folded text instead of the
   notes, and filters, searches and sorts them on the device as the user types;
   it reloads them after a save or delete. A search lists titles that start

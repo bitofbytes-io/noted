@@ -1,10 +1,12 @@
 # Test fixtures
 
-`search-fold-vectors.json` lists inputs and their library search folds. It was
-written for this repository and holds only titles, composer names and short
+`search-fold-vectors.json` lists inputs with their library search fold, their
+search terms (catalogue numbers and keys written one way, as a search is
+matched) and the search text stored for them. It was written for this
+repository and holds only titles, composer names, catalogue numbers and short
 phrases. The API (`internal/app/search_test.go`) and the web app
-(`web/src/app/core/search.spec.ts`) both test their fold against it, so the two
-cannot drift apart.
+(`web/src/app/core/search.spec.ts`) both test against it, so the two cannot
+drift apart.
 
 `composer-surname-vectors.json` lists composer names and the surname the Composer
 sort files each under. It was written for this repository and holds only public

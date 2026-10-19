@@ -140,6 +140,57 @@ describe('filterAndSort', () => {
     ]);
   });
 
+  it('matches catalogue numbers and keys however either side wrote them', () => {
+    const pieces = [
+      summary({ title: 'Prelude Op.28/4', composer: 'Frédéric Chopin' }),
+      summary({ title: 'Prelude and Fugue in C, BWV 846', composer: 'J. S. Bach' }),
+      summary({ title: 'Sonata facile KV545', composer: 'Mozart' }),
+      summary({ title: 'Fantaisie-Impromptu', composer: 'Chopin', aliases: 'cis-Moll' }),
+      summary({ title: 'Nocturne in C♯ minor', composer: 'Frédéric Chopin' }),
+    ];
+    const found = (query: string) => titles(filterAndSort(pieces, view({ query })));
+    expect(found('op 28 no 4')).toEqual(['Prelude Op.28/4']);
+    expect(found('op28/4')).toEqual(['Prelude Op.28/4']);
+    expect(found('bwv846')).toEqual(['Prelude and Fugue in C, BWV 846']);
+    expect(found('K. 545')).toEqual(['Sonata facile KV545']);
+    expect(found('c# minor')).toEqual(['Fantaisie-Impromptu', 'Nocturne in C♯ minor']);
+    expect(found('cis-moll')).toEqual(['Fantaisie-Impromptu', 'Nocturne in C♯ minor']);
+    // Typing the number a digit at a time keeps the piece in view.
+    expect(found('bwv 84')).toEqual(['Prelude and Fugue in C, BWV 846']);
+  });
+
+  it('keeps a year after an opus in view while it is typed', () => {
+    const pieces = [summary({ title: 'Études, Op. 10 (1833)', composer: 'Frédéric Chopin' })];
+    for (const query of ['op 10 1', 'op 10 18', 'op 10 183', 'op 10 1833']) {
+      expect(titles(filterAndSort(pieces, view({ query })))).toEqual(['Études, Op. 10 (1833)']);
+    }
+  });
+
+  it('ranks a title that starts with the search as typed first', () => {
+    const pieces = [
+      summary({ title: 'Allegro', aliases: 'Opus 28' }),
+      summary({ title: 'Opus 28' }),
+      summary({ title: 'Ballade', aliases: 'cis-Moll' }),
+      summary({ title: 'cis-Moll Prelude' }),
+    ];
+    const found = (query: string) => titles(filterAndSort(pieces, view({ query })));
+    expect(found('opus')).toEqual(['Opus 28', 'Allegro']);
+    expect(found('cis')).toEqual(['cis-Moll Prelude', 'Ballade']);
+    // The search terms still rank a title start: "op28" begins "Opus 28".
+    expect(found('op28')).toEqual(['Opus 28', 'Allegro']);
+  });
+
+  it('ranks a title that starts with the same opus part however it is written', () => {
+    const pieces = [
+      summary({ title: 'Allegro', aliases: 'Op. 28 No. 4' }),
+      summary({ title: 'Op.28/4 Prelude' }),
+      summary({ title: 'Op. 28 No. 4 in E minor' }),
+    ];
+    const found = (query: string) => titles(filterAndSort(pieces, view({ query })));
+    expect(found('op 28 no 4')).toEqual(['Op. 28 No. 4 in E minor', 'Op.28/4 Prelude', 'Allegro']);
+    expect(found('op28/4')).toEqual(['Op. 28 No. 4 in E minor', 'Op.28/4 Prelude', 'Allegro']);
+  });
+
   it('folds a saved piece into the same search text as the server', () => {
     expect(
       summary({

@@ -165,8 +165,8 @@ func listClauses(userID string, options ListOptions) (string, string, []any, err
 	args := []any{userID}
 	clauses := []string{"p.user_id=$1"}
 	// Each word may match anywhere, so "chopin nocturne" finds the Chopin
-	// nocturnes and "dvorak" finds Dvořák.
-	for _, token := range searchTokens(options.Query) {
+	// nocturnes, "dvorak" finds Dvořák and "op28/4" finds Op. 28 No. 4.
+	for _, token := range searchTerms(options.Query) {
 		args = append(args, "%"+likeEscape(token)+"%")
 		clauses = append(clauses, fmt.Sprintf(`p.search_text LIKE $%d ESCAPE '\'`, len(args)))
 	}

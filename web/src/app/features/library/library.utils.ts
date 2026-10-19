@@ -1,4 +1,4 @@
-import { fold } from '../../core/search';
+import { catalogueTerms, fold, searchIndex, searchTerms } from '../../core/search';
 import { LibraryFilter, LibrarySort, Piece, PieceSummary } from '../../core/models';
 
 /** What the library shows: the search as typed, the filter and the sort. */
@@ -9,14 +9,14 @@ export interface LibraryView {
 }
 
 /**
- * The pieces the library shows, in order. Every folded word of the search must
+ * The pieces the library shows, in order. Every search term of the search must
  * appear in a piece's search text, as on the server. While searching, a title
  * that starts with the search comes first, then pieces where every word starts
  * a word, then the rest, each group in the chosen sort.
  */
 export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView): PieceSummary[] {
-  const query = fold(view.query);
-  const words = query ? query.split(' ') : [];
+  const words = searchTerms(view.query);
+  const query = words.join(' ');
   const shown = pieces.filter(
     (piece) =>
       inFilter(piece, view.filter, words.length > 0) &&
@@ -24,8 +24,23 @@ export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView
   );
   const order = ORDERS[view.sort];
   if (!words.length) return shown.sort(order);
-  const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, query, words)]));
+  const prefix: TitlePrefix = {
+    folded: fold(view.query),
+    terms: query,
+    parts: catalogueTerms(view.query, true).join(' '),
+  };
+  const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, prefix, words)]));
   return shown.sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)! || order(a, b));
+}
+
+/** The search in each form a title may start with it. */
+interface TitlePrefix {
+  /** As typed: "opus" before "Opus 28", "cis" before "cis-Moll". */
+  folded: string;
+  /** Its search terms: "op28" before "Op. 28". */
+  terms: string;
+  /** Its catalogue terms with opus parts: "op28/4" before "Op. 28 No. 4". */
+  parts: string;
 }
 
 /** Whether the piece belongs under the filter. A search never hides a shelved piece. */
@@ -42,8 +57,14 @@ export function inFilter(piece: PieceSummary, filter: LibraryFilter, searching: 
   }
 }
 
-function matchRank(piece: PieceSummary, query: string, words: string[]): number {
-  if (fold(piece.title).startsWith(query)) return 0;
+function matchRank(piece: PieceSummary, prefix: TitlePrefix, words: string[]): number {
+  if (
+    fold(piece.title).startsWith(prefix.folded) ||
+    searchTerms(piece.title).join(' ').startsWith(prefix.terms) ||
+    catalogueTerms(piece.title, true).join(' ').startsWith(prefix.parts)
+  ) {
+    return 0;
+  }
   const text = ` ${piece.searchText}`;
   return words.every((word) => text.includes(` ${word}`)) ? 1 : 2;
 }
@@ -132,7 +153,7 @@ function isComposerSuffix(word: string): boolean {
   return COMPOSER_SUFFIXES.includes(word.replace(/^[ .,]+|[ .,]+$/g, '').toLowerCase());
 }
 
-/** A saved piece as a library row; its search text is the server's fold of the same fields. */
+/** A saved piece as a library row; its search text is the server's index of the same fields. */
 export function summaryOf(piece: Piece): PieceSummary {
   return {
     id: piece.id,
@@ -145,7 +166,7 @@ export function summaryOf(piece: Piece): PieceSummary {
     pdf: piece.pdf && { pageCount: piece.pdf.pageCount, contentUrl: piece.pdf.contentUrl },
     lastPlayedAt: piece.lastPlayedAt,
     createdAt: piece.createdAt,
-    searchText: fold(`${piece.title} ${piece.composer} ${piece.aliases} ${piece.notes}`),
+    searchText: searchIndex(`${piece.title} ${piece.composer} ${piece.aliases} ${piece.notes}`),
   };
 }
 
