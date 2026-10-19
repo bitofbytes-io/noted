@@ -24,6 +24,14 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   Playing or Shelved. A search never hides a Shelved piece in the default view.
   The library opens on the filter the user last chose, stored on the server so
   it follows them across devices.
+- BND-036: A quiet "Sort" menu on the piece-count line orders the library by
+  Title (the first-time default), Composer (by surname), Recently played,
+  Recently added or Fresh (least recently played first, never-played pieces
+  leading). Favorites are not pinned. A piece's last play is its reader
+  state's last save. Under Recently played and Fresh each row says when it was
+  last played. With the search empty, a Continue row offers the piece played
+  most recently, if that was within the last 14 days. The sort is remembered
+  per user on the server, like the filter.
 - BND-005: Selecting a piece with a PDF opens its reader directly.
 - BND-006: A user can add or replace the one PDF attached to a piece through
   Prepare (Add PDF, or Edit or replace PDF, in the details dialog). There is no
