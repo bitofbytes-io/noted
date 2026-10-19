@@ -180,6 +180,17 @@ describe('filterAndSort', () => {
     expect(found('op28')).toEqual(['Opus 28', 'Allegro']);
   });
 
+  it('ranks a title that starts with the same opus part however it is written', () => {
+    const pieces = [
+      summary({ title: 'Allegro', aliases: 'Op. 28 No. 4' }),
+      summary({ title: 'Op.28/4 Prelude' }),
+      summary({ title: 'Op. 28 No. 4 in E minor' }),
+    ];
+    const found = (query: string) => titles(filterAndSort(pieces, view({ query })));
+    expect(found('op 28 no 4')).toEqual(['Op. 28 No. 4 in E minor', 'Op.28/4 Prelude', 'Allegro']);
+    expect(found('op28/4')).toEqual(['Op. 28 No. 4 in E minor', 'Op.28/4 Prelude', 'Allegro']);
+  });
+
   it('folds a saved piece into the same search text as the server', () => {
     expect(
       summary({

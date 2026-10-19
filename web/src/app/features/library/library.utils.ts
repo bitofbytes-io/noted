@@ -1,4 +1,4 @@
-import { fold, searchIndex, searchTerms } from '../../core/search';
+import { catalogueTerms, fold, searchIndex, searchTerms } from '../../core/search';
 import { LibraryFilter, LibrarySort, Piece, PieceSummary } from '../../core/models';
 
 /** What the library shows: the search as typed, the filter and the sort. */
@@ -24,9 +24,23 @@ export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView
   );
   const order = ORDERS[view.sort];
   if (!words.length) return shown.sort(order);
-  const folded = fold(view.query);
-  const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, folded, query, words)]));
+  const prefix: TitlePrefix = {
+    folded: fold(view.query),
+    terms: query,
+    parts: catalogueTerms(view.query, true).join(' '),
+  };
+  const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, prefix, words)]));
   return shown.sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)! || order(a, b));
+}
+
+/** The search in each form a title may start with it. */
+interface TitlePrefix {
+  /** As typed: "opus" before "Opus 28", "cis" before "cis-Moll". */
+  folded: string;
+  /** Its search terms: "op28" before "Op. 28". */
+  terms: string;
+  /** Its catalogue terms with opus parts: "op28/4" before "Op. 28 No. 4". */
+  parts: string;
 }
 
 /** Whether the piece belongs under the filter. A search never hides a shelved piece. */
@@ -43,14 +57,11 @@ export function inFilter(piece: PieceSummary, filter: LibraryFilter, searching: 
   }
 }
 
-/**
- * A title starts with the search either as typed ("opus" or "cis" before
- * "Opus 28" or "cis-Moll") or in its search terms ("op28/4" before "Op. 28").
- */
-function matchRank(piece: PieceSummary, folded: string, query: string, words: string[]): number {
+function matchRank(piece: PieceSummary, prefix: TitlePrefix, words: string[]): number {
   if (
-    fold(piece.title).startsWith(folded) ||
-    searchTerms(piece.title).join(' ').startsWith(query)
+    fold(piece.title).startsWith(prefix.folded) ||
+    searchTerms(piece.title).join(' ').startsWith(prefix.terms) ||
+    catalogueTerms(piece.title, true).join(' ').startsWith(prefix.parts)
   ) {
     return 0;
   }

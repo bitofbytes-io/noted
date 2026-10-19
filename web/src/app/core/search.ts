@@ -120,7 +120,7 @@ export function searchTerms(text: string): string[] {
  * searchTerms, with a 1–3 digit number straight after an opus read as its
  * number within it ("Op. 28/4" is op28 no4) when opusParts.
  */
-function catalogueTerms(text: string, opusParts: boolean): string[] {
+export function catalogueTerms(text: string, opusParts: boolean): string[] {
   const words: string[] = [];
   for (const word of fold(text).split(' ').filter(Boolean)) {
     const parts = GLUED_CATALOGUE.exec(word);
