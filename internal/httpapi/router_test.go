@@ -53,9 +53,9 @@ type fakeBackend struct {
 	preferencesErr    error
 }
 
-func (fake *fakeBackend) ListPieces(_ context.Context, userID, query string, favorite *bool, statuses []string, sort string) ([]app.Piece, error) {
-	fake.listUserID, fake.listQuery, fake.listFavorite, fake.listStatuses = userID, query, favorite, statuses
-	fake.listSort = sort
+func (fake *fakeBackend) ListPieces(_ context.Context, userID string, options app.ListOptions) ([]app.Piece, error) {
+	fake.listUserID, fake.listQuery, fake.listFavorite = userID, options.Query, options.Favorite
+	fake.listStatuses, fake.listSort = options.Statuses, options.Sort
 	fake.listCalls++
 	return []app.Piece{}, nil
 }
@@ -338,6 +338,15 @@ func TestListPassesSearchAndFavoriteFilters(t *testing.T) {
 		fake.listUserID != testUserID || fake.listFavorite == nil || !*fake.listFavorite {
 		t.Fatalf("filters not passed: status=%d query=%q favorite=%v", response.Code, fake.listQuery, fake.listFavorite)
 	}
+
+	// The service folds the search, so the handler passes it on as typed.
+	fake = &fakeBackend{}
+	request = httptest.NewRequest(http.MethodGet, "/api/pieces/?q=Dvo%C5%99%C3%A1k+100%25+a_b", nil)
+	response = httptest.NewRecorder()
+	testRouter(fake, 1024).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || fake.listQuery != "Dvořák 100% a_b" {
+		t.Fatalf("search not passed as typed: status=%d query=%q", response.Code, fake.listQuery)
+	}
 }
 
 func TestListStatusFilter(t *testing.T) {
@@ -349,6 +358,9 @@ func TestListStatusFilter(t *testing.T) {
 		{"/api/pieces/", []string{"learning", "playing"}},
 		// A search never hides a Shelved piece.
 		{"/api/pieces/?q=bach", nil},
+		{"/api/pieces/?q=Fr%C3%A9d%C3%A9ric", nil},
+		// Punctuation alone folds to no search at all.
+		{"/api/pieces/?q=%25+_", []string{"learning", "playing"}},
 		{"/api/pieces/?status=all", nil},
 		{"/api/pieces/?status=shelved", []string{"shelved"}},
 		// An explicit filter still applies while searching.

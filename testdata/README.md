@@ -1,5 +1,11 @@
 # Test fixtures
 
+`search-fold-vectors.json` lists inputs and their library search folds. It was
+written for this repository and holds only titles, composer names and short
+phrases. The API (`internal/app/search_test.go`) and the web app
+(`web/src/app/core/search.spec.ts`) both test their fold against it, so the two
+cannot drift apart.
+
 `fixtures/noted-exercise.pdf` is an original synthetic score-like PDF created
 for this repository and dedicated to the public domain under CC0-1.0. Its
 generator sources are in `fixtures/generate/`.

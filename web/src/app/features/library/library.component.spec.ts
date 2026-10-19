@@ -140,6 +140,99 @@ describe('LibraryComponent', () => {
     expect(api.updatePiece).not.toHaveBeenCalled();
     fixture.destroy();
   });
+
+  it('edits the other names a piece is searched by', async () => {
+    const saved = {
+      id: 'sonata',
+      title: 'Piano Sonata No. 14',
+      composer: 'Ludwig van Beethoven',
+      favorite: false,
+      status: 'playing',
+      sourceUrl: '',
+      listeningUrl: '',
+      notes: '',
+      aliases: '',
+      pdf: null,
+    } as Piece;
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
+      pieces: vi.fn(() => of([saved])),
+      updatePiece: vi.fn((_id: string, input: Partial<Piece>) => of({ ...saved, ...input })),
+      createPiece: vi.fn((input: Partial<Piece>) => of({ ...saved, ...input, id: 'new' })),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const dialog = fixture.nativeElement.querySelector('dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn();
+    dialog.close = vi.fn();
+    const aliasesInput = () =>
+      fixture.nativeElement.querySelector('input[name="aliases"]') as HTMLInputElement;
+
+    component.openEdit({ ...saved, aliases: 'Moonlight' });
+    fixture.componentRef.changeDetectorRef.markForCheck();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(aliasesInput().value).toBe('Moonlight');
+    aliasesInput().value = 'Moonlight Sonata';
+    aliasesInput().dispatchEvent(new Event('input'));
+    await component.save();
+    expect(api.updatePiece).toHaveBeenCalledWith(
+      'sonata',
+      expect.objectContaining({ aliases: 'Moonlight Sonata' }),
+    );
+
+    component.openCreate();
+    expect(Reflect.get(component, 'form').aliases).toBe('');
+    fixture.destroy();
+  });
+
+  it('treats a search of punctuation alone as no search', async () => {
+    const shelved = { id: 'shelved', title: 'Shelved', status: 'shelved' } as Piece;
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current' })),
+      // The default view is empty, but the binder holds a shelved piece.
+      pieces: vi.fn((_query: string, filter: string) => of(filter === 'all' ? [shelved] : [])),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    Reflect.set(component, 'query', ' % ');
+    await component.load();
+    expect(Reflect.get(component, 'onlyShelved')()).toBe(true);
+
+    Reflect.set(component, 'query', 'Dvořák');
+    await component.load();
+    expect(Reflect.get(component, 'onlyShelved')()).toBe(false);
+    fixture.destroy();
+  });
 });
 
 describe('LibraryComponent status and filter', () => {
@@ -153,6 +246,7 @@ describe('LibraryComponent status and filter', () => {
       sourceUrl: '',
       listeningUrl: '',
       notes: '',
+      aliases: '',
       pdf: null,
     }) as Piece;
 

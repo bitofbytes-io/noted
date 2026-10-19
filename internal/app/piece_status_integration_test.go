@@ -78,7 +78,9 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		pieces, err := service.ListPieces(ctx, owner.ID, query, favorite, statuses, app.SortTitle)
+		pieces, err := service.ListPieces(ctx, owner.ID, app.ListOptions{
+			Query: query, Favorite: favorite, Statuses: statuses, Sort: app.SortTitle,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

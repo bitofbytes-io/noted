@@ -33,6 +33,9 @@ type Piece struct {
 	// LastPlayedAt is when the reader last saved this piece's state; nil if it
 	// was never opened.
 	LastPlayedAt *time.Time `json:"lastPlayedAt"`
+	// Aliases are other names the piece is known by, such as "Moonlight
+	// Sonata". Search finds them; the library rows do not show them.
+	Aliases string `json:"aliases"`
 }
 
 type PieceInput struct {
@@ -46,6 +49,9 @@ type PieceInput struct {
 	SourceURL    string  `json:"sourceUrl"`
 	ListeningURL string  `json:"listeningUrl"`
 	Notes        string  `json:"notes"`
+	// Aliases are set from the library only, like Status: an import draft
+	// cannot set them, and finalizing one keeps the piece's aliases.
+	Aliases string `json:"aliases,omitempty"`
 }
 
 type PiecePatch struct {
@@ -56,6 +62,17 @@ type PiecePatch struct {
 	SourceURL    *string `json:"sourceUrl"`
 	ListeningURL *string `json:"listeningUrl"`
 	Notes        *string `json:"notes"`
+	Aliases      *string `json:"aliases"`
+}
+
+// ListOptions narrow and order the library. Every word of Query must appear,
+// folded, in the piece's title, composer, aliases or notes. A nil Favorite or
+// Statuses does not filter; Sort is one of the library sorts (see ParseSort).
+type ListOptions struct {
+	Query    string
+	Favorite *bool
+	Statuses []string
+	Sort     string
 }
 
 // Piece statuses. The library's default view shows Learning and Playing.

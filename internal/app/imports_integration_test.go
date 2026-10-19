@@ -234,6 +234,15 @@ func TestIntegrationImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Aliases are set from the library only, like the status.
+	withAliases := metadataDraft.Metadata
+	withAliases.Aliases = "Draft alias"
+	if _, err = s.UpdateImport(ctx, owner.ID, metadataDraft.ID, UpdateImport{
+		Revision: metadataDraft.Revision, Metadata: withAliases,
+		IMSLPAutoFill: metadataDraft.IMSLPAutoFill, Manifest: metadataDraft.Manifest,
+	}); err == nil {
+		t.Fatal("expected a draft setting aliases to fail")
+	}
 	metadataDraft.Metadata.Composer = "Draft composer"
 	metadataDraft, err = s.UpdateImport(ctx, owner.ID, metadataDraft.ID, UpdateImport{
 		Revision: metadataDraft.Revision, Metadata: metadataDraft.Metadata,
@@ -242,16 +251,24 @@ func TestIntegrationImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	title, favorite := "Concurrent title", true
-	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite}); err != nil {
+	title, favorite, aliases := "Concurrent title", true, "Concurrent alias"
+	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite, Aliases: &aliases}); err != nil {
 		t.Fatal(err)
 	}
 	current, err := s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf))
 	if err != nil {
 		t.Fatalf("metadata-only change blocked finalize: %v", err)
 	}
-	if current.Title != title || !current.Favorite || current.Composer != "Draft composer" {
+	if current.Title != title || !current.Favorite || current.Composer != "Draft composer" || current.Aliases != aliases {
 		t.Fatalf("finalize did not merge metadata: %+v", current)
+	}
+	// Finalizing refreshes the search text with the merged metadata.
+	var stored string
+	if err = pool.QueryRow(ctx, `SELECT search_text FROM pieces WHERE id=$1`, piece.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if want := foldSearch(title + " Draft composer " + aliases + " " + current.Notes); stored != want {
+		t.Fatalf("search text after finalize = %q, want %q", stored, want)
 	}
 	retained, err := s.GetReaderState(ctx, owner.ID, piece.ID)
 	if err != nil || retained.LastPage != 2 || retained.Zoom != 1.5 {

@@ -88,7 +88,7 @@ func TestIntegrationLibrarySorts(t *testing.T) {
 
 	titles := func(sort, query string) []string {
 		t.Helper()
-		pieces, err := service.ListPieces(ctx, owner.ID, query, nil, nil, sort)
+		pieces, err := service.ListPieces(ctx, owner.ID, app.ListOptions{Query: query, Sort: sort})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -117,12 +117,12 @@ func TestIntegrationLibrarySorts(t *testing.T) {
 			t.Fatalf("sort=%s q=%q: got %v, want %v", test.sort, test.query, got, test.want)
 		}
 	}
-	if _, err := service.ListPieces(ctx, owner.ID, "", nil, nil, "favorite DESC"); err == nil {
+	if _, err := service.ListPieces(ctx, owner.ID, app.ListOptions{Sort: "favorite DESC"}); err == nil {
 		t.Fatal("expected an unknown sort to fail")
 	}
 
 	// Each reader checkpoint is a play: it becomes the piece's last played time.
-	pieces, err := service.ListPieces(ctx, owner.ID, "nocturne", nil, nil, app.SortTitle)
+	pieces, err := service.ListPieces(ctx, owner.ID, app.ListOptions{Query: "nocturne", Sort: app.SortTitle})
 	if err != nil || len(pieces) != 1 || pieces[0].LastPlayedAt != nil {
 		t.Fatalf("unplayed piece = %+v, error = %v", pieces, err)
 	}

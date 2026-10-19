@@ -112,16 +112,29 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	listA, err := service.ListPieces(ctx, userA.ID, "", nil, nil, app.SortTitle)
+	listA, err := service.ListPieces(ctx, userA.ID, app.ListOptions{Sort: app.SortTitle})
 	if err != nil || len(listA) != 1 || listA[0].ID != pieceA.ID {
 		t.Fatalf("user A list = %+v, error = %v", listA, err)
 	}
 	if listA[0].ListeningURL != pieceA.ListeningURL {
 		t.Fatalf("user A list listening URL = %q, want %q", listA[0].ListeningURL, pieceA.ListeningURL)
 	}
-	listB, err := service.ListPieces(ctx, userB.ID, "", nil, nil, app.SortTitle)
+	listB, err := service.ListPieces(ctx, userB.ID, app.ListOptions{Sort: app.SortTitle})
 	if err != nil || len(listB) != 1 || listB[0].ID != pieceB.ID {
 		t.Fatalf("user B list = %+v, error = %v", listB, err)
+	}
+	// A search matches only the searcher's own pieces, however well another
+	// user's piece matches it.
+	for _, query := range []string{"private", "composer", "sonata", "composer b"} {
+		found, err := service.ListPieces(ctx, userA.ID, app.ListOptions{Query: query, Sort: app.SortTitle})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, piece := range found {
+			if piece.ID != pieceA.ID {
+				t.Fatalf("user A search %q found another user's piece %+v", query, piece)
+			}
+		}
 	}
 
 	if _, err := service.GetPiece(ctx, userB.ID, pieceA.ID); !errors.Is(err, app.ErrNotFound) {

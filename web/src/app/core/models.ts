@@ -79,6 +79,8 @@ export interface Piece {
   sourceUrl: string;
   listeningUrl: string;
   notes: string;
+  /** Other names to search by, such as "Moonlight Sonata"; rows do not show them. */
+  aliases: string;
   createdAt: string;
   updatedAt: string;
   pdf: PiecePdf | null;
@@ -95,6 +97,8 @@ export interface PieceInput {
   sourceUrl: string;
   listeningUrl: string;
   notes: string;
+  /** Set from the library only, like status; import drafts leave it out. */
+  aliases?: string;
 }
 
 export type ReaderMode = 'page' | 'scroll';

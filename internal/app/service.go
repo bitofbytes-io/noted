@@ -54,7 +54,7 @@ func (s *Service) CheckAssetStore(ctx context.Context) error {
 
 const pieceColumns = `
 	p.id, p.title, p.composer, p.favorite, p.status, p.source_url, p.listening_url, p.notes,
-	p.created_at, p.updated_at,
+	p.aliases, p.created_at, p.updated_at,
 	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at,
 	r.updated_at`
 
@@ -78,31 +78,26 @@ var pieceOrders = map[string]string{
 	SortFresh:    `f.piece_id IS NULL, r.updated_at ASC NULLS FIRST, ` + titleOrder,
 }
 
-// ListPieces lists the user's pieces in the given sort (see ParseSort). A nil
-// statuses lists every status.
-func (s *Service) ListPieces(
-	ctx context.Context,
-	userID, query string,
-	favorite *bool,
-	statuses []string,
-	sort string,
-) ([]Piece, error) {
-	order, ok := pieceOrders[sort]
+// ListPieces lists the user's pieces that match the options, in their sort.
+func (s *Service) ListPieces(ctx context.Context, userID string, options ListOptions) ([]Piece, error) {
+	order, ok := pieceOrders[options.Sort]
 	if !ok {
 		return nil, invalid("sort must be title, composer, recent, added or fresh")
 	}
 	args := []any{userID}
 	clauses := []string{"p.user_id=$1"}
-	if query = strings.TrimSpace(query); query != "" {
-		args = append(args, "%"+query+"%")
-		clauses = append(clauses, fmt.Sprintf("(p.title ILIKE $%d OR p.composer ILIKE $%d)", len(args), len(args)))
+	// Each word may match anywhere, so "chopin nocturne" finds the Chopin
+	// nocturnes and "dvorak" finds Dvořák.
+	for _, token := range searchTokens(options.Query) {
+		args = append(args, "%"+likeEscape(token)+"%")
+		clauses = append(clauses, fmt.Sprintf(`p.search_text LIKE $%d ESCAPE '\'`, len(args)))
 	}
-	if favorite != nil {
-		args = append(args, *favorite)
+	if options.Favorite != nil {
+		args = append(args, *options.Favorite)
 		clauses = append(clauses, fmt.Sprintf("p.favorite = $%d", len(args)))
 	}
-	if statuses != nil {
-		args = append(args, statuses)
+	if options.Statuses != nil {
+		args = append(args, options.Statuses)
 		clauses = append(clauses, fmt.Sprintf("p.status = ANY($%d)", len(args)))
 	}
 	rows, err := s.pool.Query(ctx, `
@@ -125,7 +120,7 @@ func (s *Service) ListPieces(
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if sort == SortComposer {
+	if options.Sort == SortComposer {
 		sortByComposer(pieces)
 	}
 	return pieces, nil
@@ -156,10 +151,11 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 	id = uuid.NewString()
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO pieces
-			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes,
+				aliases, search_text)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
 		id, userID, input.Title, input.Composer, input.Favorite, *input.Status, input.SourceURL,
-		input.ListeningURL, input.Notes,
+		input.ListeningURL, input.Notes, input.Aliases, searchText(input),
 	).Scan(&id)
 	if err != nil {
 		return Piece{}, err
@@ -187,7 +183,7 @@ func (s *Service) UpdatePiece(
 	input := PieceInput{
 		Title: current.Title, Composer: current.Composer, Favorite: current.Favorite,
 		Status: &current.Status, SourceURL: current.SourceURL, ListeningURL: current.ListeningURL,
-		Notes: current.Notes,
+		Notes: current.Notes, Aliases: current.Aliases,
 	}
 	if patch.Title != nil {
 		input.Title = *patch.Title
@@ -210,15 +206,19 @@ func (s *Service) UpdatePiece(
 	if patch.Notes != nil {
 		input.Notes = *patch.Notes
 	}
+	if patch.Aliases != nil {
+		input.Aliases = *patch.Aliases
+	}
 	input, err = validatePiece(input)
 	if err != nil {
 		return Piece{}, err
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			listening_url=$6, notes=$7, status=$9, updated_at=now() WHERE id=$1 AND user_id=$8`,
+			listening_url=$6, notes=$7, status=$9, aliases=$10, search_text=$11, updated_at=now()
+		WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
-		input.ListeningURL, input.Notes, userID, *input.Status)
+		input.ListeningURL, input.Notes, userID, *input.Status, input.Aliases, searchText(input))
 	if err != nil {
 		return Piece{}, err
 	}
@@ -423,7 +423,7 @@ func scanPiece(row rowScanner) (Piece, error) {
 	var uploaded *time.Time
 	err := row.Scan(
 		&piece.ID, &piece.Title, &piece.Composer, &piece.Favorite, &piece.Status,
-		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.CreatedAt, &piece.UpdatedAt,
+		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.Aliases, &piece.CreatedAt, &piece.UpdatedAt,
 		&filename, &size, &checksum, &pages, &uploaded, &piece.LastPlayedAt,
 	)
 	if err != nil {

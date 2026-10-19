@@ -304,6 +304,9 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 	if metadata.Status != nil {
 		return d, invalid("a draft cannot set the piece status")
 	}
+	if metadata.Aliases != "" {
+		return d, invalid("a draft cannot set the piece aliases")
+	}
 	if err = validateIMSLPAutoFill(input.Metadata, input.IMSLPAutoFill); err != nil {
 		return d, err
 	}
@@ -458,10 +461,12 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 	}
 	var oldKey, oldChecksum string
 	var oldPageCount int
+	// A draft never carries aliases; the piece keeps its own.
+	var aliases string
 	if d.PieceID != nil {
 		var rev int64
 		var current PieceInput
-		err = tx.QueryRow(ctx, `SELECT content_revision,title,composer,favorite,source_url,listening_url,notes FROM pieces WHERE id=$1 AND user_id=$2 FOR UPDATE`, *d.PieceID, owner).Scan(&rev, &current.Title, &current.Composer, &current.Favorite, &current.SourceURL, &current.ListeningURL, &current.Notes)
+		err = tx.QueryRow(ctx, `SELECT content_revision,title,composer,favorite,source_url,listening_url,notes,aliases FROM pieces WHERE id=$1 AND user_id=$2 FOR UPDATE`, *d.PieceID, owner).Scan(&rev, &current.Title, &current.Composer, &current.Favorite, &current.SourceURL, &current.ListeningURL, &current.Notes, &aliases)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Piece{}, ErrNotFound
 		}
@@ -519,7 +524,8 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		}
 	}()
 	manifest, _ := json.Marshal(d.Manifest)
-	_, err = tx.Exec(ctx, `UPDATE pieces SET title=$2,composer=$3,favorite=$4,source_url=$5,listening_url=$6,notes=$7,preparation_manifest=$8,content_revision=content_revision+1,updated_at=now() WHERE id=$1`, *d.PieceID, metadata.Title, metadata.Composer, metadata.Favorite, metadata.SourceURL, metadata.ListeningURL, metadata.Notes, manifest)
+	metadata.Aliases = aliases
+	_, err = tx.Exec(ctx, `UPDATE pieces SET title=$2,composer=$3,favorite=$4,source_url=$5,listening_url=$6,notes=$7,preparation_manifest=$8,search_text=$9,content_revision=content_revision+1,updated_at=now() WHERE id=$1`, *d.PieceID, metadata.Title, metadata.Composer, metadata.Favorite, metadata.SourceURL, metadata.ListeningURL, metadata.Notes, manifest, searchText(metadata))
 	if err != nil {
 		return Piece{}, err
 	}
