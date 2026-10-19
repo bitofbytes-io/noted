@@ -113,7 +113,7 @@
     </div>
 
     @if (!loading() && continueRow(); as piece) {
-      <div class="piece-list" aria-label="Continue playing">
+      <section class="piece-list" aria-label="Continue playing">
         <article
           class="piece-row continue-row"
           tabindex="0"
@@ -143,7 +143,7 @@
             </button>
           </div>
         </article>
-      </div>
+      </section>
     }
 
     @if (drafts().length) {
@@ -196,7 +196,7 @@
       </div>
     } @else {
       <div class="piece-list">
-        @for (piece of listedPieces(); track piece.id) {
+        @for (piece of pieces(); track piece.id) {
           <article
             class="piece-row"
             [class.missing-pdf]="!piece.pdf"

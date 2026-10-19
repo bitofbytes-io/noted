@@ -140,16 +140,13 @@ export class LibraryComponent implements OnDestroy {
   protected readonly playedText = playedText;
   /** The search the shown pieces were listed for. */
   private readonly listedQuery = signal('');
-  /** The piece played most recently (in the last two weeks), offered while not searching. */
+  /**
+   * The piece played most recently (in the last two weeks), offered while not
+   * searching. It keeps its own row in the list too, with the row's actions.
+   */
   protected readonly continueRow = computed(() =>
     this.listedQuery() ? null : continuePiece(this.pieces()),
   );
-  /** Under Recently played the Continue row is the top of the list, so it is not repeated. */
-  protected readonly listedPieces = computed(() => {
-    const top = this.continueRow();
-    if (!top || this.sort() !== 'recent') return this.pieces();
-    return this.pieces().filter((piece) => piece.id !== top.id);
-  });
   /** The default view is empty, but the binder is not: every piece is shelved. */
   protected readonly onlyShelved = signal(false);
   protected readonly loading = signal(true);
@@ -181,8 +178,10 @@ export class LibraryComponent implements OnDestroy {
   protected query = '';
   /** Opens on the filter this user last chose, on any device. */
   protected filter: LibraryFilter = 'current';
-  /** A filter or sort chosen before the remembered ones arrive wins over them. */
-  private libraryChosen = false;
+  /** A filter or sort chosen before the remembered ones arrive wins over that one alone. */
+  private filterChosen = false;
+  private sortChosen = false;
+  private preferencesLoaded = false;
   /** Saves run one at a time, so an older choice can never land after a newer one. */
   private preferenceSave: Promise<void> = Promise.resolve();
   /** Status saves still running, by piece. */
@@ -242,17 +241,25 @@ export class LibraryComponent implements OnDestroy {
   private loadPreferences(): void {
     this.api.preferences().subscribe({
       next: (preferences) => {
-        if (this.libraryChosen) return;
-        if (LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)) {
+        this.preferencesLoaded = true;
+        if (
+          !this.filterChosen &&
+          LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)
+        ) {
           this.filter = preferences.libraryFilter;
         }
-        if (LIBRARY_SORTS.some((option) => option.value === preferences.librarySort)) {
+        if (
+          !this.sortChosen &&
+          LIBRARY_SORTS.some((option) => option.value === preferences.librarySort)
+        ) {
           this.sort.set(preferences.librarySort);
         }
+        // Lists with both, even if an early choice already listed with one.
         void this.load();
       },
       error: () => {
-        if (!this.libraryChosen) void this.load();
+        this.preferencesLoaded = true;
+        if (!this.filterChosen && !this.sortChosen) void this.load();
       },
     });
   }
@@ -260,7 +267,7 @@ export class LibraryComponent implements OnDestroy {
   /** Lists by the new filter and remembers it for this user's next visit. */
   async chooseFilter(filter: LibraryFilter): Promise<void> {
     this.filter = filter;
-    this.libraryChosen = true;
+    this.filterChosen = true;
     const listed = this.load();
     await this.remember({ libraryFilter: filter });
     await listed;
@@ -269,9 +276,14 @@ export class LibraryComponent implements OnDestroy {
   /** Lists in the new order and remembers it for this user's next visit. */
   async chooseSort(sort: LibrarySort): Promise<void> {
     this.closeSortMenu(true);
-    if (sort === this.sort()) return;
+    this.sortChosen = true;
+    if (sort === this.sort()) {
+      // Before the remembered sort arrives, choosing the default shown still
+      // counts; the list follows once the preferences answer.
+      if (!this.preferencesLoaded) await this.remember({ librarySort: sort });
+      return;
+    }
     this.sort.set(sort);
-    this.libraryChosen = true;
     const listed = this.load();
     await this.remember({ librarySort: sort });
     await listed;

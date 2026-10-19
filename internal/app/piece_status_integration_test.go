@@ -149,7 +149,9 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 		preferences != (app.Preferences{LibraryFilter: "favorites", LibrarySort: app.SortComposer}) {
 		t.Fatalf("saved sort = %+v, error = %v", preferences, err)
 	}
-	if _, err := service.PutPreferences(ctx, owner.ID, app.PreferencesPatch{LibrarySort: &played, LibraryFilter: &archived}); err == nil {
+	// A valid filter alongside it is not saved either.
+	all := "all"
+	if _, err := service.PutPreferences(ctx, owner.ID, app.PreferencesPatch{LibrarySort: &played, LibraryFilter: &all}); err == nil {
 		t.Fatal("expected an unknown library sort to fail")
 	}
 	if preferences, err := service.GetPreferences(ctx, owner.ID); err != nil ||

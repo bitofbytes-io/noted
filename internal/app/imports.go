@@ -536,7 +536,9 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		}
 	}
 	if oldChecksum != object.Checksum {
-		if _, err = tx.Exec(ctx, `UPDATE reader_states SET last_page=1,scroll_position=0,zoom=1,scroll_paused=true,updated_at=now() WHERE piece_id=$1`, *d.PieceID); err != nil {
+		// The place resets, but updated_at stays: it is the piece's last play
+		// (Recently played, Fresh, Continue), and a new PDF is not a play.
+		if _, err = tx.Exec(ctx, `UPDATE reader_states SET last_page=1,scroll_position=0,zoom=1,scroll_paused=true WHERE piece_id=$1`, *d.PieceID); err != nil {
 			return Piece{}, err
 		}
 	}

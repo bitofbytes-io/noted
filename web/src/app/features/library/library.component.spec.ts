@@ -460,11 +460,14 @@ describe('LibraryComponent sort and Continue', () => {
     // Under Title the piece keeps its place in the list too.
     expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
 
-    // Under Recently played the Continue row is the top of the list, not a repeat.
+    // Under Recently played too, so its Listen, status, favorite and edit stay at hand.
     await fixture.componentInstance.chooseSort('recent');
     await render();
     expect(continued()).toBe('Piece b');
-    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece c']);
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    expect(
+      root.querySelector('section[aria-label="Continue playing"] .continue-row'),
+    ).not.toBeNull();
     expect(root.querySelector('.results-count p')?.textContent).toContain('3 pieces');
 
     Reflect.set(fixture.componentInstance, 'query', 'piece');
@@ -472,6 +475,74 @@ describe('LibraryComponent sort and Continue', () => {
     await render();
     expect(continued()).toBeNull();
     expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    fixture.destroy();
+  });
+
+  it('keeps a filter or sort chosen before the remembered ones arrive, and only that one', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    const remembered = new Subject<unknown>();
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => remembered),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn(() => of([row('a', null)])),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    // Title is shown by default; choosing it early still overrides a remembered sort.
+    await component.chooseSort('title');
+    expect(api.savePreferences).toHaveBeenCalledWith({ librarySort: 'title' });
+    await component.chooseFilter('shelved');
+    remembered.next({ libraryFilter: 'favorites', librarySort: 'composer' });
+    remembered.complete();
+    await fixture.whenStable();
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved', 'title');
+    fixture.destroy();
+  });
+
+  it('applies the remembered sort when only the filter was chosen early', async () => {
+    const remembered = new Subject<unknown>();
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => remembered),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn(() => of([row('a', null)])),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    await fixture.componentInstance.chooseFilter('all');
+    remembered.next({ libraryFilter: 'favorites', librarySort: 'composer' });
+    remembered.complete();
+    await fixture.whenStable();
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'all', 'composer');
+    expect(api.savePreferences.mock.calls).toEqual([[{ libraryFilter: 'all' }]]);
     fixture.destroy();
   });
 
