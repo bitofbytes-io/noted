@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, of, throwError } from 'rxjs';
 import {
   LibraryFilter,
+  LibrarySort,
   Piece,
   PieceInput,
   Preferences,
@@ -87,14 +88,19 @@ export class ApiService {
 
   /**
    * Without a status the API lists Learning and Playing, or every status while
-   * searching, so the default filter sends none.
+   * searching, so the default filter sends none. Title is the API's default sort.
    */
-  pieces(query = '', filter: LibraryFilter = 'current'): Observable<Piece[]> {
+  pieces(
+    query = '',
+    filter: LibraryFilter = 'current',
+    sort: LibrarySort = 'title',
+  ): Observable<Piece[]> {
     let params = new HttpParams();
     if (query.trim()) params = params.set('q', query.trim());
     if (filter === 'favorites') params = params.set('favorite', 'true');
     if (filter === 'all' || filter === 'favorites') params = params.set('status', 'all');
     else if (filter !== 'current') params = params.set('status', filter);
+    if (sort !== 'title') params = params.set('sort', sort);
     return this.http.get<Piece[]>('/api/pieces/', { params });
   }
 
@@ -102,7 +108,8 @@ export class ApiService {
     return this.http.get<Preferences>('/api/account/preferences');
   }
 
-  savePreferences(preferences: Preferences): Observable<Preferences> {
+  /** Saves only the preferences given; the server keeps the rest. */
+  savePreferences(preferences: Partial<Preferences>): Observable<Preferences> {
     return this.http.put<Preferences>('/api/account/preferences', preferences);
   }
 

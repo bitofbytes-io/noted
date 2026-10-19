@@ -102,8 +102,10 @@ that:
 - `POST /api/imports/{draftID}/sources`
 - `GET/HEAD /api/imports/{draftID}/sources/{assetID}`
 - `POST /api/imports/{draftID}/finalize`
-- `GET/POST /api/pieces/` (`q`, `favorite=true`, `status=learning,playing,shelved|all`;
-  without `status` it lists Learning and Playing, or every status when `q` is set)
+- `GET/POST /api/pieces/` (`q`, `favorite=true`, `status=learning,playing,shelved|all`,
+  `sort=title|composer|recent|added|fresh`; without `status` it lists Learning and
+  Playing, or every status when `q` is set; without `sort` it lists by title. Each
+  piece carries `lastPlayedAt`, its reader state's last save)
 - `GET/PATCH/DELETE /api/pieces/{id}/`
 - `GET/HEAD /api/pieces/{id}/pdf`
 - `GET/HEAD /api/pieces/{id}/pdf/download`
@@ -111,7 +113,8 @@ that:
 - `GET /api/health`
 - `GET /api/ready`
 - `GET/POST/DELETE /api/account/shortcut-token`
-- `GET/PUT /api/account/preferences` (the remembered library filter)
+- `GET/PUT /api/account/preferences` (the remembered library filter and sort;
+  a `PUT` changes only the fields it sends)
 - `POST /api/shortcut/import` (shortcut bearer token only)
 - `GET /api/session`
 - `DELETE /api/session`

@@ -30,6 +30,9 @@ type Piece struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 	PDF          *PDF      `json:"pdf"`
+	// LastPlayedAt is when the reader last saved this piece's state; nil if it
+	// was never opened.
+	LastPlayedAt *time.Time `json:"lastPlayedAt"`
 }
 
 type PieceInput struct {
@@ -62,11 +65,30 @@ const (
 	StatusShelved  = "shelved"
 )
 
+// Library sorts. Recently played and Fresh order by the reader state's last
+// save; Fresh puts never-played pieces first, then the longest unplayed.
+const (
+	SortTitle    = "title"
+	SortComposer = "composer"
+	SortRecent   = "recent"
+	SortAdded    = "added"
+	SortFresh    = "fresh"
+)
+
 // Preferences are per-user settings that follow the user across devices.
 type Preferences struct {
 	// LibraryFilter is the library filter the user last chose: current
 	// (Learning and Playing), all, favorites, learning, playing or shelved.
 	LibraryFilter string `json:"libraryFilter"`
+	// LibrarySort is the library sort the user last chose; new users get title.
+	LibrarySort string `json:"librarySort"`
+}
+
+// PreferencesPatch changes only the preferences it sets, so saving the filter
+// never overwrites a sort chosen meanwhile on another device, and vice versa.
+type PreferencesPatch struct {
+	LibraryFilter *string `json:"libraryFilter"`
+	LibrarySort   *string `json:"librarySort"`
 }
 
 type ReaderState struct {

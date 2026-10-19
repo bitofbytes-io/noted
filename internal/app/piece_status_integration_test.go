@@ -78,7 +78,7 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		pieces, err := service.ListPieces(ctx, owner.ID, query, favorite, statuses)
+		pieces, err := service.ListPieces(ctx, owner.ID, query, favorite, statuses, app.SortTitle)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,11 +97,11 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 		want        []string
 	}{
 		{"default hides shelved", "", nil, "", []string{"Arabesque", "Nocturne"}},
-		// Favorites sort first, so the shelved favorite leads.
-		{"search shows shelved", "chopin", nil, "", []string{"Prelude", "Nocturne"}},
+		{"search shows shelved", "chopin", nil, "", []string{"Nocturne", "Prelude"}},
 		{"explicit filter applies to search", "chopin", nil, "learning", []string{"Nocturne"}},
 		{"shelved", "", nil, "shelved", []string{"Prelude"}},
-		{"all", "", nil, "all", []string{"Prelude", "Arabesque", "Nocturne"}},
+		// Title order, with no favorites pinned first.
+		{"all", "", nil, "all", []string{"Arabesque", "Nocturne", "Prelude"}},
 		{"favorites of any status", "", &favorite, "all", []string{"Prelude"}},
 	} {
 		if got := titles(test.query, test.favorite, test.statusParam); !slices.Equal(got, test.want) {
@@ -133,19 +133,33 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 	}
 
 	// The remembered filter starts at the default and is private to its user.
-	if preferences, err := service.GetPreferences(ctx, owner.ID); err != nil || preferences.LibraryFilter != "current" {
+	if preferences, err := service.GetPreferences(ctx, owner.ID); err != nil ||
+		preferences != (app.Preferences{LibraryFilter: "current", LibrarySort: app.SortTitle}) {
 		t.Fatalf("first-time preferences = %+v, error = %v", preferences, err)
 	}
-	if _, err := service.PutPreferences(ctx, owner.ID, app.Preferences{LibraryFilter: "favorites"}); err != nil {
+	favorites, archived, composer, played := "favorites", "archived", app.SortComposer, "played"
+	if _, err := service.PutPreferences(ctx, owner.ID, app.PreferencesPatch{LibraryFilter: &favorites}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.PutPreferences(ctx, owner.ID, app.Preferences{LibraryFilter: "archived"}); err == nil {
+	if _, err := service.PutPreferences(ctx, owner.ID, app.PreferencesPatch{LibraryFilter: &archived}); err == nil {
 		t.Fatal("expected an unknown library filter to fail")
 	}
-	if preferences, err := service.GetPreferences(ctx, owner.ID); err != nil || preferences.LibraryFilter != "favorites" {
+	// Saving the sort keeps the filter, and an unknown sort changes nothing.
+	if preferences, err := service.PutPreferences(ctx, owner.ID, app.PreferencesPatch{LibrarySort: &composer}); err != nil ||
+		preferences != (app.Preferences{LibraryFilter: "favorites", LibrarySort: app.SortComposer}) {
+		t.Fatalf("saved sort = %+v, error = %v", preferences, err)
+	}
+	// A valid filter alongside it is not saved either.
+	all := "all"
+	if _, err := service.PutPreferences(ctx, owner.ID, app.PreferencesPatch{LibrarySort: &played, LibraryFilter: &all}); err == nil {
+		t.Fatal("expected an unknown library sort to fail")
+	}
+	if preferences, err := service.GetPreferences(ctx, owner.ID); err != nil ||
+		preferences != (app.Preferences{LibraryFilter: "favorites", LibrarySort: app.SortComposer}) {
 		t.Fatalf("remembered preferences = %+v, error = %v", preferences, err)
 	}
-	if preferences, err := service.GetPreferences(ctx, other.ID); err != nil || preferences.LibraryFilter != "current" {
+	if preferences, err := service.GetPreferences(ctx, other.ID); err != nil ||
+		preferences != (app.Preferences{LibraryFilter: "current", LibrarySort: app.SortTitle}) {
 		t.Fatalf("other user's preferences = %+v, error = %v", preferences, err)
 	}
 }

@@ -101,6 +101,11 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 		reset.ScrollSpeed != 8 || !reset.ScrollPaused {
 		t.Fatalf("changed replacement did not reset only positional state: %+v", reset)
 	}
+	// A new PDF is not a play: the last played time (updated_at) stays put.
+	if !reset.UpdatedAt.Equal(saved.UpdatedAt) || piece.LastPlayedAt == nil || !piece.LastPlayedAt.Equal(saved.UpdatedAt) {
+		t.Fatalf("changed replacement moved the last play: saved=%v reset=%v piece=%v",
+			saved.UpdatedAt, reset.UpdatedAt, piece.LastPlayedAt)
+	}
 
 	current, err := service.PutReaderState(ctx, ownerID, piece.ID, ReaderState{
 		PDFChecksumSHA256: changedChecksum,

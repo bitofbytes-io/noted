@@ -82,12 +82,38 @@ func ParseStatusFilter(value, query string) ([]string, error) {
 	return statuses, nil
 }
 
-func validatePreferences(preferences Preferences) error {
-	switch preferences.LibraryFilter {
-	case "current", "all", "favorites", StatusLearning, StatusPlaying, StatusShelved:
-		return nil
+// ParseSort reads the library's sort= parameter. Absent means title.
+func ParseSort(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return SortTitle, nil
 	}
-	return invalid("library filter must be current, all, favorites, learning, playing or shelved")
+	if !validSort(value) {
+		return "", invalid("sort must be title, composer, recent, added or fresh")
+	}
+	return value, nil
+}
+
+func validSort(sort string) bool {
+	switch sort {
+	case SortTitle, SortComposer, SortRecent, SortAdded, SortFresh:
+		return true
+	}
+	return false
+}
+
+func validatePreferences(patch PreferencesPatch) error {
+	if patch.LibraryFilter != nil {
+		switch *patch.LibraryFilter {
+		case "current", "all", "favorites", StatusLearning, StatusPlaying, StatusShelved:
+		default:
+			return invalid("library filter must be current, all, favorites, learning, playing or shelved")
+		}
+	}
+	if patch.LibrarySort != nil && !validSort(*patch.LibrarySort) {
+		return invalid("library sort must be title, composer, recent, added or fresh")
+	}
+	return nil
 }
 
 func validateOptionalURL(label, value string) error {

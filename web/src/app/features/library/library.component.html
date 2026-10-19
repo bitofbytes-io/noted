@@ -55,14 +55,95 @@
     <p class="notice" role="alert">{{ error() }}</p>
   }
 
-  <section class="results" aria-live="polite" aria-busy="{{ loading() }}">
-    @if (!loading()) {
-      <p class="results-count">
-        {{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}
-        @if (query) {
-          matching “{{ query }}”
-        }
-      </p>
+  <section class="results" aria-busy="{{ loading() }}">
+    <div class="results-head">
+      <div class="results-count">
+        <p aria-live="polite">
+          @if (!loading()) {
+            {{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}
+            @if (query) {
+              matching “{{ query }}”
+            }
+          }
+        </p>
+        <button
+          #sortButton
+          class="btn-quiet sort-button"
+          type="button"
+          aria-haspopup="menu"
+          aria-controls="sort-options"
+          [attr.aria-expanded]="sortOpen()"
+          (click)="toggleSortMenu()"
+          (keydown)="sortButtonKey($event)"
+        >
+          <span>Sort: {{ sortLabel() }}</span>
+          <svg lucideChevronDown aria-hidden="true"></svg>
+        </button>
+      </div>
+      @if (sortOpen()) {
+        <div
+          #sortOptions
+          id="sort-options"
+          class="sort-options"
+          role="menu"
+          aria-label="Sort by"
+          (keydown)="sortMenuKey($event)"
+        >
+          @for (option of librarySorts; track option.value) {
+            <button
+              type="button"
+              role="menuitemradio"
+              tabindex="-1"
+              [attr.aria-checked]="option.value === sort()"
+              (click)="chooseSort(option.value)"
+            >
+              <span class="sort-option">
+                <span>{{ option.label }}</span>
+                @if (option.hint) {
+                  <small>{{ option.hint }}</small>
+                }
+              </span>
+              @if (option.value === sort()) {
+                <svg lucideCheck aria-hidden="true"></svg>
+              }
+            </button>
+          }
+        </div>
+      }
+    </div>
+
+    @if (!loading() && continueRow(); as piece) {
+      <section class="piece-list" aria-label="Continue playing">
+        <article
+          class="piece-row continue-row"
+          tabindex="0"
+          (click)="openPiece(piece)"
+          (keydown.enter)="openPieceFromKeyboard(piece, $event)"
+        >
+          <div class="piece-mark" aria-hidden="true">
+            <svg lucideFileText aria-hidden="true"></svg>
+            <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
+          </div>
+          <div class="piece-copy">
+            <h2>{{ piece.title }}</h2>
+            <p>
+              {{ piece.composer || 'Composer unknown' }}
+              <span class="piece-note">{{ playedText(piece.lastPlayedAt) }}</span>
+            </p>
+          </div>
+          <div class="row-actions">
+            <button
+              class="btn-secondary"
+              type="button"
+              [attr.aria-label]="'Continue ' + piece.title"
+              (click)="$event.stopPropagation(); openPiece(piece)"
+              (keydown)="$event.stopPropagation()"
+            >
+              Continue
+            </button>
+          </div>
+        </article>
+      </section>
     }
 
     @if (drafts().length) {
@@ -133,6 +214,8 @@
                 {{ piece.composer || 'Composer unknown' }}
                 @if (!piece.pdf) {
                   <span class="piece-note">No PDF yet</span>
+                } @else if (showPlayed()) {
+                  <span class="piece-note">{{ playedText(piece.lastPlayedAt) }}</span>
                 }
               </p>
             </div>
