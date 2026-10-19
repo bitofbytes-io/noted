@@ -89,8 +89,9 @@ func TestIntegrationLibrarySummaries(t *testing.T) {
 		got.LastPlayedAt == nil || !got.CreatedAt.Equal(humoresque.CreatedAt) {
 		t.Fatalf("humoresque summary: %+v", got)
 	}
-	// The notes come only as part of the folded search text.
-	if got.SearchText != "humoresque op 101 no 7 antonin dvorak slow and singing" {
+	// The notes come only as part of the folded search text, which ends with
+	// the catalogue terms the fold lacks.
+	if got.SearchText != "humoresque op 101 no 7 antonin dvorak slow and singing op101 no7" {
 		t.Fatalf("search text = %q", got.SearchText)
 	}
 

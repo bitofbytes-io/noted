@@ -1,4 +1,4 @@
-import { fold } from '../../core/search';
+import { searchIndex, searchTerms } from '../../core/search';
 import { LibraryFilter, LibrarySort, Piece, PieceSummary } from '../../core/models';
 
 /** What the library shows: the search as typed, the filter and the sort. */
@@ -9,14 +9,14 @@ export interface LibraryView {
 }
 
 /**
- * The pieces the library shows, in order. Every folded word of the search must
+ * The pieces the library shows, in order. Every search term of the search must
  * appear in a piece's search text, as on the server. While searching, a title
  * that starts with the search comes first, then pieces where every word starts
  * a word, then the rest, each group in the chosen sort.
  */
 export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView): PieceSummary[] {
-  const query = fold(view.query);
-  const words = query ? query.split(' ') : [];
+  const words = searchTerms(view.query);
+  const query = words.join(' ');
   const shown = pieces.filter(
     (piece) =>
       inFilter(piece, view.filter, words.length > 0) &&
@@ -43,7 +43,7 @@ export function inFilter(piece: PieceSummary, filter: LibraryFilter, searching: 
 }
 
 function matchRank(piece: PieceSummary, query: string, words: string[]): number {
-  if (fold(piece.title).startsWith(query)) return 0;
+  if (searchTerms(piece.title).join(' ').startsWith(query)) return 0;
   const text = ` ${piece.searchText}`;
   return words.every((word) => text.includes(` ${word}`)) ? 1 : 2;
 }
@@ -132,7 +132,7 @@ function isComposerSuffix(word: string): boolean {
   return COMPOSER_SUFFIXES.includes(word.replace(/^[ .,]+|[ .,]+$/g, '').toLowerCase());
 }
 
-/** A saved piece as a library row; its search text is the server's fold of the same fields. */
+/** A saved piece as a library row; its search text is the server's index of the same fields. */
 export function summaryOf(piece: Piece): PieceSummary {
   return {
     id: piece.id,
@@ -145,7 +145,7 @@ export function summaryOf(piece: Piece): PieceSummary {
     pdf: piece.pdf && { pageCount: piece.pdf.pageCount, contentUrl: piece.pdf.contentUrl },
     lastPlayedAt: piece.lastPlayedAt,
     createdAt: piece.createdAt,
-    searchText: fold(`${piece.title} ${piece.composer} ${piece.aliases} ${piece.notes}`),
+    searchText: searchIndex(`${piece.title} ${piece.composer} ${piece.aliases} ${piece.notes}`),
   };
 }
 

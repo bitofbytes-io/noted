@@ -267,7 +267,7 @@ func TestIntegrationImports(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT search_text FROM pieces WHERE id=$1`, piece.ID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	if want := foldSearch(title + " Draft composer " + aliases + " " + current.Notes); stored != want {
+	if want := searchIndex(title + " Draft composer " + aliases + " " + current.Notes); stored != want {
 		t.Fatalf("search text after finalize = %q, want %q", stored, want)
 	}
 	retained, err := s.GetReaderState(ctx, owner.ID, piece.ID)

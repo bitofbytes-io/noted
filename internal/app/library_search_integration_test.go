@@ -56,6 +56,9 @@ func TestIntegrationLibrarySearch(t *testing.T) {
 	create(owner.ID, app.PieceInput{Title: "Prelude Op.28/4", Composer: "Frédéric Chopin"})
 	sonata := create(owner.ID, app.PieceInput{Title: "Piano Sonata No. 14", Composer: "Ludwig van Beethoven"})
 	create(owner.ID, app.PieceInput{Title: "100% Ragtime", Composer: "Scott Joplin", Notes: "Swing the eighths"})
+	create(owner.ID, app.PieceInput{Title: "Prelude and Fugue in C, BWV 846", Composer: "J. S. Bach"})
+	create(owner.ID, app.PieceInput{Title: "Sonata facile KV545", Composer: "Mozart"})
+	create(owner.ID, app.PieceInput{Title: "Fantaisie-Impromptu", Composer: "Chopin", Aliases: "cis-Moll, Op. 66"})
 	// Another user's matching piece never shows.
 	create(other.ID, app.PieceInput{Title: "Nocturne Op. 9 No. 2", Composer: "Frédéric Chopin", Aliases: "Moonlight Sonata"})
 
@@ -83,8 +86,17 @@ func TestIntegrationLibrarySearch(t *testing.T) {
 		{"chopin nocturne", []string{"Nocturne in C♯ minor"}},
 		{"nocturne chopin", []string{"Nocturne in C♯ minor"}},
 		{"chopin waltz", []string{}},
-		{"c# minor", []string{"Nocturne in C♯ minor"}},
 		{"op 28/4", []string{"Prelude Op.28/4"}},
+		// Catalogue numbers and keys match however either side wrote them.
+		{"op28 no4", []string{"Prelude Op.28/4"}},
+		{"opus 28, no. 4", []string{"Prelude Op.28/4"}},
+		{"op 101 7", []string{"Humoresque Op. 101 No. 7"}},
+		{"bwv846", []string{"Prelude and Fugue in C, BWV 846"}},
+		{"k. 545", []string{"Sonata facile KV545"}},
+		{"k545", []string{"Sonata facile KV545"}},
+		{"c# minor", []string{"Fantaisie-Impromptu", "Nocturne in C♯ minor"}},
+		{"cis-moll", []string{"Fantaisie-Impromptu", "Nocturne in C♯ minor"}},
+		{"moll", []string{"Fantaisie-Impromptu"}},
 		// Notes are searched too.
 		{"eighths", []string{"100% Ragtime"}},
 		// LIKE wildcards are literal: % and _ are punctuation, so they split
@@ -92,14 +104,14 @@ func TestIntegrationLibrarySearch(t *testing.T) {
 		{"100%", []string{"100% Ragtime"}},
 		{"ragtime%joplin", []string{"100% Ragtime"}},
 		{"op_50", []string{"Pavane, Op. 50"}},
-		{"sonata", []string{"Piano Sonata No. 14"}},
+		{"sonata", []string{"Piano Sonata No. 14", "Sonata facile KV545"}},
 	} {
 		if got := titles(test.query); !slices.Equal(got, test.want) {
 			t.Fatalf("q=%q: got %v, want %v", test.query, got, test.want)
 		}
 	}
 	// Punctuation alone is no search.
-	if got := titles("%"); len(got) != 6 {
+	if got := titles("%"); len(got) != 9 {
 		t.Fatalf("q=%%: got %v, want every piece", got)
 	}
 

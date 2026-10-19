@@ -140,6 +140,25 @@ describe('filterAndSort', () => {
     ]);
   });
 
+  it('matches catalogue numbers and keys however either side wrote them', () => {
+    const pieces = [
+      summary({ title: 'Prelude Op.28/4', composer: 'Frédéric Chopin' }),
+      summary({ title: 'Prelude and Fugue in C, BWV 846', composer: 'J. S. Bach' }),
+      summary({ title: 'Sonata facile KV545', composer: 'Mozart' }),
+      summary({ title: 'Fantaisie-Impromptu', composer: 'Chopin', aliases: 'cis-Moll' }),
+      summary({ title: 'Nocturne in C♯ minor', composer: 'Frédéric Chopin' }),
+    ];
+    const found = (query: string) => titles(filterAndSort(pieces, view({ query })));
+    expect(found('op 28 no 4')).toEqual(['Prelude Op.28/4']);
+    expect(found('op28/4')).toEqual(['Prelude Op.28/4']);
+    expect(found('bwv846')).toEqual(['Prelude and Fugue in C, BWV 846']);
+    expect(found('K. 545')).toEqual(['Sonata facile KV545']);
+    expect(found('c# minor')).toEqual(['Fantaisie-Impromptu', 'Nocturne in C♯ minor']);
+    expect(found('cis-moll')).toEqual(['Fantaisie-Impromptu', 'Nocturne in C♯ minor']);
+    // Typing the number a digit at a time keeps the piece in view.
+    expect(found('bwv 84')).toEqual(['Prelude and Fugue in C, BWV 846']);
+  });
+
   it('folds a saved piece into the same search text as the server', () => {
     expect(
       summary({

@@ -58,7 +58,7 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 
 // searchText is what library search matches for a validated piece.
 func searchText(input PieceInput) string {
-	return foldSearch(input.Title + " " + input.Composer + " " + input.Aliases + " " + input.Notes)
+	return searchIndex(input.Title + " " + input.Composer + " " + input.Aliases + " " + input.Notes)
 }
 
 func validStatus(status string) bool {
@@ -71,7 +71,7 @@ func validStatus(status string) bool {
 func ParseStatusFilter(value, query string) ([]string, error) {
 	value = strings.TrimSpace(value)
 	switch {
-	case value == "" && len(searchTokens(query)) > 0:
+	case value == "" && len(searchTerms(query)) > 0:
 		return nil, nil
 	case value == "":
 		return []string{StatusLearning, StatusPlaying}, nil
