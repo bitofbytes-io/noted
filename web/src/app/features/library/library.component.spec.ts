@@ -1105,7 +1105,7 @@ describe('LibraryComponent address and keys', () => {
   });
 
   it('goes to the search with /, opens the first result with Enter, and clears with Escape', async () => {
-    const { fixture, navigate, root, input, type, press } = await setup(
+    const { fixture, navigate, root, input, render, type, press } = await setup(
       {},
       { libraryFilter: 'current' },
     );
@@ -1122,8 +1122,10 @@ describe('LibraryComponent address and keys', () => {
     await press(input, 'Enter');
     expect(navigate).toHaveBeenLastCalledWith(['/reader', 'humoresque']);
 
-    await press(input, 'Escape');
+    // The field empties at once, before the view updates, so a letter typed next starts afresh.
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(input.value).toBe('');
+    await render();
     expect(root.querySelectorAll('.piece-row').length).toBe(3);
     fixture.destroy();
   });

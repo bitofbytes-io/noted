@@ -654,7 +654,7 @@ export class LibraryComponent implements OnDestroy {
       row.focus();
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      if (this.query()) this.query.set('');
+      if (this.query()) this.clearSearch();
       else this.searchInput?.nativeElement.blur();
     }
   }
@@ -669,12 +669,18 @@ export class LibraryComponent implements OnDestroy {
     } else if (event.key === 'ArrowUp') {
       next = at > 0 ? rows[at - 1] : this.searchInput?.nativeElement;
     } else if (event.key === 'Escape') {
-      this.query.set('');
+      this.clearSearch();
       next = this.searchInput?.nativeElement;
     }
     if (!next) return;
     event.preventDefault();
     next.focus();
+  }
+
+  /** Empties the field at once too, so a letter typed straight after is not added to the old search. */
+  private clearSearch(): void {
+    this.query.set('');
+    if (this.searchInput) this.searchInput.nativeElement.value = '';
   }
 
   /** The rows that open a piece, as shown: Continue first. */
