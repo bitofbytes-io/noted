@@ -34,7 +34,6 @@ import {
   map,
   of,
   switchMap,
-  tap,
 } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import {
@@ -47,34 +46,32 @@ import {
   Piece,
   PieceInput,
   PieceStatus,
+  PieceSummary,
   Preferences,
   Session,
   ImportDraft,
   ShortcutToken,
   ShortcutTokenCreated,
 } from '../../core/models';
-import { formatDay, lastUsedText, listeningUrlError, playedText } from './library.utils';
+import {
+  filterAndSort,
+  formatDay,
+  lastUsedText,
+  listeningUrlError,
+  playedText,
+  summaryOf,
+} from './library.utils';
 import { fold } from '../../core/search';
 import { ChoiceMenuComponent } from './choice-menu.component';
 
-interface PieceLoadRequest {
-  query: string;
-  filter: LibraryFilter;
-  sort: LibrarySort;
-  complete: () => void;
-}
-
-/**
- * `hidden` is set when the default view is empty only because everything is
- * shelved; `continued` is the piece to continue, never offered while searching.
- */
+/** The whole library, and the piece to continue whatever the filter. */
 type PieceLoadResult =
-  { pieces: Piece[]; hidden: boolean; continued: Piece | null } | { error: unknown };
+  { pieces: PieceSummary[]; continued: PieceSummary | null } | { error: unknown };
 
 /** One row's status saves: the latest choice, the last saved row, and the save queue. */
 interface StatusSave {
   latest: PieceStatus;
-  saved: Piece;
+  saved: PieceSummary;
   queue: Promise<void>;
   /** The row's select, reset directly on failure: a fast failure leaves no binding change. */
   control: HTMLSelectElement;
@@ -118,9 +115,23 @@ export class LibraryComponent implements OnDestroy {
   protected readonly libraryFilters = LIBRARY_FILTERS;
   protected readonly librarySorts = LIBRARY_SORTS;
   protected readonly pieceStatuses = PIECE_STATUSES;
-  protected readonly pieces = signal<Piece[]>([]);
+  /** The whole library, loaded once and again after a save or delete. */
+  private readonly allPieces = signal<PieceSummary[]>([]);
+  protected readonly query = signal('');
+  /** Opens on the filter this user last chose, on any device. */
+  protected readonly filter = signal<LibraryFilter>('current');
   /** Opens on the sort this user last chose, on any device; new users get Title. */
   protected readonly sort = signal<LibrarySort>('title');
+  /** Punctuation alone folds to no search, as on the server. */
+  protected readonly searching = computed(() => !!fold(this.query()));
+  /** The pieces matching the search and filter, in order: filtered here on every keystroke. */
+  protected readonly visible = computed(() =>
+    filterAndSort(this.allPieces(), {
+      query: this.query(),
+      filter: this.filter(),
+      sort: this.sort(),
+    }),
+  );
   /** Played lines belong to the sorts that order by them. */
   protected readonly showPlayed = computed(
     () => this.sort() === 'recent' || this.sort() === 'fresh',
@@ -132,15 +143,25 @@ export class LibraryComponent implements OnDestroy {
    * library, whatever the filter, offered while not searching. Its row has the
    * usual actions, so it leaves the list below rather than showing twice.
    */
-  protected readonly continued = signal<Piece | null>(null);
+  private readonly offered = signal<PieceSummary | null>(null);
+  protected readonly continued = computed(() => (this.searching() ? null : this.offered()));
   protected readonly listed = computed(() => {
     const continued = this.continued();
-    const pieces = this.pieces();
+    const pieces = this.visible();
     return continued ? pieces.filter((piece) => piece.id !== continued.id) : pieces;
   });
   /** The default view is empty, but the binder is not: every piece is shelved. */
-  protected readonly onlyShelved = signal(false);
-  protected readonly loading = signal(true);
+  protected readonly onlyShelved = computed(
+    () =>
+      this.filter() === 'current' &&
+      !this.searching() &&
+      this.allPieces().length > 0 &&
+      this.allPieces().every((piece) => piece.status === 'shelved'),
+  );
+  /** Until the library and the remembered filter and sort have both arrived. */
+  private readonly listedOnce = signal(false);
+  private readonly preferencesSettled = signal(false);
+  protected readonly loading = computed(() => !this.listedOnce() || !this.preferencesSettled());
   protected readonly saving = signal(false);
   protected readonly error = signal('');
   protected readonly session = signal<Session | null>(null);
@@ -166,63 +187,48 @@ export class LibraryComponent implements OnDestroy {
   private copyTimer?: number;
   /** Ignores a status read that finishes after the dialog closed or the token changed. */
   private accountVisit = 0;
-  protected query = '';
-  /** Opens on the filter this user last chose, on any device. */
-  protected filter: LibraryFilter = 'current';
   /** A filter or sort chosen before the remembered ones arrive wins over that one alone. */
   private filterChosen = false;
   private sortChosen = false;
-  private preferencesLoaded = false;
   /** Saves run one at a time, so an older choice can never land after a newer one. */
   private preferenceSave: Promise<void> = Promise.resolve();
   /** Status saves still running, by piece. */
   private readonly statusSaves = new Map<string, StatusSave>();
+  /** The whole piece in the details form, with its notes and source. */
   protected editing: Piece | null = null;
   protected form: PieceForm = emptyPiece();
-  private searchTimer?: number;
-  private readonly pieceLoadRequests = new Subject<PieceLoadRequest>();
+  /** Ignores a details read that finishes after another row's details were asked for. */
+  private editRequest = 0;
+  private readonly pieceLoadRequests = new Subject<() => void>();
   private readonly pieceLoadSubscription: Subscription;
 
   constructor() {
     this.pieceLoadSubscription = this.pieceLoadRequests
       .pipe(
-        tap(() => {
-          this.loading.set(true);
-          this.error.set('');
-        }),
-        switchMap((request) => {
-          // Punctuation alone folds to no search, as on the server.
-          const searching = !!fold(request.query);
-          return forkJoin({
-            listed: defer(() => this.api.pieces(request.query, request.filter, request.sort)).pipe(
-              switchMap((pieces) =>
-                pieces.length || request.filter !== 'current' || searching
-                  ? of({ pieces, hidden: false })
-                  : this.api
-                      .pieces('', 'all')
-                      .pipe(map((all) => ({ pieces, hidden: all.length > 0 }))),
-              ),
-            ),
+        // A newer load replaces an older one still running.
+        switchMap((complete) =>
+          forkJoin({
+            pieces: defer(() => this.api.pieceSummaries()),
             // The library stays usable if Continue is unavailable.
-            continued: searching
-              ? of(null)
-              : defer(() => this.api.continuePiece()).pipe(catchError(() => of(null))),
+            continued: defer(() => this.api.continuePiece()).pipe(catchError(() => of(null))),
           }).pipe(
-            map(({ listed, continued }): PieceLoadResult => ({ ...listed, continued })),
+            map(({ pieces, continued }): PieceLoadResult => ({
+              pieces,
+              continued: continued && summaryOf(continued),
+            })),
             catchError((error: unknown) => of<PieceLoadResult>({ error })),
-            finalize(request.complete),
-          );
-        }),
+            finalize(complete),
+          ),
+        ),
       )
       .subscribe((result) => {
         if ('pieces' in result) {
-          this.pieces.set(result.pieces);
-          this.onlyShelved.set(result.hidden);
-          this.continued.set(result.continued);
+          this.allPieces.set(result.pieces);
+          this.offered.set(result.continued);
         } else {
           this.error.set(errorMessage(result.error));
         }
-        this.loading.set(false);
+        this.listedOnce.set(true);
       });
     afterNextRender(() => {
       if (this.route.snapshot.queryParamMap.get('details') === 'new') {
@@ -232,19 +238,19 @@ export class LibraryComponent implements OnDestroy {
     });
     void this.loadSession();
     this.loadPreferences();
+    void this.load();
     void this.loadDrafts();
   }
 
-  /** Loads the remembered filter and sort, then the list; a first-time user gets the defaults. */
+  /** Loads the remembered filter and sort; a first-time user gets the defaults. */
   private loadPreferences(): void {
     this.api.preferences().subscribe({
       next: (preferences) => {
-        this.preferencesLoaded = true;
         if (
           !this.filterChosen &&
           LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)
         ) {
-          this.filter = preferences.libraryFilter;
+          this.filter.set(preferences.libraryFilter);
         }
         if (
           !this.sortChosen &&
@@ -252,46 +258,35 @@ export class LibraryComponent implements OnDestroy {
         ) {
           this.sort.set(preferences.librarySort);
         }
-        // Lists with both, even if an early choice already listed with one.
-        void this.load();
+        this.preferencesSettled.set(true);
       },
-      error: () => {
-        this.preferencesLoaded = true;
-        // Lists even after an early choice: choosing the filter or sort already
-        // shown lists nothing by itself, and a newer listing replaces an older.
-        void this.load();
-      },
+      // The library lists with the filter and sort shown.
+      error: () => this.preferencesSettled.set(true),
     });
   }
 
-  /** Lists by the new filter and remembers it for this user's next visit. */
+  /** Shows the new filter at once and remembers it for this user's next visit. */
   async chooseFilter(filter: LibraryFilter): Promise<void> {
     this.filterChosen = true;
-    if (filter === this.filter) {
-      // Before the remembered filter arrives, choosing the default shown still
-      // counts; the list follows once the preferences answer.
-      if (!this.preferencesLoaded) await this.remember({ libraryFilter: filter });
+    if (filter === this.filter()) {
+      // Before the remembered filter arrives, choosing the default shown still counts.
+      if (!this.preferencesSettled()) await this.remember({ libraryFilter: filter });
       return;
     }
-    this.filter = filter;
-    const listed = this.load();
+    this.filter.set(filter);
     await this.remember({ libraryFilter: filter });
-    await listed;
   }
 
-  /** Lists in the new order and remembers it for this user's next visit. */
+  /** Shows the new order at once and remembers it for this user's next visit. */
   async chooseSort(sort: LibrarySort): Promise<void> {
     this.sortChosen = true;
     if (sort === this.sort()) {
-      // Before the remembered sort arrives, choosing the default shown still
-      // counts; the list follows once the preferences answer.
-      if (!this.preferencesLoaded) await this.remember({ librarySort: sort });
+      // Before the remembered sort arrives, choosing the default shown still counts.
+      if (!this.preferencesSettled()) await this.remember({ librarySort: sort });
       return;
     }
     this.sort.set(sort);
-    const listed = this.load();
     await this.remember({ librarySort: sort });
-    await listed;
   }
 
   private remember(change: Partial<Preferences>): Promise<void> {
@@ -302,27 +297,12 @@ export class LibraryComponent implements OnDestroy {
 
   private async savePreference(change: Partial<Preferences>): Promise<void> {
     // A newer choice is queued behind this one and saves itself.
-    if (change.libraryFilter && change.libraryFilter !== this.filter) return;
+    if (change.libraryFilter && change.libraryFilter !== this.filter()) return;
     if (change.librarySort && change.librarySort !== this.sort()) return;
     try {
       await firstValueFrom(this.api.savePreferences(change));
     } catch (error) {
       this.error.set(errorMessage(error));
-    }
-  }
-
-  /** Whether the piece still belongs in the list on screen. */
-  private shown(piece: Piece): boolean {
-    switch (this.filter) {
-      case 'current':
-        // A search never hides a shelved piece.
-        return piece.status !== 'shelved' || !!fold(this.query);
-      case 'all':
-        return true;
-      case 'favorites':
-        return piece.favorite;
-      default:
-        return piece.status === this.filter;
     }
   }
 
@@ -437,25 +417,13 @@ export class LibraryComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.copyTimer) window.clearTimeout(this.copyTimer);
-    if (this.searchTimer) window.clearTimeout(this.searchTimer);
     this.pieceLoadSubscription.unsubscribe();
     this.pieceLoadRequests.complete();
   }
 
-  onSearch(): void {
-    if (this.searchTimer) window.clearTimeout(this.searchTimer);
-    this.searchTimer = window.setTimeout(() => void this.load(), 250);
-  }
-
+  /** Loads the whole library from the server: on opening, and after a save or delete. */
   load(): Promise<void> {
-    return new Promise((complete) => {
-      this.pieceLoadRequests.next({
-        query: this.query,
-        filter: this.filter,
-        sort: this.sort(),
-        complete,
-      });
-    });
+    return new Promise((complete) => this.pieceLoadRequests.next(complete));
   }
 
   async loadDrafts(): Promise<void> {
@@ -494,15 +462,26 @@ export class LibraryComponent implements OnDestroy {
     void this.router.navigate(['/prepare', id]);
   }
   openCreate(): void {
+    this.editRequest++;
     this.error.set('');
     this.editing = null;
     this.form = emptyPiece();
     this.editor?.nativeElement.showModal();
   }
 
-  openEdit(piece: Piece, event?: Event): void {
+  /** Reads the whole piece, which a library row leaves out, then opens its details. */
+  async openEdit(row: PieceSummary, event?: Event): Promise<void> {
     event?.stopPropagation();
+    const request = ++this.editRequest;
     this.error.set('');
+    let piece: Piece;
+    try {
+      piece = await firstValueFrom(this.api.piece(row.id));
+    } catch (error) {
+      if (request === this.editRequest) this.error.set(errorMessage(error));
+      return;
+    }
+    if (request !== this.editRequest) return;
     this.editing = piece;
     this.form = {
       title: piece.title,
@@ -567,15 +546,15 @@ export class LibraryComponent implements OnDestroy {
     }
   }
 
-  openPiece(piece: Piece): void {
+  openPiece(piece: PieceSummary): void {
     if (piece.pdf) {
       void this.router.navigate(['/reader', piece.id]);
     } else {
-      this.openEdit(piece);
+      void this.openEdit(piece);
     }
   }
 
-  openPieceFromKeyboard(piece: Piece, event: Event): void {
+  openPieceFromKeyboard(piece: PieceSummary, event: Event): void {
     if (event.target === event.currentTarget) this.openPiece(piece);
   }
 
@@ -583,12 +562,13 @@ export class LibraryComponent implements OnDestroy {
     return listeningUrlError(this.form.listeningUrl);
   }
 
-  async toggleFavorite(piece: Piece, event: Event): Promise<void> {
+  async toggleFavorite(piece: PieceSummary, event: Event): Promise<void> {
     event.stopPropagation();
     try {
-      this.showSaved(
-        await firstValueFrom(this.api.updatePiece(piece.id, { favorite: !piece.favorite })),
+      const updated = await firstValueFrom(
+        this.api.updatePiece(piece.id, { favorite: !piece.favorite }),
       );
+      this.replaceRow(summaryOf(updated));
     } catch (error) {
       this.error.set(errorMessage(error));
     }
@@ -597,9 +577,11 @@ export class LibraryComponent implements OnDestroy {
   /**
    * Shows the choice at once and saves it. A row's saves run one at a time, and
    * only the latest choice is saved or shown, so a slow older request can never
-   * overwrite a newer status. A failed save puts back the last saved row.
+   * overwrite a newer status. A failed save puts back the last saved row. A row
+   * that no longer fits the filter leaves the list at once; Continue spans the
+   * whole library, so its row stays.
    */
-  async changeStatus(piece: Piece, control: HTMLSelectElement): Promise<void> {
+  async changeStatus(piece: PieceSummary, control: HTMLSelectElement): Promise<void> {
     const status = control.value as PieceStatus;
     if (status === piece.status) return;
     const pending = this.statusSaves.get(piece.id) ?? {
@@ -621,9 +603,9 @@ export class LibraryComponent implements OnDestroy {
   private async saveStatus(id: string, status: PieceStatus, pending: StatusSave): Promise<void> {
     if (pending.latest !== status) return;
     try {
-      const updated = await firstValueFrom(this.api.updatePiece(id, { status }));
+      const updated = summaryOf(await firstValueFrom(this.api.updatePiece(id, { status })));
       pending.saved = updated;
-      if (pending.latest === status) this.showSaved(updated);
+      if (pending.latest === status) this.replaceRow(updated);
     } catch (error) {
       if (pending.latest !== status) return;
       this.error.set(errorMessage(error));
@@ -632,25 +614,10 @@ export class LibraryComponent implements OnDestroy {
     }
   }
 
-  /**
-   * Shows a saved row, or drops it from the list if it no longer fits the
-   * filter. Continue spans the whole library, so its row always stays.
-   */
-  private showSaved(updated: Piece): void {
-    if (this.shown(updated)) this.replaceRow(updated);
-    else {
-      this.pieces.update((pieces) => pieces.filter((row) => row.id !== updated.id));
-      this.replaceContinued(updated);
-    }
-  }
-
-  private replaceRow(piece: Piece): void {
-    this.pieces.update((pieces) => pieces.map((row) => (row.id === piece.id ? piece : row)));
-    this.replaceContinued(piece);
-  }
-
-  private replaceContinued(piece: Piece): void {
-    if (this.continued()?.id === piece.id) this.continued.set(piece);
+  /** Shows a changed row; the list refilters and re-sorts itself. */
+  private replaceRow(piece: PieceSummary): void {
+    this.allPieces.update((pieces) => pieces.map((row) => (row.id === piece.id ? piece : row)));
+    if (this.offered()?.id === piece.id) this.offered.set(piece);
   }
 
   async deletePiece(piece: Piece): Promise<void> {

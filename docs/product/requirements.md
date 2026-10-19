@@ -24,8 +24,14 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   dialog and not shown on the library row). `%` and `_` are ordinary
   punctuation, never wildcards. The API and web app share one fold, tested
   against `testdata/search-fold-vectors.json`; the API stores each piece's
-  folded text, so search needs no database extension. A search keeps the
-  chosen sort and only ever matches the searcher's own pieces.
+  folded text, so search needs no database extension. The library loads the
+  user's pieces once, as summaries carrying that folded text instead of the
+  notes, and filters, searches and sorts them on the device as the user types;
+  it reloads them after a save or delete. A search lists titles that start
+  with it first, then pieces where every word starts a word, then the rest,
+  each group in the chosen sort, and only ever matches the searcher's own
+  pieces. The API and web app share the composer surname rule too, tested
+  against `testdata/composer-surname-vectors.json`.
 - BND-035: Each piece is Learning, Playing or Shelved (new and existing pieces
   start as Playing), separate from Favorite, and its status can be changed from
   the library row or the details dialog. One library menu, the same quiet

@@ -35,8 +35,8 @@
           type="search"
           placeholder="Search title or composer"
           autocomplete="off"
-          [(ngModel)]="query"
-          (ngModelChange)="onSearch()"
+          [ngModel]="query()"
+          (ngModelChange)="query.set($event)"
         />
       </label>
       <app-choice-menu
@@ -44,7 +44,7 @@
         name="Show"
         [showName]="false"
         [options]="libraryFilters"
-        [value]="filter"
+        [value]="filter()"
         (chosen)="chooseFilter($event)"
       />
     </div>
@@ -58,9 +58,9 @@
     <div class="results-count">
       <p aria-live="polite">
         @if (!loading()) {
-          {{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}
-          @if (query) {
-            matching “{{ query }}”
+          {{ visible().length }} {{ visible().length === 1 ? 'piece' : 'pieces' }}
+          @if (query()) {
+            matching “{{ query() }}”
           }
         }
       </p>
@@ -111,10 +111,10 @@
       <div class="empty-state">
         <p>Opening the binder…</p>
       </div>
-    } @else if (!pieces().length) {
+    } @else if (!visible().length) {
       <div class="empty-state">
         <svg lucideFileText aria-hidden="true"></svg>
-        @if (query || filter !== 'current') {
+        @if (query() || filter() !== 'current') {
           <h2>No matching pieces</h2>
           <p>Try another search or choose another filter.</p>
         } @else if (onlyShelved()) {
@@ -124,7 +124,7 @@
           <h2>Your binder is empty</h2>
           <p>Add a scanned or downloaded PDF to begin.</p>
         }
-        @if (!query && filter === 'current' && !onlyShelved()) {
+        @if (!query() && filter() === 'current' && !onlyShelved()) {
           <button class="btn-quiet accent" type="button" (click)="beginImport()">
             Add the first piece
           </button>

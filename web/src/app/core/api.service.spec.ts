@@ -40,60 +40,25 @@ describe('ApiService IMSLP search', () => {
 });
 
 describe('ApiService library filter', () => {
-  it('maps each filter to the list parameters and saves the choice', async () => {
+  it('loads every piece as summaries, and saves the filter and sort', async () => {
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     const api = TestBed.inject(ApiService);
     const http = TestBed.inject(HttpTestingController);
-    const cases = [
-      ['current', ''],
-      ['all', 'status=all'],
-      ['favorites', 'favorite=true&status=all'],
-      ['shelved', 'status=shelved'],
-    ] as const;
-    for (const [filter, params] of cases) {
-      const listed = firstValueFrom(api.pieces('', filter));
-      const request = http.expectOne((r) => r.url === '/api/pieces/');
-      expect(request.request.params.toString()).toBe(params);
-      request.flush([]);
-      await listed;
-    }
-
-    const saved = firstValueFrom(api.savePreferences({ libraryFilter: 'favorites' }));
-    const put = http.expectOne('/api/account/preferences');
-    expect(put.request.method).toBe('PUT');
-    expect(put.request.body).toEqual({ libraryFilter: 'favorites' });
-    put.flush({ libraryFilter: 'favorites', librarySort: 'title' });
-    await expect(saved).resolves.toEqual({ libraryFilter: 'favorites', librarySort: 'title' });
-    http.verify();
-  });
-
-  it('sends the sort, leaving out the default title', async () => {
-    TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
-    });
-    const api = TestBed.inject(ApiService);
-    const http = TestBed.inject(HttpTestingController);
-    const cases = [
-      ['title', ''],
-      ['composer', 'sort=composer'],
-      ['recent', 'sort=recent'],
-      ['added', 'sort=added'],
-      ['fresh', 'sort=fresh'],
-    ] as const;
-    for (const [sort, params] of cases) {
-      const listed = firstValueFrom(api.pieces('', 'current', sort));
-      const request = http.expectOne((r) => r.url === '/api/pieces/');
-      expect(request.request.params.toString()).toBe(params);
-      request.flush([]);
-      await listed;
-    }
-    const listed = firstValueFrom(api.pieces('bach', 'shelved', 'recent'));
+    const listed = firstValueFrom(api.pieceSummaries());
     const request = http.expectOne((r) => r.url === '/api/pieces/');
-    expect(request.request.params.toString()).toBe('q=bach&status=shelved&sort=recent');
+    expect(request.request.method).toBe('GET');
+    expect(request.request.params.toString()).toBe('fields=summary&status=all');
     request.flush([]);
-    await listed;
+    await expect(listed).resolves.toEqual([]);
+
+    const filter = firstValueFrom(api.savePreferences({ libraryFilter: 'favorites' }));
+    const putFilter = http.expectOne('/api/account/preferences');
+    expect(putFilter.request.method).toBe('PUT');
+    expect(putFilter.request.body).toEqual({ libraryFilter: 'favorites' });
+    putFilter.flush({ libraryFilter: 'favorites', librarySort: 'title' });
+    await expect(filter).resolves.toEqual({ libraryFilter: 'favorites', librarySort: 'title' });
 
     const saved = firstValueFrom(api.savePreferences({ librarySort: 'composer' }));
     const put = http.expectOne('/api/account/preferences');
