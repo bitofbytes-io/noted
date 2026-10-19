@@ -1,0 +1,45 @@
+<button
+  #button
+  class="btn-quiet menu-button"
+  type="button"
+  aria-haspopup="menu"
+  [attr.aria-controls]="menuId"
+  [attr.aria-expanded]="open()"
+  (click)="toggle()"
+  (keydown)="buttonKey($event)"
+>
+  <span>
+    <span [class.sr-only]="!showName()">{{ name() }}: </span>{{ current() }}
+  </span>
+  <svg lucideChevronDown aria-hidden="true"></svg>
+</button>
+@if (open()) {
+  <div
+    #menu
+    class="menu-options"
+    role="menu"
+    [id]="menuId"
+    [attr.aria-label]="menuLabel() || name()"
+    (keydown)="menuKey($event)"
+  >
+    @for (option of options(); track option.value) {
+      <button
+        type="button"
+        role="menuitemradio"
+        tabindex="-1"
+        [attr.aria-checked]="option.value === value()"
+        (click)="choose(option.value)"
+      >
+        <span class="menu-option">
+          <span>{{ option.label }}</span>
+          @if (option.hint) {
+            <small>{{ option.hint }}</small>
+          }
+        </span>
+        @if (option.value === value()) {
+          <svg lucideCheck aria-hidden="true"></svg>
+        }
+      </button>
+    }
+  </div>
+}

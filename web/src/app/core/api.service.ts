@@ -1,6 +1,6 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, catchError, of, throwError } from 'rxjs';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 import {
   LibraryFilter,
   LibrarySort,
@@ -102,6 +102,13 @@ export class ApiService {
     else if (filter !== 'current') params = params.set('status', filter);
     if (sort !== 'title') params = params.set('sort', sort);
     return this.http.get<Piece[]>('/api/pieces/', { params });
+  }
+
+  /** The piece to continue: the latest played in two weeks, from the whole library. */
+  continuePiece(): Observable<Piece | null> {
+    return this.http
+      .get<{ piece: Piece | null }>('/api/pieces/continue')
+      .pipe(map((response) => response.piece));
   }
 
   preferences(): Observable<Preferences> {

@@ -11,13 +11,7 @@ import {
   ShortcutTokenCreated,
 } from '../../core/models';
 import { LibraryComponent } from './library.component';
-import {
-  continuePiece,
-  formatDay,
-  lastUsedText,
-  listeningUrlError,
-  playedText,
-} from './library.utils';
+import { formatDay, lastUsedText, listeningUrlError, playedText } from './library.utils';
 
 describe('LibraryComponent', () => {
   it('cancels a stale search so it cannot replace newer results', async () => {
@@ -285,12 +279,23 @@ describe('LibraryComponent status and filter', () => {
     return { fixture, api, root, render, titles };
   }
 
-  it('opens on the remembered filter and remembers a new choice', async () => {
+  it('opens on the remembered filter and remembers a new choice from the menu', async () => {
     const { fixture, api, root, render } = await setup('favorites', [row('a', 'shelved', true)]);
-    const select = root.querySelector('.library-filter select') as HTMLSelectElement;
+    const button = () => root.querySelector('.filter-menu .menu-button') as HTMLButtonElement;
+    const options = () =>
+      [...root.querySelectorAll('.filter-menu .menu-options button')] as HTMLElement[];
     expect(api.pieces).toHaveBeenCalledWith('', 'favorites', 'title');
-    expect(select.value).toBe('favorites');
-    expect([...select.options].map((option) => option.textContent?.trim())).toEqual([
+    // The button shows only the choice; assistive technology hears "Show: Favorites".
+    expect(button().textContent?.trim()).toBe('Show: Favorites');
+    expect(button().querySelector('.sr-only')?.textContent).toBe('Show: ');
+    expect(root.querySelector('.search-row select')).toBeNull();
+
+    button().click();
+    await render();
+    expect(root.querySelector('.filter-menu [role="menu"]')?.getAttribute('aria-label')).toBe(
+      'Show',
+    );
+    expect(options().map((option) => option.textContent?.trim())).toEqual([
       'Learning & Playing',
       'All',
       'Favorites',
@@ -298,12 +303,38 @@ describe('LibraryComponent status and filter', () => {
       'Playing',
       'Shelved',
     ]);
+    const checked = options().filter((option) => option.getAttribute('aria-checked') === 'true');
+    expect(checked.map((option) => option.textContent?.trim())).toEqual(['Favorites']);
+    expect(checked[0].querySelector('svg')).not.toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(checked[0]));
 
-    select.value = 'shelved';
-    select.dispatchEvent(new Event('change'));
+    options()[5].click();
     await render();
+    expect(options()).toEqual([]);
+    expect(button().textContent?.trim()).toBe('Show: Shelved');
+    expect(document.activeElement).toBe(button());
     expect(api.savePreferences).toHaveBeenCalledWith({ libraryFilter: 'shelved' });
     expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved', 'title');
+
+    // Choosing the current filter again neither lists nor saves.
+    const listings = api.pieces.mock.calls.length;
+    await fixture.componentInstance.chooseFilter('shelved');
+    expect(api.pieces).toHaveBeenCalledTimes(listings);
+    expect(api.savePreferences).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+  });
+
+  it('opens one menu at a time', async () => {
+    const { fixture, root, render } = await setup('current', [row('a', 'playing')]);
+    const menus = () => [...root.querySelectorAll('[role="menu"]')].map((menu) => menu.id);
+    (root.querySelector('.filter-menu .menu-button') as HTMLButtonElement).click();
+    await render();
+    expect(menus().length).toBe(1);
+    const filterMenu = menus()[0];
+    (root.querySelector('.sort-menu .menu-button') as HTMLButtonElement).click();
+    await render();
+    expect(menus().length).toBe(1);
+    expect(menus()[0]).not.toBe(filterMenu);
     fixture.destroy();
   });
 
@@ -431,7 +462,8 @@ describe('LibraryComponent sort and Continue', () => {
       lastPlayedAt,
     }) as Piece;
 
-  async function setup(librarySort: string, rows: Piece[]) {
+  /** `offered` is the piece the server offers to continue. */
+  async function setup(librarySort: string, rows: Piece[], offered: Piece | null = null) {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW);
     const api = {
@@ -440,6 +472,10 @@ describe('LibraryComponent sort and Continue', () => {
       preferences: vi.fn(() => of({ libraryFilter: 'current', librarySort })),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
       pieces: vi.fn(() => of(rows)),
+      continuePiece: vi.fn(() => of(offered)),
+      updatePiece: vi.fn((id: string, change: Partial<Piece>) =>
+        of({ ...[offered, ...rows].find((piece) => piece?.id === id)!, ...change }),
+      ),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -461,8 +497,9 @@ describe('LibraryComponent sort and Continue', () => {
       await fixture.whenStable();
       fixture.detectChanges();
     };
-    const sortButton = () => root.querySelector('.sort-button') as HTMLButtonElement;
-    const options = () => [...root.querySelectorAll('.sort-options button')] as HTMLElement[];
+    const sortButton = () => root.querySelector('.sort-menu .menu-button') as HTMLButtonElement;
+    const options = () =>
+      [...root.querySelectorAll('.sort-menu .menu-options button')] as HTMLElement[];
     const listed = () =>
       [...root.querySelectorAll('.piece-list:not([aria-label]) .piece-row')].map((article) => ({
         title: article.querySelector('h2')?.textContent,
@@ -482,7 +519,7 @@ describe('LibraryComponent sort and Continue', () => {
     await render();
     expect(sortButton().getAttribute('aria-expanded')).toBe('true');
     const words = (option: HTMLElement) =>
-      [...option.querySelectorAll('.sort-option > *')].map((part) => part.textContent?.trim());
+      [...option.querySelectorAll('.menu-option > *')].map((part) => part.textContent?.trim());
     expect(options().map(words)).toEqual([
       ['Title'],
       ['Composer'],
@@ -550,30 +587,88 @@ describe('LibraryComponent sort and Continue', () => {
     fixture.destroy();
   });
 
-  it('offers Continue for the latest piece played in two weeks, only while not searching', async () => {
-    const rows = [row('a', daysAgo(3)), row('b', daysAgo(1)), row('c', null)];
-    const { fixture, root, render, listed, continued } = await setup('title', rows);
+  it('offers Continue with the usual row actions, and lists the piece only once', async () => {
+    const b = { ...row('b', daysAgo(1)), listeningUrl: 'https://example.test/b' };
+    const rows = [row('a', daysAgo(3)), b, row('c', null)];
+    const { fixture, api, root, render, listed, continued } = await setup('title', rows, b);
     expect(continued()).toBe('Piece b');
-    expect(root.querySelector('.continue-row .piece-note')?.textContent).toBe('Played yesterday');
-    expect(root.querySelector('.continue-row button')?.textContent?.trim()).toBe('Continue');
-    // Under Title the piece keeps its place in the list too.
-    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
-
-    // Under Recently played too, so its Listen, status, favorite and edit stay at hand.
+    expect(root.querySelector('.continue-row .piece-note')?.textContent?.trim()).toBe(
+      'Continue, played yesterday',
+    );
+    // Listen, status, favorite and edit, as on any row, and no extra button.
+    const actions = [...root.querySelectorAll('.continue-row .row-actions > *')];
+    expect(actions.map((action) => action.getAttribute('aria-label') ?? action.className)).toEqual([
+      'Listen to Piece b in a new tab',
+      'row-status',
+      'Add to favorites',
+      'Edit details',
+    ]);
+    expect(root.querySelector('.continue-row .btn-secondary')).toBeNull();
+    // The list below leaves it out, under Title and under Recently played alike.
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece c']);
+    expect(root.querySelector('.results-count p')?.textContent).toContain('3 pieces');
     await fixture.componentInstance.chooseSort('recent');
     await render();
     expect(continued()).toBe('Piece b');
-    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece c']);
     expect(
       root.querySelector('section[aria-label="Continue playing"] .continue-row'),
     ).not.toBeNull();
-    expect(root.querySelector('.results-count p')?.textContent).toContain('3 pieces');
 
+    // While searching there is no Continue, so the piece shows in the results.
+    api.continuePiece.mockClear();
     Reflect.set(fixture.componentInstance, 'query', 'piece');
     await fixture.componentInstance.load();
     await render();
+    expect(api.continuePiece).not.toHaveBeenCalled();
     expect(continued()).toBeNull();
     expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    fixture.destroy();
+  });
+
+  it('continues a piece from outside the filter, and keeps it there when its status changes', async () => {
+    // Learning & Playing lists only "a"; the shelved "s" was played yesterday.
+    const shelved = { ...row('s', daysAgo(1)), status: 'shelved' } as Piece;
+    const { fixture, api, root, render, listed, continued } = await setup(
+      'title',
+      [row('a', daysAgo(3))],
+      shelved,
+    );
+    expect(api.pieces).toHaveBeenCalledWith('', 'current', 'title');
+    expect(continued()).toBe('Piece s');
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a']);
+    expect(root.querySelector('.results-count p')?.textContent).toContain('1 piece');
+
+    const status = () =>
+      root.querySelector('.continue-row .row-status select') as HTMLSelectElement;
+    expect(status().value).toBe('shelved');
+    status().value = 'learning';
+    status().dispatchEvent(new Event('change'));
+    await render();
+    expect(api.updatePiece).toHaveBeenLastCalledWith('s', { status: 'learning' });
+    expect(continued()).toBe('Piece s');
+    expect(status().value).toBe('learning');
+
+    // Back to Shelved: it no longer fits the filter, but Continue spans the library.
+    status().value = 'shelved';
+    status().dispatchEvent(new Event('change'));
+    await render();
+    expect(continued()).toBe('Piece s');
+    expect(status().value).toBe('shelved');
+
+    (root.querySelector('.continue-row [aria-label="Add to favorites"]') as HTMLElement).click();
+    await render();
+    expect(api.updatePiece).toHaveBeenLastCalledWith('s', { favorite: true });
+    expect(root.querySelector('.continue-row .filled-heart')).not.toBeNull();
+    fixture.destroy();
+  });
+
+  it('lists the library as usual when Continue is unavailable', async () => {
+    const { fixture, api, listed, continued } = await setup('recent', [row('a', daysAgo(1))]);
+    api.continuePiece.mockImplementation(() => throwError(() => new Error('offline')));
+    await fixture.componentInstance.load();
+    expect(continued()).toBeNull();
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a']);
     fixture.destroy();
   });
 
@@ -614,6 +709,40 @@ describe('LibraryComponent sort and Continue', () => {
     fixture.destroy();
   });
 
+  it('still lists when the shown filter or sort is chosen early and the preferences fail', async () => {
+    const remembered = new Subject<unknown>();
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => remembered),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn(() => of([row('a', null)])),
+      continuePiece: vi.fn(() => of(null)),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    await component.chooseFilter('current');
+    await component.chooseSort('title');
+    expect(api.pieces).not.toHaveBeenCalled();
+    remembered.error(new Error('offline'));
+    await fixture.whenStable();
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'current', 'title');
+    expect(Reflect.get(component, 'loading')()).toBe(false);
+    fixture.destroy();
+  });
+
   it('applies the remembered sort when only the filter was chosen early', async () => {
     const remembered = new Subject<unknown>();
     const api = {
@@ -645,50 +774,21 @@ describe('LibraryComponent sort and Continue', () => {
     fixture.destroy();
   });
 
-  it('leaves Continue out when nothing was played in the last two weeks', async () => {
-    const { fixture, continued } = await setup('recent', [
-      row('a', daysAgo(15)),
-      row('b', daysAgo(1), false),
-    ]);
+  it('leaves Continue out when the server offers none', async () => {
+    const { fixture, listed, continued } = await setup('recent', [row('a', daysAgo(15))]);
     expect(continued()).toBeNull();
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a']);
     fixture.destroy();
   });
 });
 
-describe('playedText and continuePiece', () => {
+describe('playedText', () => {
   it('names the day the piece was last played', () => {
     const now = new Date(2026, 9, 3, 0, 30);
     expect(playedText(null, now)).toBe('Not played yet');
     expect(playedText(new Date(2026, 9, 3, 0, 5).toISOString(), now)).toBe('Played today');
     expect(playedText(new Date(2026, 9, 2, 23).toISOString(), now)).toBe('Played yesterday');
     expect(playedText(new Date(2026, 8, 28, 12).toISOString(), now)).toBe('Played 28 Sep 2026');
-  });
-
-  it('picks the latest play within 14 days among pieces with a PDF', () => {
-    const now = new Date(2026, 9, 18, 12);
-    const at = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
-    const pdf = {};
-    expect(continuePiece([], now)).toBeNull();
-    expect(
-      continuePiece(
-        [
-          { id: 'old', pdf, lastPlayedAt: at(14.5) },
-          { id: 'edge', pdf, lastPlayedAt: at(14) },
-        ],
-        now,
-      )?.id,
-    ).toBe('edge');
-    expect(
-      continuePiece(
-        [
-          { id: 'never', pdf, lastPlayedAt: null },
-          { id: 'week', pdf, lastPlayedAt: at(7) },
-          { id: 'no-pdf', pdf: null, lastPlayedAt: at(0) },
-          { id: 'day', pdf, lastPlayedAt: at(1) },
-        ],
-        now,
-      )?.id,
-    ).toBe('day');
   });
 });
 

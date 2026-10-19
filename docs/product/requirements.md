@@ -28,7 +28,8 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   chosen sort and only ever matches the searcher's own pieces.
 - BND-035: Each piece is Learning, Playing or Shelved (new and existing pieces
   start as Playing), separate from Favorite, and its status can be changed from
-  the library row or the details dialog. One library dropdown filters by
+  the library row or the details dialog. One library menu, the same quiet
+  menu as the Sort (green check on the current choice), filters by
   Learning & Playing (the first-time default), All, Favorites, Learning,
   Playing or Shelved. A search never hides a Shelved piece in the default view.
   The library opens on the filter the user last chose, stored on the server so
@@ -38,9 +39,13 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   Recently added or Fresh (least recently played first, never-played pieces
   leading). Favorites are not pinned. A piece's last play is its reader
   state's last save. Under Recently played and Fresh each row says when it was
-  last played. With the search empty, a Continue row offers the piece played
-  most recently, if that was within the last 14 days. The sort is remembered
-  per user on the server, like the filter.
+  last played. With the search empty, a Continue row offers the piece with a
+  PDF played most recently in the whole library, whatever the filter or its
+  status, if that was within the last 14 days. It has the usual row actions
+  (Listen, status, favorite, edit), and the list below leaves that piece out so
+  it never shows twice; while searching there is no Continue row and the piece
+  shows among the results. The sort is remembered per user on the server, like
+  the filter.
 - BND-005: Selecting a piece with a PDF opens its reader directly.
 - BND-006: A user can add or replace the one PDF attached to a piece through
   Prepare (Add PDF, or Edit or replace PDF, in the details dialog). There is no
