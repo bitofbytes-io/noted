@@ -60,6 +60,7 @@ import {
   listeningUrlError,
   playedText,
 } from './library.utils';
+import { fold } from '../../core/search';
 
 interface PieceLoadRequest {
   query: string;
@@ -83,8 +84,8 @@ interface StatusSave {
   control: HTMLSelectElement;
 }
 
-/** The details form always carries a status, unlike an import draft's metadata. */
-type PieceForm = PieceInput & { status: PieceStatus };
+/** The details form always carries a status and aliases, unlike an import draft's metadata. */
+type PieceForm = PieceInput & { status: PieceStatus; aliases: string };
 
 /** The Send to Noted section: no token, a token just created (shown once), or an active one. */
 type ShortcutState = 'loading' | 'none' | 'created' | 'active';
@@ -202,7 +203,8 @@ export class LibraryComponent implements OnDestroy {
         switchMap((request) =>
           defer(() => this.api.pieces(request.query, request.filter, request.sort)).pipe(
             switchMap((pieces) => {
-              const query = request.query.trim();
+              // Punctuation alone folds to no search, as on the server.
+              const query = fold(request.query) ? request.query.trim() : '';
               return pieces.length || request.filter !== 'current' || query
                 ? of<PieceLoadResult>({ pieces, hidden: false, query })
                 : this.api
@@ -381,7 +383,7 @@ export class LibraryComponent implements OnDestroy {
     switch (this.filter) {
       case 'current':
         // A search never hides a shelved piece.
-        return piece.status !== 'shelved' || !!this.query.trim();
+        return piece.status !== 'shelved' || !!fold(this.query);
       case 'all':
         return true;
       case 'favorites':
@@ -577,6 +579,7 @@ export class LibraryComponent implements OnDestroy {
       sourceUrl: piece.sourceUrl,
       listeningUrl: piece.listeningUrl,
       notes: piece.notes,
+      aliases: piece.aliases,
     };
     this.editor?.nativeElement.showModal();
   }
@@ -603,7 +606,8 @@ export class LibraryComponent implements OnDestroy {
       this.form.status !== piece.status ||
       this.form.sourceUrl !== piece.sourceUrl ||
       this.form.listeningUrl.trim() !== piece.listeningUrl ||
-      this.form.notes !== piece.notes
+      this.form.notes !== piece.notes ||
+      this.form.aliases !== piece.aliases
     );
   }
 
@@ -729,5 +733,6 @@ function emptyPiece(): PieceForm {
     sourceUrl: '',
     listeningUrl: '',
     notes: '',
+    aliases: '',
   };
 }

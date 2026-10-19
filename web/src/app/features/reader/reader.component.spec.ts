@@ -167,6 +167,7 @@ describe('ReaderComponent', () => {
             sourceUrl: '',
             listeningUrl: '',
             notes: '',
+            aliases: '',
             createdAt: '',
             updatedAt: '',
             pdf: {

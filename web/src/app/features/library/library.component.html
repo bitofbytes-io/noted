@@ -30,7 +30,7 @@
     <div class="search-row">
       <label class="search">
         <svg lucideSearch aria-hidden="true"></svg>
-        <span class="sr-only">Search by title or composer</span>
+        <span class="sr-only">Search by title, composer, other names or notes</span>
         <input
           type="search"
           placeholder="Search title or composer"
@@ -298,6 +298,18 @@
     <label class="field">
       <span>Composer</span>
       <input name="composer" maxlength="300" [(ngModel)]="form.composer" />
+    </label>
+    <label class="field">
+      <span>Also known as</span>
+      <input
+        name="aliases"
+        maxlength="1000"
+        aria-describedby="aliases-help"
+        [(ngModel)]="form.aliases"
+      />
+      <small id="aliases-help" class="field-help">
+        Other names to search by, such as “Moonlight Sonata”.
+      </small>
     </label>
     <label class="field">
       <span>Source URL</span>
