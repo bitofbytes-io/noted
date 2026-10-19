@@ -1,0 +1,104 @@
+:host {
+  position: relative;
+  display: block;
+  flex: none;
+}
+
+/* As quiet as the metadata it sits beside. */
+.menu-button {
+  gap: 6px;
+  font-size: var(--text-meta);
+  font-weight: 500;
+}
+
+.menu-button svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 150ms ease;
+}
+
+.menu-button[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+/* A small square list, bordered like the dialogs, with no shadow. */
+.menu-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  width: 260px;
+  display: grid;
+  padding: 4px 0;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+}
+
+.menu-options button {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.menu-options button:hover,
+.menu-options button:focus-visible {
+  background: var(--green-soft);
+}
+
+.menu-options button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.menu-options button[aria-checked='true'] {
+  font-weight: 600;
+}
+
+.menu-option {
+  display: grid;
+  gap: 1px;
+}
+
+.menu-option small {
+  color: var(--ink-faint);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.menu-options svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--green);
+}
+
+/* On a phone the menu opens in the flow, pushing what follows down rather
+   than covering it. The host steps aside, so the menu takes the full width of
+   the row it sits in (a wrapping flex row or a grid). */
+@media (max-width: 620px) {
+  :host {
+    display: contents;
+  }
+
+  .menu-button {
+    justify-self: start;
+  }
+
+  .menu-options {
+    position: static;
+    flex: 0 0 100%;
+    width: auto;
+    border-width: 1px 0 0;
+    border-color: var(--line);
+  }
+}

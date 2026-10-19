@@ -102,6 +102,26 @@ describe('ApiService library filter', () => {
     await saved;
     http.verify();
   });
+
+  it('reads the piece to continue, or none', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const api = TestBed.inject(ApiService);
+    const http = TestBed.inject(HttpTestingController);
+
+    const none = firstValueFrom(api.continuePiece());
+    http.expectOne('/api/pieces/continue').flush({ piece: null });
+    await expect(none).resolves.toBeNull();
+
+    const piece = { id: 'p', title: 'Nocturne' };
+    const continued = firstValueFrom(api.continuePiece());
+    const request = http.expectOne('/api/pieces/continue');
+    expect(request.request.method).toBe('GET');
+    request.flush({ piece });
+    await expect(continued).resolves.toEqual(piece);
+    http.verify();
+  });
 });
 
 describe('ApiService shortcut token', () => {

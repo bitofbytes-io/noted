@@ -126,32 +126,6 @@ h1 {
   color: var(--ink-faint);
 }
 
-/* The filter reads like the search beside it: text on a rule, no box. */
-.library-filter {
-  position: relative;
-  display: block;
-  border-bottom: 1px solid var(--line-strong);
-  transition: border-color 150ms ease;
-}
-
-.library-filter:focus-within {
-  border-color: var(--ink);
-}
-
-.library-filter select {
-  min-height: 52px;
-  padding: 0 30px 0 0;
-  border: 0;
-  border-radius: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 17px;
-  appearance: none;
-  cursor: pointer;
-}
-
-.library-filter svg,
 .row-status svg {
   position: absolute;
   top: 50%;
@@ -167,10 +141,7 @@ h1 {
   border-top: 1.5px solid var(--ink);
 }
 
-.results-head {
-  position: relative;
-}
-
+/* Sort sits on the count line, as quiet as the count beside it. */
 .results-count {
   min-height: 44px;
   display: flex;
@@ -183,92 +154,11 @@ h1 {
   border-bottom: 1px solid var(--line);
 }
 
+/* A long search shrinks the count, so on a phone only the open menu wraps. */
 .results-count p {
+  flex: 1 1 0;
   min-width: 0;
   margin: 0;
-}
-
-/* Sort sits on the count line, as quiet as the count beside it. */
-.sort-button {
-  flex: none;
-  gap: 6px;
-  font-size: var(--text-meta);
-  font-weight: 500;
-}
-
-.sort-button svg {
-  width: 16px;
-  height: 16px;
-  transition: transform 150ms ease;
-}
-
-.sort-button[aria-expanded='true'] svg {
-  transform: rotate(180deg);
-}
-
-/* A small square list, bordered like the dialogs, with no shadow. */
-.sort-options {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 10;
-  width: 260px;
-  display: grid;
-  padding: 4px 0;
-  border: 1px solid var(--line-strong);
-  background: var(--paper-raised);
-}
-
-.sort-options button {
-  min-height: var(--tap-min);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 6px 16px;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 15px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.sort-options button:hover,
-.sort-options button:focus-visible {
-  background: var(--green-soft);
-}
-
-.sort-options button:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: -3px;
-}
-
-.sort-options button[aria-checked='true'] {
-  font-weight: 600;
-}
-
-.sort-option {
-  display: grid;
-  gap: 1px;
-}
-
-.sort-option small {
-  color: var(--ink-faint);
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.sort-options svg {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  color: var(--green);
-}
-
-.continue-row .btn-secondary {
-  min-width: 112px;
 }
 
 .piece-row {
@@ -356,6 +246,11 @@ h1 {
 
 .piece-note::before {
   content: ' – ';
+}
+
+.continue-word {
+  color: var(--green);
+  font-weight: 600;
 }
 
 .row-actions {
@@ -712,25 +607,35 @@ h1 {
     gap: 10px;
   }
 
-  /* Under the search, a second rule would be one line too many. */
-  .library-filter {
-    justify-self: start;
-    border-bottom: 0;
-  }
-
-  /* On a phone the menu opens in the flow, pushing the list down rather than
-     covering the Continue row beneath it. */
-  .sort-options {
-    position: static;
-    width: auto;
-    border-width: 0 0 1px;
-    border-color: var(--line);
+  /* The sort menu opens in the flow, on its own line under the count. */
+  .results-count {
+    flex-wrap: wrap;
+    row-gap: 0;
   }
 
   .piece-row {
     grid-template-columns: 48px minmax(0, 1fr);
     gap: 14px;
     padding: 16px 12px;
+  }
+
+  /* Listen, status, favorite and edit fit one line from 375px, Continue's
+     row included, with every target still 44px high. */
+  .row-actions {
+    gap: 0;
+    margin-left: -8px;
+  }
+
+  .listen-action {
+    padding: 0 8px;
+  }
+
+  .row-status select {
+    padding: 0 22px 0 8px;
+  }
+
+  .row-status svg {
+    right: 6px;
   }
 
   .editor {

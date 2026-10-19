@@ -39,15 +39,14 @@
           (ngModelChange)="onSearch()"
         />
       </label>
-      <label class="library-filter">
-        <span class="sr-only">Show</span>
-        <select [ngModel]="filter" (ngModelChange)="chooseFilter($event)">
-          @for (option of libraryFilters; track option.value) {
-            <option [value]="option.value">{{ option.label }}</option>
-          }
-        </select>
-        <svg lucideChevronDown aria-hidden="true"></svg>
-      </label>
+      <app-choice-menu
+        class="filter-menu"
+        name="Show"
+        [showName]="false"
+        [options]="libraryFilters"
+        [value]="filter"
+        (chosen)="chooseFilter($event)"
+      />
     </div>
   </section>
 
@@ -56,93 +55,30 @@
   }
 
   <section class="results" aria-busy="{{ loading() }}">
-    <div class="results-head">
-      <div class="results-count">
-        <p aria-live="polite">
-          @if (!loading()) {
-            {{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}
-            @if (query) {
-              matching “{{ query }}”
-            }
+    <div class="results-count">
+      <p aria-live="polite">
+        @if (!loading()) {
+          {{ pieces().length }} {{ pieces().length === 1 ? 'piece' : 'pieces' }}
+          @if (query) {
+            matching “{{ query }}”
           }
-        </p>
-        <button
-          #sortButton
-          class="btn-quiet sort-button"
-          type="button"
-          aria-haspopup="menu"
-          aria-controls="sort-options"
-          [attr.aria-expanded]="sortOpen()"
-          (click)="toggleSortMenu()"
-          (keydown)="sortButtonKey($event)"
-        >
-          <span>Sort: {{ sortLabel() }}</span>
-          <svg lucideChevronDown aria-hidden="true"></svg>
-        </button>
-      </div>
-      @if (sortOpen()) {
-        <div
-          #sortOptions
-          id="sort-options"
-          class="sort-options"
-          role="menu"
-          aria-label="Sort by"
-          (keydown)="sortMenuKey($event)"
-        >
-          @for (option of librarySorts; track option.value) {
-            <button
-              type="button"
-              role="menuitemradio"
-              tabindex="-1"
-              [attr.aria-checked]="option.value === sort()"
-              (click)="chooseSort(option.value)"
-            >
-              <span class="sort-option">
-                <span>{{ option.label }}</span>
-                @if (option.hint) {
-                  <small>{{ option.hint }}</small>
-                }
-              </span>
-              @if (option.value === sort()) {
-                <svg lucideCheck aria-hidden="true"></svg>
-              }
-            </button>
-          }
-        </div>
-      }
+        }
+      </p>
+      <app-choice-menu
+        class="sort-menu"
+        name="Sort"
+        menuLabel="Sort by"
+        [options]="librarySorts"
+        [value]="sort()"
+        (chosen)="chooseSort($event)"
+      />
     </div>
 
-    @if (!loading() && continueRow(); as piece) {
+    @if (!loading() && continued(); as piece) {
       <section class="piece-list" aria-label="Continue playing">
-        <article
-          class="piece-row continue-row"
-          tabindex="0"
-          (click)="openPiece(piece)"
-          (keydown.enter)="openPieceFromKeyboard(piece, $event)"
-        >
-          <div class="piece-mark" aria-hidden="true">
-            <svg lucideFileText aria-hidden="true"></svg>
-            <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
-          </div>
-          <div class="piece-copy">
-            <h2>{{ piece.title }}</h2>
-            <p>
-              {{ piece.composer || 'Composer unknown' }}
-              <span class="piece-note">{{ playedText(piece.lastPlayedAt) }}</span>
-            </p>
-          </div>
-          <div class="row-actions">
-            <button
-              class="btn-secondary"
-              type="button"
-              [attr.aria-label]="'Continue ' + piece.title"
-              (click)="$event.stopPropagation(); openPiece(piece)"
-              (keydown)="$event.stopPropagation()"
-            >
-              Continue
-            </button>
-          </div>
-        </article>
+        <ng-container
+          *ngTemplateOutlet="pieceRow; context: { $implicit: piece, continuing: true }"
+        />
       </section>
     }
 
@@ -196,85 +132,96 @@
       </div>
     } @else {
       <div class="piece-list">
-        @for (piece of pieces(); track piece.id) {
-          <article
-            class="piece-row"
-            [class.missing-pdf]="!piece.pdf"
-            tabindex="0"
-            (click)="openPiece(piece)"
-            (keydown.enter)="openPieceFromKeyboard(piece, $event)"
-          >
-            <div class="piece-mark" aria-hidden="true">
-              <svg lucideFileText aria-hidden="true"></svg>
-              <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
-            </div>
-            <div class="piece-copy">
-              <h2>{{ piece.title }}</h2>
-              <p>
-                {{ piece.composer || 'Composer unknown' }}
-                @if (!piece.pdf) {
-                  <span class="piece-note">No PDF yet</span>
-                } @else if (showPlayed()) {
-                  <span class="piece-note">{{ playedText(piece.lastPlayedAt) }}</span>
-                }
-              </p>
-            </div>
-            <div class="row-actions">
-              @if (piece.listeningUrl) {
-                <a
-                  class="listen-action"
-                  [href]="piece.listeningUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  [attr.aria-label]="'Listen to ' + piece.title + ' in a new tab'"
-                  title="Listen in a new tab"
-                  (click)="$event.stopPropagation()"
-                  (keydown)="$event.stopPropagation()"
-                >
-                  <svg lucideHeadphones aria-hidden="true"></svg>
-                  <span>Listen</span>
-                </a>
-              }
-              <label class="row-status" (click)="$event.stopPropagation()">
-                <span class="sr-only">Status of {{ piece.title }}</span>
-                <select
-                  [value]="piece.status"
-                  (change)="changeStatus(piece, $any($event.target))"
-                  (keydown)="$event.stopPropagation()"
-                >
-                  @for (option of pieceStatuses; track option.value) {
-                    <option [value]="option.value" [selected]="option.value === piece.status">
-                      {{ option.label }}
-                    </option>
-                  }
-                </select>
-                <svg lucideChevronDown aria-hidden="true"></svg>
-              </label>
-              <button
-                class="icon-button"
-                type="button"
-                [attr.aria-label]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
-                [title]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
-                (click)="toggleFavorite(piece, $event)"
-              >
-                <svg lucideHeart [class.filled-heart]="piece.favorite" aria-hidden="true"></svg>
-              </button>
-              <button
-                class="icon-button"
-                type="button"
-                aria-label="Edit details"
-                title="Edit details"
-                (click)="openEdit(piece, $event)"
-              >
-                <svg lucidePencil aria-hidden="true"></svg>
-              </button>
-            </div>
-          </article>
+        @for (piece of listed(); track piece.id) {
+          <ng-container *ngTemplateOutlet="pieceRow; context: { $implicit: piece }" />
         }
       </div>
     }
   </section>
 </main>
+
+<!-- One library row, used by the list and by Continue, with the same actions. -->
+<ng-template #pieceRow let-piece let-continuing="continuing">
+  <article
+    class="piece-row"
+    [class.missing-pdf]="!piece.pdf"
+    [class.continue-row]="continuing"
+    tabindex="0"
+    (click)="openPiece(piece)"
+    (keydown.enter)="openPieceFromKeyboard(piece, $event)"
+  >
+    <div class="piece-mark" aria-hidden="true">
+      <svg lucideFileText aria-hidden="true"></svg>
+      <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
+    </div>
+    <div class="piece-copy">
+      <h2>{{ piece.title }}</h2>
+      <p>
+        {{ piece.composer || 'Composer unknown' }}
+        @if (continuing) {
+          <span class="piece-note">
+            <strong class="continue-word">Continue</strong>, played
+            {{ lastUsedText(piece.lastPlayedAt) }}
+          </span>
+        } @else if (!piece.pdf) {
+          <span class="piece-note">No PDF yet</span>
+        } @else if (showPlayed()) {
+          <span class="piece-note">{{ playedText(piece.lastPlayedAt) }}</span>
+        }
+      </p>
+    </div>
+    <div class="row-actions">
+      @if (piece.listeningUrl) {
+        <a
+          class="listen-action"
+          [href]="piece.listeningUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          [attr.aria-label]="'Listen to ' + piece.title + ' in a new tab'"
+          title="Listen in a new tab"
+          (click)="$event.stopPropagation()"
+          (keydown)="$event.stopPropagation()"
+        >
+          <svg lucideHeadphones aria-hidden="true"></svg>
+          <span>Listen</span>
+        </a>
+      }
+      <label class="row-status" (click)="$event.stopPropagation()">
+        <span class="sr-only">Status of {{ piece.title }}</span>
+        <select
+          [value]="piece.status"
+          (change)="changeStatus(piece, $any($event.target))"
+          (keydown)="$event.stopPropagation()"
+        >
+          @for (option of pieceStatuses; track option.value) {
+            <option [value]="option.value" [selected]="option.value === piece.status">
+              {{ option.label }}
+            </option>
+          }
+        </select>
+        <svg lucideChevronDown aria-hidden="true"></svg>
+      </label>
+      <button
+        class="icon-button"
+        type="button"
+        [attr.aria-label]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
+        [title]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
+        (click)="toggleFavorite(piece, $event)"
+      >
+        <svg lucideHeart [class.filled-heart]="piece.favorite" aria-hidden="true"></svg>
+      </button>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Edit details"
+        title="Edit details"
+        (click)="openEdit(piece, $event)"
+      >
+        <svg lucidePencil aria-hidden="true"></svg>
+      </button>
+    </div>
+  </article>
+</ng-template>
 
 <dialog #editor class="editor" (cancel)="closeEditor()">
   <form (ngSubmit)="save()">
