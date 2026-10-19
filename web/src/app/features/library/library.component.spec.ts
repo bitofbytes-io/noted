@@ -6,22 +6,45 @@ import { ApiService } from '../../core/api.service';
 import {
   MAX_PREPARED_PAGES,
   Piece,
+  PieceSummary,
   Session,
   ShortcutToken,
   ShortcutTokenCreated,
 } from '../../core/models';
 import { LibraryComponent } from './library.component';
-import { formatDay, lastUsedText, listeningUrlError, playedText } from './library.utils';
+import { formatDay, lastUsedText, listeningUrlError, playedText, summaryOf } from './library.utils';
+
+/** A test piece that is both a whole piece and its library row. */
+type TestPiece = Piece & PieceSummary;
+
+function testPiece(fields: Partial<Piece> & Pick<Piece, 'id' | 'title'>): TestPiece {
+  const piece = {
+    composer: '',
+    favorite: false,
+    status: 'playing',
+    sourceUrl: '',
+    listeningUrl: '',
+    notes: '',
+    aliases: '',
+    createdAt: '2026-10-01T09:00:00Z',
+    updatedAt: '2026-10-01T09:00:00Z',
+    pdf: null,
+    lastPlayedAt: null,
+    ...fields,
+  } as Piece;
+  return { ...piece, searchText: summaryOf(piece).searchText };
+}
 
 describe('LibraryComponent', () => {
-  it('cancels a stale search so it cannot replace newer results', async () => {
-    const stale = new Subject<Piece[]>();
-    const latest = new Subject<Piece[]>();
+  it('lets a newer load replace an older one still running', async () => {
+    const stale = new Subject<PieceSummary[]>();
+    const latest = new Subject<PieceSummary[]>();
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter: 'current' })),
-      pieces: vi.fn().mockReturnValueOnce(stale).mockReturnValueOnce(latest),
+      pieceSummaries: vi.fn().mockReturnValueOnce(stale).mockReturnValueOnce(latest),
+      continuePiece: vi.fn(() => of(null)),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -37,18 +60,89 @@ describe('LibraryComponent', () => {
     const fixture: ComponentFixture<LibraryComponent> = TestBed.createComponent(LibraryComponent);
     fixture.detectChanges();
     const component = fixture.componentInstance;
-    Reflect.set(component, 'query', 'new search');
+    expect(stale.observed).toBe(true);
 
     const latestLoad = component.load();
     expect(stale.observed).toBe(false);
-    const latestPiece = { id: 'latest', title: 'Latest result' } as Piece;
+    const latestPiece = testPiece({ id: 'latest', title: 'Latest result' });
     latest.next([latestPiece]);
     latest.complete();
     await latestLoad;
 
-    stale.next([{ id: 'stale', title: 'Stale result' } as Piece]);
+    stale.next([testPiece({ id: 'stale', title: 'Stale result' })]);
     stale.complete();
-    expect(Reflect.get(component, 'pieces')()).toEqual([latestPiece]);
+    expect(Reflect.get(component, 'visible')()).toEqual([latestPiece]);
+    fixture.destroy();
+  });
+
+  it('filters the loaded library as the search is typed, without asking the server', async () => {
+    const pieces = [
+      testPiece({ id: 'humoresque', title: 'Humoresque', composer: 'Antonín Dvořák' }),
+      testPiece({ id: 'nocturne', title: 'Nocturne in C♯ minor', composer: 'Frédéric Chopin' }),
+      testPiece({
+        id: 'prelude',
+        title: 'Prelude Op. 28 No. 4',
+        composer: 'Frédéric Chopin',
+        notes: 'Keep the left hand quiet',
+      }),
+      testPiece({
+        id: 'shelved',
+        title: 'Gymnopédie No. 1',
+        composer: 'Erik Satie',
+        status: 'shelved',
+      }),
+    ];
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current', librarySort: 'title' })),
+      pieceSummaries: vi.fn(() => of(pieces)),
+      continuePiece: vi.fn(() => of(null)),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const input = root.querySelector('.search input') as HTMLInputElement;
+    const type = (text: string) => {
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      return [...root.querySelectorAll('.piece-row h2')].map((h) => h.textContent);
+    };
+
+    expect(type('')).toEqual(['Humoresque', 'Nocturne in C♯ minor', 'Prelude Op. 28 No. 4']);
+    // Accents fold away, and every word must match, in any field.
+    expect(type('dvorak')).toEqual(['Humoresque']);
+    expect(type('chopin c#')).toEqual(['Nocturne in C♯ minor']);
+    // Notes are searched through the search text the server folded.
+    expect(type('left hand')).toEqual(['Prelude Op. 28 No. 4']);
+    // A search never hides a shelved piece.
+    expect(type('satie')).toEqual(['Gymnopédie No. 1']);
+    expect(root.querySelector('.results-count p')?.textContent?.replace(/\s+/g, ' ')).toContain(
+      '1 piece matching “satie”',
+    );
+    expect(type('chopin waltz')).toEqual([]);
+    expect(root.querySelector('.empty-state h2')?.textContent).toBe('No matching pieces');
+    // A title that starts with the search comes before a match further in.
+    expect(type('no')).toEqual([
+      'Nocturne in C♯ minor',
+      'Gymnopédie No. 1',
+      'Prelude Op. 28 No. 4',
+    ]);
+    expect(api.pieceSummaries).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
 
@@ -57,7 +151,9 @@ describe('LibraryComponent', () => {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter: 'current' })),
-      pieces: vi.fn(() => of([])),
+      pieceSummaries: vi.fn(() => of([])),
+      continuePiece: vi.fn(() => of(null)),
+      piece: vi.fn(),
       createImport: vi.fn(() => of({ id: 'draft-1' })),
       updatePiece: vi.fn(),
     };
@@ -80,19 +176,23 @@ describe('LibraryComponent', () => {
     dialog.showModal = vi.fn();
     dialog.close = vi.fn();
     const piece = (pageCount: number | null) =>
-      ({
+      testPiece({
         id: `piece-${pageCount ?? 'none'}`,
         title: 'Score',
-        composer: '',
-        favorite: false,
-        sourceUrl: '',
-        listeningUrl: '',
-        notes: '',
-        pdf: pageCount === null ? null : { pageCount, contentUrl: '/api/pieces/x/pdf' },
-      }) as Piece;
+        pdf:
+          pageCount === null
+            ? null
+            : ({ pageCount, contentUrl: '/api/pieces/x/pdf' } as Piece['pdf']),
+      });
     const render = () => {
       fixture.componentRef.changeDetectorRef.markForCheck();
       fixture.detectChanges();
+    };
+    // The details form reads the whole piece first.
+    const openEdit = async (whole: TestPiece) => {
+      api.piece.mockReturnValueOnce(of(whole));
+      await component.openEdit(whole);
+      expect(api.piece).toHaveBeenLastCalledWith(whole.id);
     };
     const actions = () =>
       [...fixture.nativeElement.querySelectorAll('.pdf-actions button, .pdf-actions a')].map(
@@ -103,7 +203,7 @@ describe('LibraryComponent', () => {
 
     expect(fixture.nativeElement.querySelector('input[type="file"]')).toBeNull();
 
-    component.openEdit(piece(null));
+    await openEdit(piece(null));
     render();
     expect(actions()).toEqual(['Add PDF']);
     prepareButton().click();
@@ -113,7 +213,7 @@ describe('LibraryComponent', () => {
       queryParams: { source: 'all' },
     });
 
-    component.openEdit(piece(MAX_PREPARED_PAGES));
+    await openEdit(piece(MAX_PREPARED_PAGES));
     render();
     expect(actions()).toEqual(['Edit or replace PDF', 'Download current PDF']);
     expect(fixture.nativeElement.querySelector('#edit-pages-limit')).toBeNull();
@@ -123,7 +223,7 @@ describe('LibraryComponent', () => {
     );
 
     api.createImport.mockClear();
-    component.openEdit(piece(MAX_PREPARED_PAGES + 1));
+    await openEdit(piece(MAX_PREPARED_PAGES + 1));
     render();
     expect(actions()).toEqual(['Download current PDF']);
     expect(fixture.nativeElement.querySelector('#edit-pages-limit').textContent).toContain(
@@ -136,23 +236,20 @@ describe('LibraryComponent', () => {
   });
 
   it('edits the other names a piece is searched by', async () => {
-    const saved = {
+    const saved = testPiece({
       id: 'sonata',
       title: 'Piano Sonata No. 14',
       composer: 'Ludwig van Beethoven',
-      favorite: false,
-      status: 'playing',
-      sourceUrl: '',
-      listeningUrl: '',
-      notes: '',
-      aliases: '',
-      pdf: null,
-    } as Piece;
+      notes: 'Pedal through each bar',
+      sourceUrl: 'https://example.test/sonata',
+    });
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter: 'current' })),
-      pieces: vi.fn(() => of([saved])),
+      pieceSummaries: vi.fn(() => of([saved])),
+      continuePiece: vi.fn(() => of(null)),
+      piece: vi.fn(() => of({ ...saved, aliases: 'Moonlight' })),
       updatePiece: vi.fn((_id: string, input: Partial<Piece>) => of({ ...saved, ...input })),
       createPiece: vi.fn((input: Partial<Piece>) => of({ ...saved, ...input, id: 'new' })),
     };
@@ -176,18 +273,29 @@ describe('LibraryComponent', () => {
     const aliasesInput = () =>
       fixture.nativeElement.querySelector('input[name="aliases"]') as HTMLInputElement;
 
-    component.openEdit({ ...saved, aliases: 'Moonlight' });
-    fixture.componentRef.changeDetectorRef.markForCheck();
-    fixture.detectChanges();
+    // A library row has no notes or source; the form reads them from the whole piece.
+    await component.openEdit(saved);
+    expect(api.piece).toHaveBeenCalledWith('sonata');
+    // The form fills itself once the whole piece arrives, with no change detection forced here.
     await fixture.whenStable();
     expect(aliasesInput().value).toBe('Moonlight');
+    expect(
+      (fixture.nativeElement.querySelector('textarea[name="notes"]') as HTMLTextAreaElement).value,
+    ).toBe('Pedal through each bar');
+    expect(fixture.nativeElement.querySelector('.editor-head h2').textContent).toBe(
+      'Piano Sonata No. 14',
+    );
+    expect(Reflect.get(component, 'form').notes).toBe('Pedal through each bar');
+    expect(Reflect.get(component, 'form').sourceUrl).toBe('https://example.test/sonata');
     aliasesInput().value = 'Moonlight Sonata';
     aliasesInput().dispatchEvent(new Event('input'));
     await component.save();
     expect(api.updatePiece).toHaveBeenCalledWith(
       'sonata',
-      expect.objectContaining({ aliases: 'Moonlight Sonata' }),
+      expect.objectContaining({ aliases: 'Moonlight Sonata', notes: 'Pedal through each bar' }),
     );
+    // Saving reloads the library from the server.
+    expect(api.pieceSummaries).toHaveBeenCalledTimes(2);
 
     component.openCreate();
     expect(Reflect.get(component, 'form').aliases).toBe('');
@@ -195,13 +303,14 @@ describe('LibraryComponent', () => {
   });
 
   it('treats a search of punctuation alone as no search', async () => {
-    const shelved = { id: 'shelved', title: 'Shelved', status: 'shelved' } as Piece;
+    // The default view is empty, but the binder holds a shelved piece.
+    const shelved = testPiece({ id: 'shelved', title: 'Shelved', status: 'shelved' });
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter: 'current' })),
-      // The default view is empty, but the binder holds a shelved piece.
-      pieces: vi.fn((_query: string, filter: string) => of(filter === 'all' ? [shelved] : [])),
+      pieceSummaries: vi.fn(() => of([shelved])),
+      continuePiece: vi.fn(() => of(null)),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -218,12 +327,19 @@ describe('LibraryComponent', () => {
     fixture.detectChanges();
     const component = fixture.componentInstance;
 
-    Reflect.set(component, 'query', ' % ');
-    await component.load();
+    const query = Reflect.get(component, 'query');
+    query.set(' % ');
     expect(Reflect.get(component, 'onlyShelved')()).toBe(true);
+    expect(Reflect.get(component, 'visible')()).toEqual([]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.results-count p')?.textContent).not.toContain('matching');
+    expect(root.querySelector('.empty-state h2')?.textContent).toBe(
+      'Nothing in Learning or Playing',
+    );
 
-    Reflect.set(component, 'query', 'Dvořák');
-    await component.load();
+    query.set('Dvořák');
     expect(Reflect.get(component, 'onlyShelved')()).toBe(false);
     fixture.destroy();
   });
@@ -231,26 +347,17 @@ describe('LibraryComponent', () => {
 
 describe('LibraryComponent status and filter', () => {
   const row = (id: string, status: Piece['status'], favorite = false) =>
-    ({
-      id,
-      title: `Piece ${id}`,
-      composer: '',
-      favorite,
-      status,
-      sourceUrl: '',
-      listeningUrl: '',
-      notes: '',
-      aliases: '',
-      pdf: null,
-    }) as Piece;
+    testPiece({ id, title: `Piece ${id}`, status, favorite });
 
-  async function setup(libraryFilter: string, rows: Piece[], all: Piece[] = rows) {
+  /** `rows` is the whole library, which the component filters itself. */
+  async function setup(libraryFilter: string, rows: TestPiece[]) {
     const api = {
       session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter })),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
-      pieces: vi.fn((_query: string, filter: string) => of(filter === 'all' ? all : rows)),
+      pieceSummaries: vi.fn(() => of(rows)),
+      continuePiece: vi.fn(() => of(null)),
       updatePiece: vi.fn((id: string, change: Partial<Piece>) =>
         of({ ...rows.find((piece) => piece.id === id)!, ...change }),
       ),
@@ -280,11 +387,15 @@ describe('LibraryComponent status and filter', () => {
   }
 
   it('opens on the remembered filter and remembers a new choice from the menu', async () => {
-    const { fixture, api, root, render } = await setup('favorites', [row('a', 'shelved', true)]);
+    const { fixture, api, root, render, titles } = await setup('favorites', [
+      row('a', 'shelved', true),
+      row('b', 'playing'),
+      row('c', 'shelved'),
+    ]);
     const button = () => root.querySelector('.filter-menu .menu-button') as HTMLButtonElement;
     const options = () =>
       [...root.querySelectorAll('.filter-menu .menu-options button')] as HTMLElement[];
-    expect(api.pieces).toHaveBeenCalledWith('', 'favorites', 'title');
+    expect(titles()).toEqual(['Piece a']);
     // The button shows only the choice; assistive technology hears "Show: Favorites".
     expect(button().textContent?.trim()).toBe('Show: Favorites');
     expect(button().querySelector('.sr-only')?.textContent).toBe('Show: ');
@@ -314,12 +425,12 @@ describe('LibraryComponent status and filter', () => {
     expect(button().textContent?.trim()).toBe('Show: Shelved');
     expect(document.activeElement).toBe(button());
     expect(api.savePreferences).toHaveBeenCalledWith({ libraryFilter: 'shelved' });
-    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved', 'title');
+    // The library filters what it loaded; it does not ask the server again.
+    expect(titles()).toEqual(['Piece a', 'Piece c']);
+    expect(api.pieceSummaries).toHaveBeenCalledTimes(1);
 
-    // Choosing the current filter again neither lists nor saves.
-    const listings = api.pieces.mock.calls.length;
+    // Choosing the current filter again does not save.
     await fixture.componentInstance.chooseFilter('shelved');
-    expect(api.pieces).toHaveBeenCalledTimes(listings);
     expect(api.savePreferences).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
@@ -388,7 +499,7 @@ describe('LibraryComponent status and filter', () => {
 
   it('saves rapid status changes on a row in order and never shows a stale reply', async () => {
     const { fixture, api, root, render } = await setup('all', [row('a', 'playing')]);
-    const inFlight = new Subject<Piece>();
+    const inFlight = new Subject<TestPiece>();
     api.updatePiece.mockImplementationOnce(() => inFlight);
     const select = () => root.querySelector('.row-status select') as HTMLSelectElement;
     const choose = async (status: string) => {
@@ -430,7 +541,7 @@ describe('LibraryComponent status and filter', () => {
   });
 
   it('says when the default view is empty only because everything is shelved', async () => {
-    const { fixture, root } = await setup('current', [], [row('a', 'shelved')]);
+    const { fixture, root } = await setup('current', [row('a', 'shelved')]);
     expect(root.querySelector('.empty-state h2')?.textContent).toBe(
       'Nothing in Learning or Playing',
     );
@@ -449,21 +560,16 @@ describe('LibraryComponent sort and Continue', () => {
   const NOW = new Date(2026, 9, 18, 20);
   const daysAgo = (days: number) => new Date(NOW.getTime() - days * 86_400_000).toISOString();
   const row = (id: string, lastPlayedAt: string | null, pdf = true) =>
-    ({
+    testPiece({
       id,
       title: `Piece ${id}`,
       composer: 'Claude Debussy',
-      favorite: false,
-      status: 'playing',
-      sourceUrl: '',
-      listeningUrl: '',
-      notes: '',
-      pdf: pdf ? { pageCount: 2, contentUrl: `/api/pieces/${id}/pdf` } : null,
+      pdf: pdf ? ({ pageCount: 2, contentUrl: `/api/pieces/${id}/pdf` } as Piece['pdf']) : null,
       lastPlayedAt,
-    }) as Piece;
+    });
 
-  /** `offered` is the piece the server offers to continue. */
-  async function setup(librarySort: string, rows: Piece[], offered: Piece | null = null) {
+  /** `rows` is the whole library; `offered` is the piece the server offers to continue. */
+  async function setup(librarySort: string, rows: TestPiece[], offered: TestPiece | null = null) {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW);
     const api = {
@@ -471,7 +577,7 @@ describe('LibraryComponent sort and Continue', () => {
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter: 'current', librarySort })),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
-      pieces: vi.fn(() => of(rows)),
+      pieceSummaries: vi.fn(() => of(rows)),
       continuePiece: vi.fn(() => of(offered)),
       updatePiece: vi.fn((id: string, change: Partial<Piece>) =>
         of({ ...[offered, ...rows].find((piece) => piece?.id === id)!, ...change }),
@@ -510,8 +616,11 @@ describe('LibraryComponent sort and Continue', () => {
   }
 
   it('opens on the remembered sort and remembers a new one from the menu', async () => {
-    const { fixture, api, render, sortButton, options } = await setup('composer', [row('a', null)]);
-    expect(api.pieces).toHaveBeenCalledWith('', 'current', 'composer');
+    const { fixture, api, render, sortButton, options, listed } = await setup('composer', [
+      row('a', null),
+      testPiece({ ...row('b', daysAgo(2)), composer: 'Johann Sebastian Bach' }),
+    ]);
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece b', 'Piece a']);
     expect(sortButton().textContent).toContain('Sort: Composer');
     expect(options()).toEqual([]);
 
@@ -539,7 +648,9 @@ describe('LibraryComponent sort and Continue', () => {
     expect(sortButton().textContent).toContain('Sort: Fresh');
     expect(document.activeElement).toBe(sortButton());
     expect(api.savePreferences).toHaveBeenCalledWith({ librarySort: 'fresh' });
-    expect(api.pieces).toHaveBeenLastCalledWith('', 'current', 'fresh');
+    // Never played first, sorted here without asking the server again.
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b']);
+    expect(api.pieceSummaries).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
 
@@ -579,6 +690,14 @@ describe('LibraryComponent sort and Continue', () => {
     await fixture.componentInstance.chooseSort('fresh');
     await render();
     expect(listed().map((piece) => piece.note)).toEqual([
+      'Not played yet',
+      'Played 15 Oct 2026',
+      'Played today',
+      'No PDF yet',
+    ]);
+    await fixture.componentInstance.chooseSort('recent');
+    await render();
+    expect(listed().map((piece) => piece.note)).toEqual([
       'Played today',
       'Played 15 Oct 2026',
       'Not played yet',
@@ -588,7 +707,7 @@ describe('LibraryComponent sort and Continue', () => {
   });
 
   it('offers Continue with the usual row actions, and lists the piece only once', async () => {
-    const b = { ...row('b', daysAgo(1)), listeningUrl: 'https://example.test/b' };
+    const b = testPiece({ ...row('b', daysAgo(1)), listeningUrl: 'https://example.test/b' });
     const rows = [row('a', daysAgo(3)), b, row('c', null)];
     const { fixture, api, root, render, listed, continued } = await setup('title', rows, b);
     expect(continued()).toBe('Piece b');
@@ -616,25 +735,26 @@ describe('LibraryComponent sort and Continue', () => {
     ).not.toBeNull();
 
     // While searching there is no Continue, so the piece shows in the results.
-    api.continuePiece.mockClear();
-    Reflect.set(fixture.componentInstance, 'query', 'piece');
-    await fixture.componentInstance.load();
+    Reflect.get(fixture.componentInstance, 'query').set('piece');
     await render();
-    expect(api.continuePiece).not.toHaveBeenCalled();
     expect(continued()).toBeNull();
-    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece b', 'Piece a', 'Piece c']);
+    // Clearing the search brings Continue back without asking the server again.
+    Reflect.get(fixture.componentInstance, 'query').set('');
+    await render();
+    expect(continued()).toBe('Piece b');
+    expect(api.continuePiece).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
 
   it('continues a piece from outside the filter, and keeps it there when its status changes', async () => {
     // Learning & Playing lists only "a"; the shelved "s" was played yesterday.
-    const shelved = { ...row('s', daysAgo(1)), status: 'shelved' } as Piece;
+    const shelved = testPiece({ ...row('s', daysAgo(1)), status: 'shelved' });
     const { fixture, api, root, render, listed, continued } = await setup(
       'title',
-      [row('a', daysAgo(3))],
+      [row('a', daysAgo(3)), shelved],
       shelved,
     );
-    expect(api.pieces).toHaveBeenCalledWith('', 'current', 'title');
     expect(continued()).toBe('Piece s');
     expect(listed().map((piece) => piece.title)).toEqual(['Piece a']);
     expect(root.querySelector('.results-count p')?.textContent).toContain('1 piece');
@@ -681,7 +801,8 @@ describe('LibraryComponent sort and Continue', () => {
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => remembered),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
-      pieces: vi.fn(() => of([row('a', null)])),
+      pieceSummaries: vi.fn(() => of([row('a', null)])),
+      continuePiece: vi.fn(() => of(null)),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -705,7 +826,8 @@ describe('LibraryComponent sort and Continue', () => {
     remembered.next({ libraryFilter: 'favorites', librarySort: 'composer' });
     remembered.complete();
     await fixture.whenStable();
-    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved', 'title');
+    expect(Reflect.get(component, 'filter')()).toBe('shelved');
+    expect(Reflect.get(component, 'sort')()).toBe('title');
     fixture.destroy();
   });
 
@@ -716,7 +838,7 @@ describe('LibraryComponent sort and Continue', () => {
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => remembered),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
-      pieces: vi.fn(() => of([row('a', null)])),
+      pieceSummaries: vi.fn(() => of([row('a', null)])),
       continuePiece: vi.fn(() => of(null)),
     };
     await TestBed.configureTestingModule({
@@ -735,11 +857,15 @@ describe('LibraryComponent sort and Continue', () => {
     const component = fixture.componentInstance;
     await component.chooseFilter('current');
     await component.chooseSort('title');
-    expect(api.pieces).not.toHaveBeenCalled();
+    // The library has loaded, but waits on the remembered filter and sort to list.
+    expect(api.pieceSummaries).toHaveBeenCalledTimes(1);
+    expect(Reflect.get(component, 'loading')()).toBe(true);
     remembered.error(new Error('offline'));
     await fixture.whenStable();
-    expect(api.pieces).toHaveBeenLastCalledWith('', 'current', 'title');
     expect(Reflect.get(component, 'loading')()).toBe(false);
+    expect(Reflect.get(component, 'visible')().map((piece: PieceSummary) => piece.id)).toEqual([
+      'a',
+    ]);
     fixture.destroy();
   });
 
@@ -750,7 +876,8 @@ describe('LibraryComponent sort and Continue', () => {
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => remembered),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
-      pieces: vi.fn(() => of([row('a', null)])),
+      pieceSummaries: vi.fn(() => of([row('a', null)])),
+      continuePiece: vi.fn(() => of(null)),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -765,11 +892,13 @@ describe('LibraryComponent sort and Continue', () => {
     }).compileComponents();
     const fixture = TestBed.createComponent(LibraryComponent);
     fixture.detectChanges();
-    await fixture.componentInstance.chooseFilter('all');
+    const component = fixture.componentInstance;
+    await component.chooseFilter('all');
     remembered.next({ libraryFilter: 'favorites', librarySort: 'composer' });
     remembered.complete();
     await fixture.whenStable();
-    expect(api.pieces).toHaveBeenLastCalledWith('', 'all', 'composer');
+    expect(Reflect.get(component, 'filter')()).toBe('all');
+    expect(Reflect.get(component, 'sort')()).toBe('composer');
     expect(api.savePreferences.mock.calls).toEqual([[{ libraryFilter: 'all' }]]);
     fixture.destroy();
   });
@@ -825,7 +954,8 @@ describe('LibraryComponent account dialog', () => {
       session: vi.fn(() => of(session)),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of({ libraryFilter: 'current' })),
-      pieces: vi.fn(() => of([])),
+      pieceSummaries: vi.fn(() => of([])),
+      continuePiece: vi.fn(() => of(null)),
       logout: vi.fn(() => of(undefined)),
       shortcutToken: vi.fn(() => of(status)),
       createShortcutToken: vi.fn(() => {

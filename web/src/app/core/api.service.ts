@@ -2,10 +2,9 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 import {
-  LibraryFilter,
-  LibrarySort,
   Piece,
   PieceInput,
+  PieceSummary,
   Preferences,
   ReaderState,
   Session,
@@ -86,22 +85,11 @@ export class ApiService {
     return this.http.delete<void>('/api/account/shortcut-token');
   }
 
-  /**
-   * Without a status the API lists Learning and Playing, or every status while
-   * searching, so the default filter sends none. Title is the API's default sort.
-   */
-  pieces(
-    query = '',
-    filter: LibraryFilter = 'current',
-    sort: LibrarySort = 'title',
-  ): Observable<Piece[]> {
-    let params = new HttpParams();
-    if (query.trim()) params = params.set('q', query.trim());
-    if (filter === 'favorites') params = params.set('favorite', 'true');
-    if (filter === 'all' || filter === 'favorites') params = params.set('status', 'all');
-    else if (filter !== 'current') params = params.set('status', filter);
-    if (sort !== 'title') params = params.set('sort', sort);
-    return this.http.get<Piece[]>('/api/pieces/', { params });
+  /** Every piece of the user's library, as summaries the library filters and sorts itself. */
+  pieceSummaries(): Observable<PieceSummary[]> {
+    return this.http.get<PieceSummary[]>('/api/pieces/', {
+      params: new HttpParams().set('fields', 'summary').set('status', 'all'),
+    });
   }
 
   /** The piece to continue: the latest played in two weeks, from the whole library. */

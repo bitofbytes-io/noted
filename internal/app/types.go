@@ -38,6 +38,30 @@ type Piece struct {
 	Aliases string `json:"aliases"`
 }
 
+// PieceSummary is a library row without the notes, for GET /api/pieces/?fields=summary.
+// The library loads every piece once as summaries and filters them in the browser,
+// so SearchText, the stored folded title, composer, aliases and notes, stands in
+// for the notes there. GET /api/pieces/{id}/ has the whole piece.
+type PieceSummary struct {
+	ID           string      `json:"id"`
+	Title        string      `json:"title"`
+	Composer     string      `json:"composer"`
+	Aliases      string      `json:"aliases"`
+	Favorite     bool        `json:"favorite"`
+	Status       string      `json:"status"`
+	ListeningURL string      `json:"listeningUrl"`
+	PDF          *SummaryPDF `json:"pdf"`
+	LastPlayedAt *time.Time  `json:"lastPlayedAt"`
+	CreatedAt    time.Time   `json:"createdAt"`
+	SearchText   string      `json:"searchText"`
+}
+
+// SummaryPDF is as much of a piece's PDF as a library row needs.
+type SummaryPDF struct {
+	PageCount  int    `json:"pageCount"`
+	ContentURL string `json:"contentUrl"`
+}
+
 type PieceInput struct {
 	Title    string `json:"title"`
 	Composer string `json:"composer"`

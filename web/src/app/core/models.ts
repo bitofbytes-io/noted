@@ -88,6 +88,27 @@ export interface Piece {
   lastPlayedAt: string | null;
 }
 
+/**
+ * A library row: the piece without its notes or source, with `searchText`, the
+ * server's folded title, composer, aliases and notes, to filter by. The
+ * library loads every piece once this way; the details form loads the whole piece.
+ */
+export type PieceSummary = Pick<
+  Piece,
+  | 'id'
+  | 'title'
+  | 'composer'
+  | 'aliases'
+  | 'favorite'
+  | 'status'
+  | 'listeningUrl'
+  | 'lastPlayedAt'
+  | 'createdAt'
+> & {
+  pdf: Pick<PiecePdf, 'pageCount' | 'contentUrl'> | null;
+  searchText: string;
+};
+
 export interface PieceInput {
   title: string;
   composer: string;
