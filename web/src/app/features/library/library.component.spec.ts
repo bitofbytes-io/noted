@@ -704,6 +704,40 @@ describe('LibraryComponent sort and Continue', () => {
     fixture.destroy();
   });
 
+  it('still lists when the shown filter or sort is chosen early and the preferences fail', async () => {
+    const remembered = new Subject<unknown>();
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => remembered),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn(() => of([row('a', null)])),
+      continuePiece: vi.fn(() => of(null)),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    await component.chooseFilter('current');
+    await component.chooseSort('title');
+    expect(api.pieces).not.toHaveBeenCalled();
+    remembered.error(new Error('offline'));
+    await fixture.whenStable();
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'current', 'title');
+    expect(Reflect.get(component, 'loading')()).toBe(false);
+    fixture.destroy();
+  });
+
   it('applies the remembered sort when only the filter was chosen early', async () => {
     const remembered = new Subject<unknown>();
     const api = {

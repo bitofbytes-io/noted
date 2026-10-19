@@ -257,7 +257,9 @@ export class LibraryComponent implements OnDestroy {
       },
       error: () => {
         this.preferencesLoaded = true;
-        if (!this.filterChosen && !this.sortChosen) void this.load();
+        // Lists even after an early choice: choosing the filter or sort already
+        // shown lists nothing by itself, and a newer listing replaces an older.
+        void this.load();
       },
     });
   }
