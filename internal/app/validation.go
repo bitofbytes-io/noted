@@ -45,8 +45,8 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 	if len(input.Notes) > 10000 {
 		return input, invalid("notes must be at most 10000 characters")
 	}
-	// Empty only in import draft metadata; CreatePiece defaults it to playing.
-	if input.Status != "" && !validStatus(input.Status) {
+	// Absent in import draft metadata; CreatePiece defaults it to playing.
+	if input.Status != nil && !validStatus(*input.Status) {
 		return input, invalid("status must be learning, playing or shelved")
 	}
 	return input, nil

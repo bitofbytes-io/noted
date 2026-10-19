@@ -301,7 +301,7 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 		return d, err
 	}
 	// Status is set from the library; finalizing a draft never changes it.
-	if metadata.Status != "" {
+	if metadata.Status != nil {
 		return d, invalid("a draft cannot set the piece status")
 	}
 	if err = validateIMSLPAutoFill(input.Metadata, input.IMSLPAutoFill); err != nil {

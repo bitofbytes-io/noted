@@ -36,12 +36,13 @@ type PieceInput struct {
 	Title    string `json:"title"`
 	Composer string `json:"composer"`
 	Favorite bool   `json:"favorite"`
-	// Status is optional on create and defaults to playing. Import drafts cannot
-	// set it, so finalizing one leaves the piece's status as it was.
-	Status       string `json:"status,omitempty"`
-	SourceURL    string `json:"sourceUrl"`
-	ListeningURL string `json:"listeningUrl"`
-	Notes        string `json:"notes"`
+	// Status is optional on create: absent defaults to playing, while an explicit
+	// empty status is rejected. Import drafts cannot set it, so finalizing one
+	// leaves the piece's status as it was.
+	Status       *string `json:"status,omitempty"`
+	SourceURL    string  `json:"sourceUrl"`
+	ListeningURL string  `json:"listeningUrl"`
+	Notes        string  `json:"notes"`
 }
 
 type PiecePatch struct {

@@ -111,8 +111,9 @@ func (s *Service) GetPiece(ctx context.Context, userID, id string) (Piece, error
 }
 
 func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInput) (Piece, error) {
-	if input.Status == "" {
-		input.Status = StatusPlaying
+	if input.Status == nil {
+		playing := StatusPlaying
+		input.Status = &playing
 	}
 	input, err := validatePiece(input)
 	if err != nil {
@@ -124,7 +125,7 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 		INSERT INTO pieces
 			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		id, userID, input.Title, input.Composer, input.Favorite, input.Status, input.SourceURL,
+		id, userID, input.Title, input.Composer, input.Favorite, *input.Status, input.SourceURL,
 		input.ListeningURL, input.Notes,
 	).Scan(&id)
 	if err != nil {
@@ -152,7 +153,7 @@ func (s *Service) UpdatePiece(
 	}
 	input := PieceInput{
 		Title: current.Title, Composer: current.Composer, Favorite: current.Favorite,
-		Status: current.Status, SourceURL: current.SourceURL, ListeningURL: current.ListeningURL,
+		Status: &current.Status, SourceURL: current.SourceURL, ListeningURL: current.ListeningURL,
 		Notes: current.Notes,
 	}
 	if patch.Title != nil {
@@ -165,11 +166,7 @@ func (s *Service) UpdatePiece(
 		input.Favorite = *patch.Favorite
 	}
 	if patch.Status != nil {
-		// An explicit empty status is a mistake, not a request for the default.
-		if !validStatus(*patch.Status) {
-			return Piece{}, invalid("status must be learning, playing or shelved")
-		}
-		input.Status = *patch.Status
+		input.Status = patch.Status
 	}
 	if patch.SourceURL != nil {
 		input.SourceURL = *patch.SourceURL
@@ -188,7 +185,7 @@ func (s *Service) UpdatePiece(
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
 			listening_url=$6, notes=$7, status=$9, updated_at=now() WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
-		input.ListeningURL, input.Notes, userID, input.Status)
+		input.ListeningURL, input.Notes, userID, *input.Status)
 	if err != nil {
 		return Piece{}, err
 	}

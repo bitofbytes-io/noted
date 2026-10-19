@@ -48,9 +48,13 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 	if err != nil || playing.Status != app.StatusPlaying {
 		t.Fatalf("default status piece = %+v, error = %v", playing, err)
 	}
-	learning, err := service.CreatePiece(ctx, owner.ID, app.PieceInput{Title: "Nocturne", Composer: "Chopin", Status: "learning"})
+	learningStatus, empty := app.StatusLearning, ""
+	learning, err := service.CreatePiece(ctx, owner.ID, app.PieceInput{Title: "Nocturne", Composer: "Chopin", Status: &learningStatus})
 	if err != nil || learning.Status != app.StatusLearning {
 		t.Fatalf("learning piece = %+v, error = %v", learning, err)
+	}
+	if _, err := service.CreatePiece(ctx, owner.ID, app.PieceInput{Title: "Etude", Status: &empty}); err == nil {
+		t.Fatal("expected an explicitly empty status on create to fail")
 	}
 	shelved, err := service.CreatePiece(ctx, owner.ID, app.PieceInput{Title: "Prelude", Composer: "Chopin", Favorite: true})
 	if err != nil {
@@ -64,7 +68,6 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 		shelved.Status != app.StatusShelved || !shelved.Favorite || shelved.Title != "Prelude" {
 		t.Fatalf("shelved piece = %+v, error = %v", shelved, err)
 	}
-	empty := ""
 	if _, err := service.UpdatePiece(ctx, owner.ID, shelved.ID, app.PiecePatch{Status: &empty}); err == nil {
 		t.Fatal("expected an empty status patch to fail")
 	}
@@ -116,7 +119,7 @@ func TestIntegrationPieceStatusAndLibraryFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := service.UpdateImport(ctx, owner.ID, draft.ID, app.UpdateImport{
-		Revision: draft.Revision, Metadata: app.PieceInput{Title: "Prelude", Status: "learning"},
+		Revision: draft.Revision, Metadata: app.PieceInput{Title: "Prelude", Status: &learningStatus},
 		Manifest: draft.Manifest,
 	}); err == nil {
 		t.Fatal("expected a draft that sets the status to fail")

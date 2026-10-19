@@ -38,11 +38,17 @@ func TestValidation(t *testing.T) {
 	}); err == nil || err.Error() != "listening URL must be at most 2000 characters" {
 		t.Fatalf("oversized listening URL validation error = %v", err)
 	}
-	if piece, err := validatePiece(PieceInput{Title: "Piece", Status: "shelved"}); err != nil || piece.Status != "shelved" {
+	shelved, archived, empty := "shelved", "archived", ""
+	if piece, err := validatePiece(PieceInput{Title: "Piece", Status: &shelved}); err != nil || *piece.Status != "shelved" {
 		t.Fatalf("shelved status: %+v %v", piece, err)
 	}
-	if _, err := validatePiece(PieceInput{Title: "Piece", Status: "archived"}); err == nil {
-		t.Fatal("expected unknown status to fail")
+	if piece, err := validatePiece(PieceInput{Title: "Piece"}); err != nil || piece.Status != nil {
+		t.Fatalf("absent status should stay absent for the caller to default: %+v %v", piece, err)
+	}
+	for _, status := range []*string{&archived, &empty} {
+		if _, err := validatePiece(PieceInput{Title: "Piece", Status: status}); err == nil {
+			t.Fatalf("expected status %q to fail", *status)
+		}
 	}
 	for _, filter := range []string{"current", "all", "favorites", "learning", "playing", "shelved"} {
 		if err := validatePreferences(Preferences{LibraryFilter: filter}); err != nil {

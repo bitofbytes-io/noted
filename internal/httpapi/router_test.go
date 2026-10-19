@@ -394,7 +394,7 @@ func TestCreateAndPatchPassStatus(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/pieces/", strings.NewReader(`{"title":"Prelude","status":"learning"}`))
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
-	if response.Code != http.StatusCreated || fake.createInput.Status != "learning" {
+	if response.Code != http.StatusCreated || fake.createInput.Status == nil || *fake.createInput.Status != "learning" {
 		t.Fatalf("create: %d %+v", response.Code, fake.createInput)
 	}
 	request = httptest.NewRequest(http.MethodPatch, "/api/pieces/"+testPieceID+"/", strings.NewReader(`{"status":"shelved"}`))
