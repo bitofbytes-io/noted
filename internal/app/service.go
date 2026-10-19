@@ -126,6 +126,30 @@ func (s *Service) ListPieces(ctx context.Context, userID string, options ListOpt
 	return pieces, nil
 }
 
+// ContinueWithinDays is how recently a piece must have been played for the
+// library to offer it under Continue.
+const ContinueWithinDays = 14
+
+// ContinuePiece is the user's most recently played piece with a PDF, from the
+// whole library whatever its status, if it was played in the last
+// ContinueWithinDays days; nil otherwise.
+func (s *Service) ContinuePiece(ctx context.Context, userID string) (*Piece, error) {
+	piece, err := scanPiece(s.pool.QueryRow(ctx, `
+		SELECT `+pieceColumns+`
+		FROM `+pieceTables+`
+		WHERE p.user_id=$1 AND f.piece_id IS NOT NULL
+			AND r.updated_at >= now() - make_interval(days => $2)
+		ORDER BY r.updated_at DESC, `+titleOrder+`
+		LIMIT 1`, userID, ContinueWithinDays))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &piece, nil
+}
+
 func (s *Service) GetPiece(ctx context.Context, userID, id string) (Piece, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+pieceColumns+`

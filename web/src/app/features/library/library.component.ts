@@ -1,7 +1,6 @@
 import {
   Component,
   ElementRef,
-  Injector,
   computed,
   OnDestroy,
   ViewChild,
@@ -9,10 +8,10 @@ import {
   signal,
   afterNextRender,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
-  LucideCheck,
   LucideChevronDown,
   LucideDownload,
   LucideFileText,
@@ -31,6 +30,7 @@ import {
   defer,
   finalize,
   firstValueFrom,
+  forkJoin,
   map,
   of,
   switchMap,
@@ -53,14 +53,9 @@ import {
   ShortcutToken,
   ShortcutTokenCreated,
 } from '../../core/models';
-import {
-  continuePiece,
-  formatDay,
-  lastUsedText,
-  listeningUrlError,
-  playedText,
-} from './library.utils';
+import { formatDay, lastUsedText, listeningUrlError, playedText } from './library.utils';
 import { fold } from '../../core/search';
+import { ChoiceMenuComponent } from './choice-menu.component';
 
 interface PieceLoadRequest {
   query: string;
@@ -71,9 +66,10 @@ interface PieceLoadRequest {
 
 /**
  * `hidden` is set when the default view is empty only because everything is
- * shelved; `query` is the search the pieces were listed for.
+ * shelved; `continued` is the piece to continue, never offered while searching.
  */
-type PieceLoadResult = { pieces: Piece[]; hidden: boolean; query: string } | { error: unknown };
+type PieceLoadResult =
+  { pieces: Piece[]; hidden: boolean; continued: Piece | null } | { error: unknown };
 
 /** One row's status saves: the latest choice, the last saved row, and the save queue. */
 interface StatusSave {
@@ -93,8 +89,9 @@ type ShortcutState = 'loading' | 'none' | 'created' | 'active';
 @Component({
   selector: 'app-library',
   imports: [
+    ChoiceMenuComponent,
     FormsModule,
-    LucideCheck,
+    NgTemplateOutlet,
     LucideChevronDown,
     LucideDownload,
     LucideFileText,
@@ -108,9 +105,6 @@ type ShortcutState = 'loading' | 'none' | 'created' | 'active';
   ],
   templateUrl: './library.component.html',
   styleUrl: './library.component.scss',
-  host: {
-    '(document:click)': 'closeSortMenuOutside($event)',
-  },
 })
 export class LibraryComponent implements OnDestroy {
   protected readonly drafts = signal<ImportDraft[]>([]);
@@ -118,36 +112,32 @@ export class LibraryComponent implements OnDestroy {
   @ViewChild('editor') private editor?: ElementRef<HTMLDialogElement>;
   @ViewChild('account') private account?: ElementRef<HTMLDialogElement>;
   @ViewChild('tokenText') private tokenText?: ElementRef<HTMLElement>;
-  @ViewChild('sortButton') private sortButton?: ElementRef<HTMLButtonElement>;
-  @ViewChild('sortOptions') private sortOptions?: ElementRef<HTMLElement>;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  private readonly injector = inject(Injector);
   protected readonly libraryFilters = LIBRARY_FILTERS;
   protected readonly librarySorts = LIBRARY_SORTS;
   protected readonly pieceStatuses = PIECE_STATUSES;
   protected readonly pieces = signal<Piece[]>([]);
   /** Opens on the sort this user last chose, on any device; new users get Title. */
   protected readonly sort = signal<LibrarySort>('title');
-  protected readonly sortOpen = signal(false);
-  protected readonly sortLabel = computed(
-    () => LIBRARY_SORTS.find((option) => option.value === this.sort())?.label ?? 'Title',
-  );
   /** Played lines belong to the sorts that order by them. */
   protected readonly showPlayed = computed(
     () => this.sort() === 'recent' || this.sort() === 'fresh',
   );
   protected readonly playedText = playedText;
-  /** The search the shown pieces were listed for. */
-  private readonly listedQuery = signal('');
+  protected readonly lastUsedText = lastUsedText;
   /**
-   * The piece played most recently (in the last two weeks), offered while not
-   * searching. It keeps its own row in the list too, with the row's actions.
+   * The piece played most recently (in the last two weeks) from the whole
+   * library, whatever the filter, offered while not searching. Its row has the
+   * usual actions, so it leaves the list below rather than showing twice.
    */
-  protected readonly continueRow = computed(() =>
-    this.listedQuery() ? null : continuePiece(this.pieces()),
-  );
+  protected readonly continued = signal<Piece | null>(null);
+  protected readonly listed = computed(() => {
+    const continued = this.continued();
+    const pieces = this.pieces();
+    return continued ? pieces.filter((piece) => piece.id !== continued.id) : pieces;
+  });
   /** The default view is empty, but the binder is not: every piece is shelved. */
   protected readonly onlyShelved = signal(false);
   protected readonly loading = signal(true);
@@ -200,29 +190,35 @@ export class LibraryComponent implements OnDestroy {
           this.loading.set(true);
           this.error.set('');
         }),
-        switchMap((request) =>
-          defer(() => this.api.pieces(request.query, request.filter, request.sort)).pipe(
-            switchMap((pieces) => {
-              // Punctuation alone folds to no search, as on the server.
-              const query = fold(request.query) ? request.query.trim() : '';
-              return pieces.length || request.filter !== 'current' || query
-                ? of<PieceLoadResult>({ pieces, hidden: false, query })
-                : this.api
-                    .pieces('', 'all')
-                    .pipe(
-                      map((all): PieceLoadResult => ({ pieces, hidden: all.length > 0, query })),
-                    );
-            }),
+        switchMap((request) => {
+          // Punctuation alone folds to no search, as on the server.
+          const searching = !!fold(request.query);
+          return forkJoin({
+            listed: defer(() => this.api.pieces(request.query, request.filter, request.sort)).pipe(
+              switchMap((pieces) =>
+                pieces.length || request.filter !== 'current' || searching
+                  ? of({ pieces, hidden: false })
+                  : this.api
+                      .pieces('', 'all')
+                      .pipe(map((all) => ({ pieces, hidden: all.length > 0 }))),
+              ),
+            ),
+            // The library stays usable if Continue is unavailable.
+            continued: searching
+              ? of(null)
+              : defer(() => this.api.continuePiece()).pipe(catchError(() => of(null))),
+          }).pipe(
+            map(({ listed, continued }): PieceLoadResult => ({ ...listed, continued })),
             catchError((error: unknown) => of<PieceLoadResult>({ error })),
             finalize(request.complete),
-          ),
-        ),
+          );
+        }),
       )
       .subscribe((result) => {
         if ('pieces' in result) {
           this.pieces.set(result.pieces);
           this.onlyShelved.set(result.hidden);
-          this.listedQuery.set(result.query);
+          this.continued.set(result.continued);
         } else {
           this.error.set(errorMessage(result.error));
         }
@@ -261,15 +257,23 @@ export class LibraryComponent implements OnDestroy {
       },
       error: () => {
         this.preferencesLoaded = true;
-        if (!this.filterChosen && !this.sortChosen) void this.load();
+        // Lists even after an early choice: choosing the filter or sort already
+        // shown lists nothing by itself, and a newer listing replaces an older.
+        void this.load();
       },
     });
   }
 
   /** Lists by the new filter and remembers it for this user's next visit. */
   async chooseFilter(filter: LibraryFilter): Promise<void> {
-    this.filter = filter;
     this.filterChosen = true;
+    if (filter === this.filter) {
+      // Before the remembered filter arrives, choosing the default shown still
+      // counts; the list follows once the preferences answer.
+      if (!this.preferencesLoaded) await this.remember({ libraryFilter: filter });
+      return;
+    }
+    this.filter = filter;
     const listed = this.load();
     await this.remember({ libraryFilter: filter });
     await listed;
@@ -277,7 +281,6 @@ export class LibraryComponent implements OnDestroy {
 
   /** Lists in the new order and remembers it for this user's next visit. */
   async chooseSort(sort: LibrarySort): Promise<void> {
-    this.closeSortMenu(true);
     this.sortChosen = true;
     if (sort === this.sort()) {
       // Before the remembered sort arrives, choosing the default shown still
@@ -306,76 +309,6 @@ export class LibraryComponent implements OnDestroy {
     } catch (error) {
       this.error.set(errorMessage(error));
     }
-  }
-
-  toggleSortMenu(): void {
-    if (this.sortOpen()) this.closeSortMenu(false);
-    else this.openSortMenu();
-  }
-
-  /** Opens the sort menu with the current choice focused, as a menu button does. */
-  private openSortMenu(): void {
-    this.sortOpen.set(true);
-    afterNextRender(
-      () =>
-        this.sortItems()
-          .find((item) => item.getAttribute('aria-checked') === 'true')
-          ?.focus(),
-      { injector: this.injector },
-    );
-  }
-
-  closeSortMenu(refocus: boolean): void {
-    if (!this.sortOpen()) return;
-    this.sortOpen.set(false);
-    if (refocus) this.sortButton?.nativeElement.focus();
-  }
-
-  protected closeSortMenuOutside(event: Event): void {
-    const target = event.target as Node | null;
-    if (
-      target &&
-      (this.sortButton?.nativeElement.contains(target) ||
-        this.sortOptions?.nativeElement.contains(target))
-    )
-      return;
-    this.closeSortMenu(false);
-  }
-
-  /** ArrowDown opens the menu from its button, like a native select. */
-  protected sortButtonKey(event: KeyboardEvent): void {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    this.openSortMenu();
-  }
-
-  /** Arrows, Home and End move between choices; Escape and Tab close the menu. */
-  protected sortMenuKey(event: KeyboardEvent): void {
-    const items = this.sortItems();
-    const index = items.indexOf(document.activeElement as HTMLButtonElement);
-    const move = (to: number) => {
-      event.preventDefault();
-      items[(to + items.length) % items.length]?.focus();
-    };
-    switch (event.key) {
-      case 'ArrowDown':
-        return move(index + 1);
-      case 'ArrowUp':
-        return move(index - 1);
-      case 'Home':
-        return move(0);
-      case 'End':
-        return move(items.length - 1);
-      case 'Escape':
-        event.preventDefault();
-        return this.closeSortMenu(true);
-      case 'Tab':
-        return this.closeSortMenu(false);
-    }
-  }
-
-  private sortItems(): HTMLButtonElement[] {
-    return [...(this.sortOptions?.nativeElement.querySelectorAll('button') ?? [])];
   }
 
   /** Whether the piece still belongs in the list on screen. */
@@ -699,14 +632,25 @@ export class LibraryComponent implements OnDestroy {
     }
   }
 
-  /** Shows a saved row, or drops it if it no longer fits the filter. */
+  /**
+   * Shows a saved row, or drops it from the list if it no longer fits the
+   * filter. Continue spans the whole library, so its row always stays.
+   */
   private showSaved(updated: Piece): void {
     if (this.shown(updated)) this.replaceRow(updated);
-    else this.pieces.update((pieces) => pieces.filter((row) => row.id !== updated.id));
+    else {
+      this.pieces.update((pieces) => pieces.filter((row) => row.id !== updated.id));
+      this.replaceContinued(updated);
+    }
   }
 
   private replaceRow(piece: Piece): void {
     this.pieces.update((pieces) => pieces.map((row) => (row.id === piece.id ? piece : row)));
+    this.replaceContinued(piece);
+  }
+
+  private replaceContinued(piece: Piece): void {
+    if (this.continued()?.id === piece.id) this.continued.set(piece);
   }
 
   async deletePiece(piece: Piece): Promise<void> {

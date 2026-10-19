@@ -106,6 +106,9 @@ that:
   `sort=title|composer|recent|added|fresh`; without `status` it lists Learning and
   Playing, or every status when `q` is set; without `sort` it lists by title. Each
   piece carries `lastPlayedAt`, its reader state's last save)
+- `GET /api/pieces/continue` (`{"piece": …}`: the most recently played piece with
+  a PDF from the whole library, whatever its status, if played in the last 14
+  days; otherwise `{"piece": null}`)
 - `GET/PATCH/DELETE /api/pieces/{id}/`
 - `GET/HEAD /api/pieces/{id}/pdf`
 - `GET/HEAD /api/pieces/{id}/pdf/download`

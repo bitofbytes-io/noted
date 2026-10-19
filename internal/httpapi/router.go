@@ -25,6 +25,7 @@ import (
 
 type Backend interface {
 	ListPieces(context.Context, string, app.ListOptions) ([]app.Piece, error)
+	ContinuePiece(context.Context, string) (*app.Piece, error)
 	GetPiece(context.Context, string, string) (app.Piece, error)
 	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
 	UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error)
@@ -97,6 +98,7 @@ func NewRouter(
 		router.Route("/api/pieces", func(router chi.Router) {
 			router.Get("/", handler.listPieces)
 			router.Post("/", handler.createPiece)
+			router.Get("/continue", handler.continuePiece)
 			router.Route("/{pieceID}", func(router chi.Router) {
 				router.Get("/", handler.getPiece)
 				router.Patch("/", handler.updatePiece)
@@ -140,6 +142,16 @@ func (h *Handler) listPieces(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 	writeJSON(writer, http.StatusOK, pieces)
+}
+
+// continuePiece answers {"piece": null} when nothing was played recently.
+func (h *Handler) continuePiece(writer http.ResponseWriter, request *http.Request) {
+	piece, err := h.backend.ContinuePiece(request.Context(), currentUser(request).ID)
+	if err != nil {
+		handleError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]*app.Piece{"piece": piece})
 }
 
 func (h *Handler) getPiece(writer http.ResponseWriter, request *http.Request) {

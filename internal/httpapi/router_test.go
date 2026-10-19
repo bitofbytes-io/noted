@@ -51,6 +51,9 @@ type fakeBackend struct {
 	preferencesPatch  app.PreferencesPatch
 	preferencesUserID string
 	preferencesErr    error
+
+	continued      *app.Piece
+	continueUserID string
 }
 
 func (fake *fakeBackend) ListPieces(_ context.Context, userID string, options app.ListOptions) ([]app.Piece, error) {
@@ -58,6 +61,10 @@ func (fake *fakeBackend) ListPieces(_ context.Context, userID string, options ap
 	fake.listStatuses, fake.listSort = options.Statuses, options.Sort
 	fake.listCalls++
 	return []app.Piece{}, nil
+}
+func (fake *fakeBackend) ContinuePiece(_ context.Context, userID string) (*app.Piece, error) {
+	fake.continueUserID = userID
+	return fake.continued, nil
 }
 func (fake *fakeBackend) GetPreferences(_ context.Context, userID string) (app.Preferences, error) {
 	fake.preferencesUserID = userID
@@ -409,6 +416,25 @@ func TestListSort(t *testing.T) {
 			!strings.Contains(response.Body.String(), "sort must be") {
 			t.Fatalf("%s: status=%d calls=%d body=%s", path, response.Code, fake.listCalls, response.Body.String())
 		}
+	}
+}
+
+func TestContinuePieceForTheCurrentUser(t *testing.T) {
+	fake := &fakeBackend{}
+	router := testRouter(fake, 1024)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/pieces/continue", nil))
+	if response.Code != http.StatusOK || fake.continueUserID != testUserID ||
+		response.Body.String() != "{\"piece\":null}\n" {
+		t.Fatalf("nothing to continue: %d %q user=%q", response.Code, response.Body.String(), fake.continueUserID)
+	}
+
+	fake.continued = &app.Piece{ID: testPieceID, Title: "Nocturne"}
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/pieces/continue", nil))
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"piece":{"id":"`+testPieceID+`","title":"Nocturne"`) {
+		t.Fatalf("continue: %d %s", response.Code, response.Body.String())
 	}
 }
 
