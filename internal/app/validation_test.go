@@ -39,6 +39,11 @@ func TestValidation(t *testing.T) {
 	}); err == nil || err.Error() != "listening URL must be at most 2000 characters" {
 		t.Fatalf("oversized listening URL validation error = %v", err)
 	}
+	if _, err := validatePiece(PieceInput{
+		Title: "Piece", Aliases: strings.Repeat("a", 1001),
+	}); err == nil || err.Error() != "aliases must be at most 1000 characters" {
+		t.Fatalf("oversized aliases validation error = %v", err)
+	}
 	shelved, archived, empty := "shelved", "archived", ""
 	if piece, err := validatePiece(PieceInput{Title: "Piece", Status: &shelved}); err != nil || *piece.Status != "shelved" {
 		t.Fatalf("shelved status: %+v %v", piece, err)

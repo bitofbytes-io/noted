@@ -28,6 +28,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -180,6 +181,7 @@ piece_sources
 pieces
 reader_states
 schema_migrations
+search_index_state
 shortcut_tokens
 unrelated_application_data
 user_sessions
@@ -214,7 +216,8 @@ if [ "$version" != "000001_binder
 000007_drop_imslp_catalog
 000008_shortcut_tokens
 000009_library_metadata
-000010_library_sort" ]; then
+000010_library_sort
+000011_library_search" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -314,6 +317,51 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE users SET library_sort='fresh'" >/dev/null
 
+# Pieces start with no aliases and searchable text; the API refolds it on start
+# because the fold version starts at 0. Aliases are at most 1000 characters.
+library_search=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT p.aliases || '|' || (SELECT fold_version FROM search_index_state WHERE id)
+     FROM pieces p WHERE p.id='4f607127-fb97-4b22-90f5-1b9bec77b739'"
+)
+if [ "$library_search" != "|0" ]; then
+  printf 'unexpected piece aliases or fold version: %s\n' "$library_search" >&2
+  exit 1
+fi
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE pieces SET aliases=repeat('a', 1001)" >/dev/null 2>&1; then
+  echo "piece aliases constraint unexpectedly accepted 1001 characters" >&2
+  exit 1
+fi
+if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "INSERT INTO search_index_state (id, fold_version) VALUES (FALSE, 1)" >/dev/null 2>&1; then
+  echo "search_index_state unexpectedly accepted a second row" >&2
+  exit 1
+fi
+docker compose -p "$project" -f "$compose_file" exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+  -c "UPDATE pieces SET aliases='Nickname', search_text='owned piece nickname'" >/dev/null
+
+# Rolling back 000011 removes only the search columns and state table.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+library_after_search=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT p.title || '|' || (SELECT count(*) FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='pieces'
+         AND column_name IN ('aliases', 'search_text'))
+       || '|' || (SELECT count(*) FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='search_index_state')
+     FROM pieces p WHERE p.id='4f607127-fb97-4b22-90f5-1b9bec77b739'"
+)
+if [ "$library_after_search" != "Owned piece|0|0" ]; then
+  printf 'unexpected pieces after rolling back 000011: %s\n' "$library_after_search" >&2
+  exit 1
+fi
+
 # Rolling back 000010 removes only the sort and keeps the filter.
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 library_after_sort=$(
@@ -405,7 +453,8 @@ VALUES (
 INSERT INTO reader_states (piece_id, scroll_speed)
 VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
 SQL
-# Roll back 000010, 000009, then 000008.
+# Roll back 000011, 000010, 000009, then 000008.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down

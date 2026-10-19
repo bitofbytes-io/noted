@@ -45,11 +45,20 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 	if len(input.Notes) > 10000 {
 		return input, invalid("notes must be at most 10000 characters")
 	}
+	input.Aliases = strings.TrimSpace(input.Aliases)
+	if len(input.Aliases) > 1000 {
+		return input, invalid("aliases must be at most 1000 characters")
+	}
 	// Absent in import draft metadata; CreatePiece defaults it to playing.
 	if input.Status != nil && !validStatus(*input.Status) {
 		return input, invalid("status must be learning, playing or shelved")
 	}
 	return input, nil
+}
+
+// searchText is what library search matches for a validated piece.
+func searchText(input PieceInput) string {
+	return foldSearch(input.Title + " " + input.Composer + " " + input.Aliases + " " + input.Notes)
 }
 
 func validStatus(status string) bool {
@@ -62,7 +71,7 @@ func validStatus(status string) bool {
 func ParseStatusFilter(value, query string) ([]string, error) {
 	value = strings.TrimSpace(value)
 	switch {
-	case value == "" && strings.TrimSpace(query) != "":
+	case value == "" && len(searchTokens(query)) > 0:
 		return nil, nil
 	case value == "":
 		return []string{StatusLearning, StatusPlaying}, nil

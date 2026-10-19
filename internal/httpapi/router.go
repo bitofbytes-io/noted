@@ -24,7 +24,7 @@ import (
 )
 
 type Backend interface {
-	ListPieces(context.Context, string, string, *bool, []string, string) ([]app.Piece, error)
+	ListPieces(context.Context, string, app.ListOptions) ([]app.Piece, error)
 	GetPiece(context.Context, string, string) (app.Piece, error)
 	CreatePiece(context.Context, string, app.PieceInput) (app.Piece, error)
 	UpdatePiece(context.Context, string, string, app.PiecePatch) (app.Piece, error)
@@ -114,29 +114,27 @@ func NewRouter(
 }
 
 func (h *Handler) listPieces(writer http.ResponseWriter, request *http.Request) {
-	var favorite *bool
+	options := app.ListOptions{Query: request.URL.Query().Get("q")}
 	if value := request.URL.Query().Get("favorite"); value != "" {
 		parsed, err := strconv.ParseBool(value)
 		if err != nil {
 			writeError(writer, http.StatusBadRequest, "favorite must be true or false")
 			return
 		}
-		favorite = &parsed
+		options.Favorite = &parsed
 	}
-	query := request.URL.Query().Get("q")
-	statuses, err := app.ParseStatusFilter(request.URL.Query().Get("status"), query)
+	var err error
+	options.Statuses, err = app.ParseStatusFilter(request.URL.Query().Get("status"), options.Query)
 	if err != nil {
 		handleError(writer, err)
 		return
 	}
-	sort, err := app.ParseSort(request.URL.Query().Get("sort"))
+	options.Sort, err = app.ParseSort(request.URL.Query().Get("sort"))
 	if err != nil {
 		handleError(writer, err)
 		return
 	}
-	pieces, err := h.backend.ListPieces(
-		request.Context(), currentUser(request).ID, query, favorite, statuses, sort,
-	)
+	pieces, err := h.backend.ListPieces(request.Context(), currentUser(request).ID, options)
 	if err != nil {
 		handleError(writer, err)
 		return

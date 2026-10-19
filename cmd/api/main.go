@@ -46,6 +46,12 @@ func main() {
 		log.Fatal(err)
 	}
 	service := app.NewService(pool, store, cfg.MaxUploadBytes)
+	// Search still works on stale text, only less well, so a failure is not fatal.
+	if refolded, err := service.RefoldSearchText(ctx); err != nil {
+		slog.Error("Refolding library search text failed", "error", err)
+	} else if refolded > 0 {
+		slog.Info("Refolded library search text", "pieces", refolded)
+	}
 	go service.RunImportCleanup(ctx, func(err error) {
 		appMetrics.JobRun(metrics.JobImportCleanup, err)
 	})
