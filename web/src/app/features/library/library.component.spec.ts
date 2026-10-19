@@ -11,7 +11,13 @@ import {
   ShortcutTokenCreated,
 } from '../../core/models';
 import { LibraryComponent } from './library.component';
-import { formatDay, lastUsedText, listeningUrlError } from './library.utils';
+import {
+  continuePiece,
+  formatDay,
+  lastUsedText,
+  listeningUrlError,
+  playedText,
+} from './library.utils';
 
 describe('LibraryComponent', () => {
   it('cancels a stale search so it cannot replace newer results', async () => {
@@ -188,7 +194,7 @@ describe('LibraryComponent status and filter', () => {
   it('opens on the remembered filter and remembers a new choice', async () => {
     const { fixture, api, root, render } = await setup('favorites', [row('a', 'shelved', true)]);
     const select = root.querySelector('.library-filter select') as HTMLSelectElement;
-    expect(api.pieces).toHaveBeenCalledWith('', 'favorites');
+    expect(api.pieces).toHaveBeenCalledWith('', 'favorites', 'title');
     expect(select.value).toBe('favorites');
     expect([...select.options].map((option) => option.textContent?.trim())).toEqual([
       'Learning & Playing',
@@ -203,7 +209,7 @@ describe('LibraryComponent status and filter', () => {
     select.dispatchEvent(new Event('change'));
     await render();
     expect(api.savePreferences).toHaveBeenCalledWith({ libraryFilter: 'shelved' });
-    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved');
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'shelved', 'title');
     fixture.destroy();
   });
 
@@ -304,6 +310,215 @@ describe('LibraryComponent status and filter', () => {
       'Nothing in Learning or Playing',
     );
     fixture.destroy();
+  });
+});
+
+describe('LibraryComponent sort and Continue', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const NOW = new Date(2026, 9, 18, 20);
+  const daysAgo = (days: number) => new Date(NOW.getTime() - days * 86_400_000).toISOString();
+  const row = (id: string, lastPlayedAt: string | null, pdf = true) =>
+    ({
+      id,
+      title: `Piece ${id}`,
+      composer: 'Claude Debussy',
+      favorite: false,
+      status: 'playing',
+      sourceUrl: '',
+      listeningUrl: '',
+      notes: '',
+      pdf: pdf ? { pageCount: 2, contentUrl: `/api/pieces/${id}/pdf` } : null,
+      lastPlayedAt,
+    }) as Piece;
+
+  async function setup(librarySort: string, rows: Piece[]) {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    const api = {
+      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      imports: vi.fn(() => of([])),
+      preferences: vi.fn(() => of({ libraryFilter: 'current', librarySort })),
+      savePreferences: vi.fn((preferences: unknown) => of(preferences)),
+      pieces: vi.fn(() => of(rows)),
+    };
+    await TestBed.configureTestingModule({
+      imports: [LibraryComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
+        },
+        { provide: ApiService, useValue: api },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(LibraryComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const render = async () => {
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    const sortButton = () => root.querySelector('.sort-button') as HTMLButtonElement;
+    const options = () => [...root.querySelectorAll('.sort-options button')] as HTMLElement[];
+    const listed = () =>
+      [...root.querySelectorAll('.piece-list:not([aria-label]) .piece-row')].map((article) => ({
+        title: article.querySelector('h2')?.textContent,
+        note: article.querySelector('.piece-note')?.textContent ?? '',
+      }));
+    const continued = () => root.querySelector('.continue-row h2')?.textContent ?? null;
+    return { fixture, api, root, render, sortButton, options, listed, continued };
+  }
+
+  it('opens on the remembered sort and remembers a new one from the menu', async () => {
+    const { fixture, api, render, sortButton, options } = await setup('composer', [row('a', null)]);
+    expect(api.pieces).toHaveBeenCalledWith('', 'current', 'composer');
+    expect(sortButton().textContent).toContain('Sort: Composer');
+    expect(options()).toEqual([]);
+
+    sortButton().click();
+    await render();
+    expect(sortButton().getAttribute('aria-expanded')).toBe('true');
+    const words = (option: HTMLElement) =>
+      [...option.querySelectorAll('.sort-option > *')].map((part) => part.textContent?.trim());
+    expect(options().map(words)).toEqual([
+      ['Title'],
+      ['Composer'],
+      ['Recently played'],
+      ['Recently added'],
+      ['Fresh', 'least recently played first'],
+    ]);
+    // A green check marks the current choice, which takes the focus.
+    const checked = options().filter((option) => option.getAttribute('aria-checked') === 'true');
+    expect(checked.map((option) => option.textContent?.trim())).toEqual(['Composer']);
+    expect(checked[0].querySelector('svg')).not.toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(checked[0]));
+
+    options()[4].click();
+    await render();
+    expect(options()).toEqual([]);
+    expect(sortButton().textContent).toContain('Sort: Fresh');
+    expect(document.activeElement).toBe(sortButton());
+    expect(api.savePreferences).toHaveBeenCalledWith({ librarySort: 'fresh' });
+    expect(api.pieces).toHaveBeenLastCalledWith('', 'current', 'fresh');
+    fixture.destroy();
+  });
+
+  it('closes the menu with Escape or an outside click, without choosing', async () => {
+    const { fixture, api, root, render, sortButton, options } = await setup('title', [
+      row('a', null),
+    ]);
+    sortButton().click();
+    await render();
+    await vi.waitFor(() => expect(document.activeElement).toBe(options()[0]));
+    options()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(options()[1]);
+    options()[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await render();
+    expect(options()).toEqual([]);
+    expect(document.activeElement).toBe(sortButton());
+
+    sortButton().click();
+    await render();
+    (root.querySelector('h1') as HTMLElement).click();
+    await render();
+    expect(options()).toEqual([]);
+    expect(api.savePreferences).not.toHaveBeenCalled();
+    fixture.destroy();
+  });
+
+  it('shows Played lines only under Recently played and Fresh', async () => {
+    const rows = [
+      row('a', daysAgo(0)),
+      row('b', daysAgo(3)),
+      row('c', null),
+      row('d', null, false),
+    ];
+    const { fixture, render, listed } = await setup('title', rows);
+    expect(listed().map((piece) => piece.note)).toEqual(['', '', '', 'No PDF yet']);
+
+    await fixture.componentInstance.chooseSort('fresh');
+    await render();
+    expect(listed().map((piece) => piece.note)).toEqual([
+      'Played today',
+      'Played 15 Oct 2026',
+      'Not played yet',
+      'No PDF yet',
+    ]);
+    fixture.destroy();
+  });
+
+  it('offers Continue for the latest piece played in two weeks, only while not searching', async () => {
+    const rows = [row('a', daysAgo(3)), row('b', daysAgo(1)), row('c', null)];
+    const { fixture, root, render, listed, continued } = await setup('title', rows);
+    expect(continued()).toBe('Piece b');
+    expect(root.querySelector('.continue-row .piece-note')?.textContent).toBe('Played yesterday');
+    expect(root.querySelector('.continue-row button')?.textContent?.trim()).toBe('Continue');
+    // Under Title the piece keeps its place in the list too.
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+
+    // Under Recently played the Continue row is the top of the list, not a repeat.
+    await fixture.componentInstance.chooseSort('recent');
+    await render();
+    expect(continued()).toBe('Piece b');
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece c']);
+    expect(root.querySelector('.results-count p')?.textContent).toContain('3 pieces');
+
+    Reflect.set(fixture.componentInstance, 'query', 'piece');
+    await fixture.componentInstance.load();
+    await render();
+    expect(continued()).toBeNull();
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    fixture.destroy();
+  });
+
+  it('leaves Continue out when nothing was played in the last two weeks', async () => {
+    const { fixture, continued } = await setup('recent', [
+      row('a', daysAgo(15)),
+      row('b', daysAgo(1), false),
+    ]);
+    expect(continued()).toBeNull();
+    fixture.destroy();
+  });
+});
+
+describe('playedText and continuePiece', () => {
+  it('names the day the piece was last played', () => {
+    const now = new Date(2026, 9, 3, 0, 30);
+    expect(playedText(null, now)).toBe('Not played yet');
+    expect(playedText(new Date(2026, 9, 3, 0, 5).toISOString(), now)).toBe('Played today');
+    expect(playedText(new Date(2026, 9, 2, 23).toISOString(), now)).toBe('Played yesterday');
+    expect(playedText(new Date(2026, 8, 28, 12).toISOString(), now)).toBe('Played 28 Sep 2026');
+  });
+
+  it('picks the latest play within 14 days among pieces with a PDF', () => {
+    const now = new Date(2026, 9, 18, 12);
+    const at = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
+    const pdf = {};
+    expect(continuePiece([], now)).toBeNull();
+    expect(
+      continuePiece(
+        [
+          { id: 'old', pdf, lastPlayedAt: at(14.5) },
+          { id: 'edge', pdf, lastPlayedAt: at(14) },
+        ],
+        now,
+      )?.id,
+    ).toBe('edge');
+    expect(
+      continuePiece(
+        [
+          { id: 'never', pdf, lastPlayedAt: null },
+          { id: 'week', pdf, lastPlayedAt: at(7) },
+          { id: 'no-pdf', pdf: null, lastPlayedAt: at(0) },
+          { id: 'day', pdf, lastPlayedAt: at(1) },
+        ],
+        now,
+      )?.id,
+    ).toBe('day');
   });
 });
 

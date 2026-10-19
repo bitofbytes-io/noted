@@ -177,6 +177,7 @@ describe('ReaderComponent', () => {
               uploadedAt: '',
               contentUrl: '/api/pieces/piece/pdf',
             },
+            lastPlayedAt: null,
           } satisfies Piece),
         ),
         readerState: vi.fn(() =>

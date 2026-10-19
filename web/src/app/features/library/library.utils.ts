@@ -30,3 +30,29 @@ export function lastUsedText(iso: string | null, now = new Date()): string {
   if (days === 1) return 'yesterday';
   return formatDay(iso);
 }
+
+/** "Played yesterday": when the reader last saved the piece, in the shortcut's day wording. */
+export function playedText(lastPlayedAt: string | null, now = new Date()): string {
+  return lastPlayedAt ? `Played ${lastUsedText(lastPlayedAt, now)}` : 'Not played yet';
+}
+
+/** Continue offers a piece only if it was played this recently. */
+export const CONTINUE_WITHIN_DAYS = 14;
+
+/** The most recently played piece with a PDF, if it was played in the last two weeks. */
+export function continuePiece<T extends { pdf: unknown; lastPlayedAt: string | null }>(
+  pieces: readonly T[],
+  now = new Date(),
+): T | null {
+  const since = now.getTime() - CONTINUE_WITHIN_DAYS * 86_400_000;
+  let latest: T | null = null;
+  let latestAt = -Infinity;
+  for (const piece of pieces) {
+    const at = piece.pdf && piece.lastPlayedAt ? Date.parse(piece.lastPlayedAt) : NaN;
+    if (at >= since && at > latestAt) {
+      latest = piece;
+      latestAt = at;
+    }
+  }
+  return latest;
+}

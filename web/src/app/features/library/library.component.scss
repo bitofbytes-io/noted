@@ -167,15 +167,108 @@ h1 {
   border-top: 1.5px solid var(--ink);
 }
 
+.results-head {
+  position: relative;
+}
+
 .results-count {
   min-height: 44px;
-  margin: 0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   color: var(--ink-muted);
   font-size: var(--text-meta);
   font-variant-numeric: tabular-nums;
   border-bottom: 1px solid var(--line);
+}
+
+.results-count p {
+  min-width: 0;
+  margin: 0;
+}
+
+/* Sort sits on the count line, as quiet as the count beside it. */
+.sort-button {
+  flex: none;
+  gap: 6px;
+  font-size: var(--text-meta);
+  font-weight: 500;
+}
+
+.sort-button svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 150ms ease;
+}
+
+.sort-button[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+/* A small square list, bordered like the dialogs, with no shadow. */
+.sort-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  width: 260px;
+  display: grid;
+  padding: 4px 0;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+}
+
+.sort-options button {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.sort-options button:hover,
+.sort-options button:focus-visible {
+  background: var(--green-soft);
+}
+
+.sort-options button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.sort-options button[aria-checked='true'] {
+  font-weight: 600;
+}
+
+.sort-option {
+  display: grid;
+  gap: 1px;
+}
+
+.sort-option small {
+  color: var(--ink-faint);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.sort-options svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--green);
+}
+
+.continue-row .btn-secondary {
+  min-width: 112px;
 }
 
 .piece-row {
@@ -255,8 +348,10 @@ h1 {
   line-height: 1.5;
 }
 
+/* "– Played yesterday" wraps as one piece, never splitting the day from "Played". */
 .piece-note {
   color: var(--ink-faint);
+  white-space: nowrap;
 }
 
 .piece-note::before {
@@ -621,6 +716,15 @@ h1 {
   .library-filter {
     justify-self: start;
     border-bottom: 0;
+  }
+
+  /* On a phone the menu opens in the flow, pushing the list down rather than
+     covering the Continue row beneath it. */
+  .sort-options {
+    position: static;
+    width: auto;
+    border-width: 0 0 1px;
+    border-color: var(--line);
   }
 
   .piece-row {

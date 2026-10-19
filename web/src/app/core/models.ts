@@ -53,9 +53,21 @@ export const LIBRARY_FILTERS: readonly { value: LibraryFilter; label: string }[]
   ...PIECE_STATUSES,
 ];
 
+/** The library's order. Recently played and Fresh use when the reader last saved the piece. */
+export type LibrarySort = 'title' | 'composer' | 'recent' | 'added' | 'fresh';
+
+export const LIBRARY_SORTS: readonly { value: LibrarySort; label: string; hint?: string }[] = [
+  { value: 'title', label: 'Title' },
+  { value: 'composer', label: 'Composer' },
+  { value: 'recent', label: 'Recently played' },
+  { value: 'added', label: 'Recently added' },
+  { value: 'fresh', label: 'Fresh', hint: 'least recently played first' },
+];
+
 /** Per-user settings kept on the server, so they follow the user across devices. */
 export interface Preferences {
   libraryFilter: LibraryFilter;
+  librarySort: LibrarySort;
 }
 
 export interface Piece {
@@ -70,6 +82,8 @@ export interface Piece {
   createdAt: string;
   updatedAt: string;
   pdf: PiecePdf | null;
+  /** When the reader last saved this piece's place; null if it was never opened. */
+  lastPlayedAt: string | null;
 }
 
 export interface PieceInput {
