@@ -637,6 +637,17 @@ func (s *Service) DeleteImport(ctx context.Context, owner, id string) error {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
+	var finalized bool
+	err = tx.QueryRow(ctx, `SELECT finalized FROM import_drafts WHERE id=$1 AND user_id=$2 FOR UPDATE`, id, owner).Scan(&finalized)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if finalized {
+		return ErrConflict
+	}
 	tag, err := tx.Exec(ctx, `DELETE FROM import_drafts WHERE id=$1 AND user_id=$2`, id, owner)
 	if err != nil {
 		return err

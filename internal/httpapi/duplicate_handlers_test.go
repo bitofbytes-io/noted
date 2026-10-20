@@ -71,3 +71,23 @@ func TestDuplicateFinalizeResponseKeepsPieceShape(t *testing.T) {
 		}
 	}
 }
+
+func (b *duplicateBackend) DeleteImport(_ context.Context, owner, _ string) error {
+	b.owner = owner
+	return app.ErrConflict
+}
+
+func TestDiscardFinalizedImportReturnsConflict(t *testing.T) {
+	backend := &duplicateBackend{fakeBackend: &fakeBackend{}}
+	request := httptest.NewRequest(http.MethodDelete, "/api/imports/00000000-0000-4000-8000-000000000001", nil)
+	response := serve(testRouter(backend, 1024), request)
+	if response.Code != http.StatusConflict || backend.owner != testUserID {
+		t.Fatal("finalized discard response", response.Code, response.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error != app.ErrConflict.Error() {
+		t.Fatal("missing recoverable conflict error", response.Body.String(), err)
+	}
+}

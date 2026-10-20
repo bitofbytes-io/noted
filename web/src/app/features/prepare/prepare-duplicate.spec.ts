@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { ImportAsset } from '../../core/models';
 import { ProcessingWorkerClient } from './prepare-processing';
@@ -67,6 +68,43 @@ describe('Prepare duplicate completion', () => {
     await component.close();
     expect(navigate).toHaveBeenCalledWith(['/']);
     fixture.destroy();
+    openWindow.mockRestore();
+  });
+
+  it('keeps a stale-tab discard conflict recoverable without claiming completion', async () => {
+    const { fixture, api, openWindow } = await createPrepareFixture();
+    const component = fixture.componentInstance;
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    api.deleteImport.mockReturnValueOnce(
+      throwError(
+        () => new HttpErrorResponse({ status: 409, error: { error: 'Draft changed. Reload it.' } }),
+      ),
+    );
+    await component.discard();
+    fixture.detectChanges();
+    expect(component.error()).toBe('Draft changed. Reload it.');
+    expect(component.busy()).toBe(false);
+    expect(component.completed()).toBeNull();
+    expect(component.draft()?.finalized).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.completion')).toBeNull();
+    const reload = Array.from(
+      fixture.nativeElement.querySelectorAll(
+        '[role="alert"] button',
+      ) as NodeListOf<HTMLButtonElement>,
+    ).find((button) => button.textContent?.trim() === 'Reload draft');
+    expect(reload?.disabled).toBe(false);
+    api.importDraft.mockReturnValueOnce(
+      of({ ...structuredClone(draft), finalized: true, pieceId: 'saved-copy' }),
+    );
+    reload!.click();
+    await fixture.whenStable();
+    expect(navigate).toHaveBeenCalledWith(['/reader', 'saved-copy']);
+    expect(api.deleteImport).toHaveBeenCalledOnce();
+    expect(api.finalizeImport).not.toHaveBeenCalled();
+    fixture.destroy();
+    confirm.mockRestore();
     openWindow.mockRestore();
   });
 

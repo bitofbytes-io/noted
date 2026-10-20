@@ -148,6 +148,33 @@ func TestIntegrationDuplicateFinalize(t *testing.T) {
 	if err := service.DeletePiece(ctx, owner, third.ID); err != nil {
 		t.Fatal(err)
 	}
+	// A stale second tab cannot discard a completed draft and destroy its retry.
+	assetState := func() string {
+		t.Helper()
+		var state string
+		err := pool.QueryRow(ctx, `WITH owned_keys AS (
+			SELECT storage_key FROM import_assets WHERE user_id=$1
+			UNION SELECT f.storage_key FROM piece_pdfs f JOIN pieces p ON p.id=f.piece_id WHERE p.user_id=$1
+		) SELECT jsonb_build_object(
+			'assets', (SELECT jsonb_agg(a ORDER BY a.id) FROM import_assets a WHERE a.user_id=$1),
+			'pdfs', (SELECT jsonb_agg(f ORDER BY f.piece_id) FROM piece_pdfs f JOIN pieces p ON p.id=f.piece_id WHERE p.user_id=$1),
+			'queue', (SELECT jsonb_agg(q ORDER BY q.storage_key) FROM asset_deletion_queue q WHERE q.storage_key IN (SELECT storage_key FROM owned_keys))
+		)::text`, owner).Scan(&state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	beforeAssets := assetState()
+	if err := service.DeleteImport(ctx, other, secondDraft.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("other owner discarded finalized draft", err)
+	}
+	if err := service.DeleteImport(ctx, owner, secondDraft.ID); !errors.Is(err, ErrConflict) {
+		t.Fatal("discarding finalized draft must conflict", err)
+	}
+	if afterAssets := assetState(); beforeAssets != afterAssets {
+		t.Fatal("rejected discard changed assets or their deletion queue")
+	}
 	retry, err := service.FinalizeImport(ctx, owner, secondDraft.ID, secondDraft.Revision, unreadDuplicateBody{})
 	if err != nil || retry.ID != second.ID || retry.DuplicateOf == nil || retry.DuplicateOf.Title != "Renamed current edition" {
 		t.Fatalf("retry did not resolve current owned title: %+v %v", retry.DuplicateOf, err)
