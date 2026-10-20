@@ -82,6 +82,7 @@ func newRouter(handler *Handler) http.Handler {
 		Post("/api/shortcut/import", handler.shortcutImport)
 	router.Group(func(router chi.Router) {
 		router.Use(handler.authenticatedUser)
+		router.Get("/api/library/export", handler.exportLibrary)
 		router.Get("/api/account/shortcut-token", handler.shortcutTokenStatus)
 		router.Post("/api/account/shortcut-token", handler.createShortcutToken)
 		router.Delete("/api/account/shortcut-token", handler.deleteShortcutToken)
