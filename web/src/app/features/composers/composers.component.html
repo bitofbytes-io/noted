@@ -1,0 +1,134 @@
+<main class="composers">
+  <header class="masthead">
+    <a routerLink="/" class="wordmark">Noted</a
+    ><a routerLink="/" class="btn-secondary">Back to library</a>
+  </header>
+  <section class="heading">
+    <h1>Composers</h1>
+    <p>
+      Browse your binder by composer. Names are filed together by surname; they may still describe
+      different people.
+    </p>
+    <button
+      class="btn-secondary"
+      (click)="beginMerge()"
+      [disabled]="loading() || !entries().length"
+    >
+      Merge composer spellings
+    </button>
+  </section>
+  @if (error()) {
+    <div role="alert" class="notice">
+      {{ error() }} <button class="btn-quiet" (click)="load()">Try again</button>
+    </div>
+  }
+  @if (message()) {
+    <p role="status">{{ message() }}</p>
+  }
+  @if (loading()) {
+    <p role="status">Loading composers…</p>
+  }
+  @if (!loading() && !error() && !entries().length) {
+    <p>No composers yet. Add a piece to start your binder.</p>
+  }
+  @for (group of groups(); track group.key) {
+    <section class="group" [attr.aria-label]="group.label">
+      <h2>{{ group.label }}</h2>
+      @for (entry of group.entries; track entry.name) {
+        <details>
+          <summary>
+            {{ entry.name || 'Composer unknown' }}
+            <span>{{ entry.count }} {{ entry.count === 1 ? 'piece' : 'pieces' }}</span>
+          </summary>
+          <ul class="pieces">
+            @for (piece of entry.pieces; track piece.id) {
+              <li>
+                @if (piece.hasPdf) {
+                  <a [routerLink]="['/reader', piece.id]">{{ piece.title }}</a>
+                } @else {
+                  <span>{{ piece.title }}</span
+                  ><small>No PDF yet</small>
+                }
+              </li>
+            }
+          </ul>
+        </details>
+      }
+    </section>
+  }
+</main>
+<dialog #mergeDialog aria-labelledby="merge-title" (cancel)="$event.preventDefault(); cancel()">
+  <div class="dialog-head">
+    <h2 id="merge-title">Merge composer spellings</h2>
+    <button class="btn-quiet" aria-label="Close merge" [disabled]="busy()" (click)="cancel()">
+      Close
+    </button>
+  </div>
+  <p>
+    This changes only the composer on the pieces you select. PDFs, notes and reading positions stay
+    as they are.
+  </p>
+  @if (mergeError()) {
+    <p role="alert" class="notice">{{ mergeError() }}</p>
+  }
+  @if (preview(); as preview) {
+    <h3 #previewHeading tabindex="-1">
+      Review {{ preview.count }} {{ preview.count === 1 ? 'piece' : 'pieces' }}
+    </h3>
+    <p>
+      Set composer to <strong>{{ target().trim() }}</strong
+      >.
+    </p>
+    <ul class="preview">
+      @for (piece of preview.pieces; track piece.id) {
+        <li>
+          <strong>{{ piece.title }}</strong
+          ><span>{{ piece.composer || 'Composer unknown' }}</span>
+        </li>
+      }
+    </ul>
+    <div class="actions">
+      <button class="btn-secondary" [disabled]="busy()" (click)="editSelection()">
+        Back to selection</button
+      ><button class="btn-primary" [disabled]="busy()" (click)="merge()">
+        Merge {{ preview.count }} {{ preview.count === 1 ? 'piece' : 'pieces' }}
+      </button>
+    </div>
+  } @else {
+    <fieldset [disabled]="busy()">
+      <legend>Select exact spellings</legend>
+      <p class="hint">
+        A shared surname does not mean the same composer. Nothing is selected for you.
+      </p>
+      @for (entry of selectionEntries(); track entry.name) {
+        <label class="spelling"
+          ><input
+            type="checkbox"
+            [checked]="selected().includes(entry.name)"
+            (change)="select(entry.name, $any($event.target).checked)"
+          /><span
+            >{{ entry.name || 'Composer unknown' }}
+            <small>{{ entry.count }} {{ entry.count === 1 ? 'piece' : 'pieces' }}</small></span
+          ></label
+        >
+      }
+    </fieldset>
+    <app-composer-field
+      inputId="merge-composer"
+      label="Target composer"
+      [value]="target()"
+      (valueChange)="target.set($event)"
+      [disabled]="busy()"
+    />
+    <div class="actions">
+      <button class="btn-secondary" [disabled]="busy()" (click)="cancel()">Cancel</button
+      ><button
+        class="btn-primary"
+        [disabled]="busy() || !selected().length || !target().trim()"
+        (click)="showPreview()"
+      >
+        Preview changes
+      </button>
+    </div>
+  }
+</dialog>

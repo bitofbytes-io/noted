@@ -27,6 +27,7 @@
 
   <section class="library-head" aria-labelledby="library-title">
     <h1 id="library-title">Library</h1>
+    <a class="btn-quiet" routerLink="/composers">Browse composers</a>
     <div class="search-row">
       <label class="search">
         <svg lucideSearch aria-hidden="true"></svg>
@@ -253,10 +254,7 @@
         Already in your library as {{ duplicate.title }}. You can still save this piece.
       </p>
     }
-    <label class="field">
-      <span>Composer</span>
-      <input name="composer" maxlength="300" [(ngModel)]="form.composer" />
-    </label>
+    <app-composer-field [value]="form.composer" (valueChange)="form.composer = $event" />
     <label class="field">
       <span>Also known as</span>
       <input

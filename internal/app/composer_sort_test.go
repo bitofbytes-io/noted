@@ -64,3 +64,19 @@ func TestSortByComposer(t *testing.T) {
 		t.Fatalf("composer order\n got %q\nwant %q", got, want)
 	}
 }
+
+func TestComposerSortKeyVectors(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/composer-key-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors []struct{ Composer, Key string }
+	if err := json.Unmarshal(data, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vectors {
+		if got := composerSortKey(v.Composer); got != v.Key {
+			t.Errorf("composerSortKey(%q)=%q want %q", v.Composer, got, v.Key)
+		}
+	}
+}

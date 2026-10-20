@@ -29,6 +29,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -217,7 +218,8 @@ if [ "$version" != "000001_binder
 000008_shortcut_tokens
 000009_library_metadata
 000010_library_sort
-000011_library_search" ]; then
+000011_library_search
+000012_composer_keys" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -345,6 +347,32 @@ docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE pieces SET aliases='Nickname', search_text='owned piece nickname'" >/dev/null
 
+# The additive composer migration preserves display names and starts stale until
+# Go computes the keys. Its down removes only derived columns and their index.
+composer_keys=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT composer_sort || '|' || composer_sort_source || '|' || composer_sort_version || '|' ||
+       (to_regclass('pieces_composer_sort_idx') IS NOT NULL)
+     FROM pieces WHERE id='4f607127-fb97-4b22-90f5-1b9bec77b739'"
+)
+if [ "$composer_keys" != "||0|true" ]; then
+  echo "unexpected composer key defaults or missing index" >&2
+  exit 1
+fi
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+composer_removed=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name='pieces' AND column_name LIKE 'composer_sort%') || '|' ||
+       (to_regclass('pieces_composer_sort_idx') IS NULL) || '|' ||
+       (SELECT aliases FROM pieces WHERE id='4f607127-fb97-4b22-90f5-1b9bec77b739')"
+)
+if [ "$composer_removed" != "0|true|Nickname" ]; then
+  echo "composer rollback changed unrelated metadata or retained derived structures" >&2
+  exit 1
+fi
+
 # Rolling back 000011 removes only the search columns and state table.
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 library_after_search=$(
@@ -453,7 +481,8 @@ VALUES (
 INSERT INTO reader_states (piece_id, scroll_speed)
 VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
 SQL
-# Roll back 000011, 000010, 000009, then 000008.
+# Roll back 000012, 000011, 000010, 000009, then 000008.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down

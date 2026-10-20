@@ -73,3 +73,22 @@ func sortByComposer[T any](pieces []T, composerOf func(T) string) {
 		return collator.CompareString(strings.TrimSpace(aComposer), strings.TrimSpace(bComposer))
 	})
 }
+
+// composerSortKey files the first named composer surname-first without changing
+// their display name. A shared filing key is never evidence of shared identity.
+func composerSortKey(composer string) string {
+	name := strings.TrimSpace(composerJoins.Split(composerAsides.ReplaceAllString(composer, " "), 2)[0])
+	if head, tail, found := strings.Cut(name, ","); found && !isComposerSuffix(tail) {
+		return foldSearch(head + " " + tail)
+	} else if found {
+		name = head
+	}
+	words := strings.Fields(name)
+	for len(words) > 1 && isComposerSuffix(words[len(words)-1]) {
+		words = words[:len(words)-1]
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	return foldSearch(composerSurname(name) + " " + strings.Join(words[:len(words)-1], " "))
+}

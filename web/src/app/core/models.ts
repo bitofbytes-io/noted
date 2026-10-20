@@ -205,3 +205,27 @@ export interface IMSLPSearch {
   status: 'ready' | 'unavailable' | 'throttled';
   results: IMSLPWork[];
 }
+
+export interface ComposerPiece {
+  id: string;
+  title: string;
+  composer: string;
+  hasPdf: boolean;
+}
+export interface ComposerEntry {
+  name: string;
+  key: string;
+  group: string;
+  count: number;
+  pieces: ComposerPiece[];
+}
+export interface ComposerMerge {
+  spellings: string[];
+  target: string;
+  fingerprint?: string;
+}
+export interface ComposerPreview {
+  fingerprint: string;
+  count: number;
+  pieces: ComposerPiece[];
+}

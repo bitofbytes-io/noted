@@ -2,6 +2,9 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 import {
+  ComposerEntry,
+  ComposerMerge,
+  ComposerPreview,
   Piece,
   PieceInput,
   PieceSummary,
@@ -65,6 +68,16 @@ export class ApiService {
     body.set('file', file, 'score.pdf');
     body.set('revision', String(d.revision));
     return this.http.post<FinalizeResult>(`/api/imports/${d.id}/finalize`, body);
+  }
+
+  composers(): Observable<ComposerEntry[]> {
+    return this.http.get<ComposerEntry[]>('/api/composers/');
+  }
+  previewComposerMerge(input: ComposerMerge): Observable<ComposerPreview> {
+    return this.http.post<ComposerPreview>('/api/composers/preview', input);
+  }
+  mergeComposers(input: ComposerMerge): Observable<ComposerPreview> {
+    return this.http.patch<ComposerPreview>('/api/composers/', input);
   }
 
   session(): Observable<Session> {
