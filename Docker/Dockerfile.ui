@@ -16,8 +16,12 @@ ARG VERSION=dev
 ARG REVISION=unknown
 ARG SOURCE_URL=https://github.com/bitofbytes-io/noted
 
+COPY Docker/ui/nginx-main.conf /etc/nginx/nginx.conf
 COPY Docker/ui/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /web/dist/web/browser/ /usr/share/nginx/html/
+
+# The runtime writes only PID and temporary files under /tmp.
+RUN chmod -R a-w /etc/nginx /usr/share/nginx/html
 
 LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.revision="${REVISION}" \
@@ -25,10 +29,13 @@ LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.title="noted-ui" \
       org.opencontainers.image.description="Noted sheet-music binder web application"
 
-# Temporary bridge while deployment healthchecks and routing move to 8080.
-EXPOSE 80 8080
+USER nginx
+
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1
 
+# No runtime configuration generation or privileged base-image entrypoint.
+ENTRYPOINT []
 CMD ["nginx", "-g", "daemon off;"]
