@@ -120,6 +120,7 @@ that:
 
 ## API
 
+- `GET /api/library/export` (session-authenticated ZIP of PDFs and JSON/CSV metadata)
 - `GET/POST /api/imports/`
 - `GET/PATCH/DELETE /api/imports/{draftID}/`
 - `POST /api/imports/{draftID}/sources`
@@ -169,6 +170,54 @@ directory within 2 seconds. It returns 200
 `{"assets":"ok","db":"ok","status":"ok"}`, or 503 with `"status":"degraded"`
 and `"error"` for each failing dependency. Error details go only to the API log.
 Point stack healthchecks and uptime monitors at `/api/ready`.
+
+## Library export
+
+`GET /api/library/export` downloads `noted-library.zip` for the signed-in
+browser user. It requires the normal session cookie; Send to Noted bearer
+tokens cannot export a library. Local development uses the existing seeded
+learner. This endpoint does not add a frontend control.
+
+The archive contains `library.json` (schema version 1), `pieces.csv`, and the
+current PDF for each piece that has one. Both metadata files include every
+status, favorites, aliases, notes, source and listening URLs, timestamps, PDF
+metadata, and the actual saved reader state. JSON represents missing PDFs and
+unsaved reader state as `null`; corresponding CSV fields are empty. No reader
+defaults are invented. Drafts, sets, credentials, sessions, storage keys, and
+internal download URLs are excluded.
+
+JSON preserves metadata exactly. CSV prefixes potentially executable spreadsheet
+cells with an apostrophe. PDF entries use bounded, sanitized names under
+`scores/`, with a fixed `score-` basename prefix to avoid Windows device names,
+and a short piece ID and snapshot ordinal to prevent collisions.
+The original filename remains metadata, never an archive path.
+
+The export reads owner-scoped metadata in pages of 100 inside one read-only,
+repeatable-read PostgreSQL snapshot. It streams one immutable PDF object at a
+time through a 32 KiB buffer and verifies its exact byte length and SHA-256.
+Metadata pages are closed before response writes. PDF bytes and the complete
+archive are never buffered in memory; ZIP central-directory memory still grows
+with the number of entries. The database transaction commits before the ZIP
+central directory is written.
+
+Each user can start one export per five minutes (burst one), with one active
+export per user per API process. Rejections return HTTP 429 and `Retry-After`.
+Limits are process-local: three replicas can admit up to three starts and
+three active exports per user across those processes. Exports have a five-minute
+request timeout and write deadline. Disconnects and failures release the reader,
+snapshot, and active slot. A failed attempt still consumes its start allowance.
+
+Before streaming starts, failures return a sanitized JSON error. A failure
+after streaming starts aborts the response without finalizing the ZIP.
+Discard an interrupted or invalid download and retry after the allowance
+refills. Concurrent replacement or deletion can remove a PDF referenced by
+the snapshot and fail the export; files are never silently omitted.
+
+Cancellation and deadlines cannot forcibly interrupt an `os.Open` or file read
+blocked inside a hard NFS filesystem syscall. Cleanup waits for that syscall
+to return; exports do not create per-read goroutines or change mount settings.
+Deployment verification should check anonymous export rejection and ordinary
+health/readiness endpoints, without downloading a real user's private library.
 
 ## Metrics
 
