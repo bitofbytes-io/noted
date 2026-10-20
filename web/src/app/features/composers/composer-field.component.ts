@@ -158,7 +158,7 @@ export class ComposerFieldComponent {
     this.active.set(-1);
   }
   key(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && this.open()) {
+    if (event.key === 'Escape' && this.open() && this.matches().length > 0) {
       event.preventDefault();
       event.stopPropagation();
       this.open.set(false);

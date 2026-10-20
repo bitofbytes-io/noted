@@ -179,6 +179,41 @@ describe('Composer autocomplete', () => {
     expect(window.scrollY).toBe(pageScroll);
     fixture.destroy();
   });
+  it.each(['empty', 'no match', 'error', 'populated'])(
+    'only consumes Escape when the popup is visible: %s',
+    async (state) => {
+      const api = {
+        composers: () =>
+          state === 'error'
+            ? throwError(() => new Error('offline'))
+            : of(state === 'empty' ? [] : entries),
+      };
+      await TestBed.configureTestingModule({
+        imports: [ComposerFieldComponent],
+        providers: [{ provide: ApiService, useValue: api }],
+      }).compileComponents();
+      const fixture = TestBed.createComponent(ComposerFieldComponent);
+      fixture.componentRef.setInput('value', state === 'no match' ? 'Unmatched composer' : '');
+      fixture.detectChanges();
+      const input = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+      input.dispatchEvent(new Event('focus'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const bubbled = vi.fn();
+      fixture.nativeElement.addEventListener('keydown', bubbled);
+      const escape = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      input.dispatchEvent(escape);
+      fixture.detectChanges();
+      expect(escape.defaultPrevented).toBe(state === 'populated');
+      expect(bubbled).toHaveBeenCalledTimes(state === 'populated' ? 0 : 1);
+      expect(fixture.nativeElement.querySelector('[role="listbox"]')).toBeNull();
+      fixture.destroy();
+    },
+  );
   it('supports keyboard selection and keeps free text on lookup failure', async () => {
     const api = { composers: vi.fn(() => of(entries)) };
     await TestBed.configureTestingModule({

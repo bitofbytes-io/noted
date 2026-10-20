@@ -264,6 +264,29 @@ func TestIntegrationComposers(t *testing.T) {
 			t.Fatal("invalid/foreign spelling accepted", bad)
 		}
 	}
+	// Legacy spellings must remain selectable exactly, without silently selecting
+	// a different, trimmed identity or preventing cleanup of the legacy name.
+	plain := create(owner, "Mozart")
+	legacy := create(owner, "Legacy placeholder")
+	if _, err := pool.Exec(ctx, `UPDATE pieces SET composer=$2 WHERE id=$1`, legacy.ID, " Mozart "); err != nil {
+		t.Fatal(err)
+	}
+	legacyInput := ComposerMerge{Spellings: []string{" Mozart "}, Target: "Wolfgang Mozart"}
+	legacyPreview, err := service.PreviewComposerMerge(ctx, owner, legacyInput)
+	if err != nil || legacyPreview.Count != 1 || legacyPreview.Pieces[0].ID != legacy.ID {
+		t.Fatal("legacy exact spelling was not selected", legacyPreview, err)
+	}
+	legacyInput.Fingerprint = legacyPreview.Fingerprint
+	if _, err := service.MergeComposers(ctx, owner, legacyInput); err != nil {
+		t.Fatal("legacy spelling merge failed", err)
+	}
+	for id, want := range map[string]string{plain.ID: "Mozart", legacy.ID: "Wolfgang Mozart"} {
+		piece, err := service.GetPiece(ctx, owner, id)
+		if err != nil || piece.Composer != want {
+			t.Fatal("legacy merge changed wrong identity", piece.Composer, want, err)
+		}
+	}
+
 }
 
 func TestIntegrationComposerRepairBatches(t *testing.T) {
@@ -279,20 +302,27 @@ func TestIntegrationComposerRepairBatches(t *testing.T) {
 	}
 	defer pool.Close()
 	owner := uuid.NewString()
+	other := uuid.NewString()
 	if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Repair tester','development')`, owner, owner+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Other repair tester','development')`, other, other+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
-		if _, err := pool.Exec(context.Background(), `DELETE FROM pieces WHERE user_id=$1`, owner); err != nil {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM pieces WHERE user_id=ANY($1::uuid[])`, []string{owner, other}); err != nil {
 			t.Error(err)
 		}
-		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner); err != nil {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner, other}); err != nil {
 			t.Error(err)
 		}
 	}()
-	for range composerRepairBatch + 1 {
-		if _, err := pool.Exec(ctx, `INSERT INTO pieces(id,user_id,title,composer) VALUES($1,$2,'Old writer','Chopin, Frédéric')`, uuid.NewString(), owner); err != nil {
-			t.Fatal(err)
+	// Include another owner's stale rows: repair is global and needs more than two batches.
+	for _, user := range []string{owner, other} {
+		for range composerRepairBatch + 1 {
+			if _, err := pool.Exec(ctx, `INSERT INTO pieces(id,user_id,title,composer) VALUES($1,$2,'Old writer','Chopin, Frédéric')`, uuid.NewString(), user); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	service := NewService(pool, nil)
@@ -305,10 +335,21 @@ func TestIntegrationComposerRepairBatches(t *testing.T) {
 	if err != nil || count != composerRepairBatch {
 		t.Fatal("repair was not bounded", count, err)
 	}
-	// A new instance resumes the remaining stale row, including startup races.
-	count, err = NewService(pool, nil).RepairComposerKeys(ctx)
-	if err != nil || count < 1 || count > composerRepairBatch {
-		t.Fatal("repair did not resume", count, err)
+	// A new instance resumes until the global backlog drains, bounded by ctx.
+	resumed := NewService(pool, nil)
+	total := 0
+	for {
+		count, err = resumed.RepairComposerKeys(ctx)
+		if err != nil || count < 0 || count > composerRepairBatch {
+			t.Fatal("repair did not resume within the batch bound", count, err)
+		}
+		if count == 0 {
+			break
+		}
+		total += count
+	}
+	if total < composerRepairBatch+2 {
+		t.Fatal("remaining owner and unrelated rows were not repaired", total)
 	}
 	var bad int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pieces WHERE user_id=$1 AND (composer_sort<>'chopin frederic' OR composer_sort_source<>composer OR composer_sort_version<>1)`, owner).Scan(&bad); err != nil || bad != 0 {

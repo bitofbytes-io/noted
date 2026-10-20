@@ -552,7 +552,7 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		return FinalizeResult{}, err
 	}
 	metadata.Aliases = aliases
-	_, err = tx.Exec(ctx, `UPDATE pieces SET title=$2,composer=$3,favorite=$4,source_url=$5,listening_url=$6,notes=$7,preparation_manifest=$8,search_text=$9,composer_sort=$10,composer_sort_source=$3,composer_sort_version=1,content_revision=content_revision+1,updated_at=now() WHERE id=$1`, *d.PieceID, metadata.Title, metadata.Composer, metadata.Favorite, metadata.SourceURL, metadata.ListeningURL, metadata.Notes, manifest, searchText(metadata), composerSortKey(metadata.Composer))
+	_, err = tx.Exec(ctx, `UPDATE pieces SET title=$2,composer=$3,favorite=$4,source_url=$5,listening_url=$6,notes=$7,preparation_manifest=$8,search_text=$9,composer_sort=$10,composer_sort_source=$3,composer_sort_version=$11,content_revision=content_revision+1,updated_at=now() WHERE id=$1`, *d.PieceID, metadata.Title, metadata.Composer, metadata.Favorite, metadata.SourceURL, metadata.ListeningURL, metadata.Notes, manifest, searchText(metadata), composerSortKey(metadata.Composer), composerKeyVersion)
 	if err != nil {
 		return FinalizeResult{}, err
 	}

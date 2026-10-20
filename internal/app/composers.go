@@ -166,6 +166,7 @@ func validateComposerMerge(input ComposerMerge) (ComposerMerge, error) {
 	input.Spellings = slices.Clone(input.Spellings)
 	slices.Sort(input.Spellings)
 	input.Spellings = slices.Compact(input.Spellings)
+	// These are exact persisted identities, including legacy surrounding whitespace.
 	for _, name := range input.Spellings {
 		if !utf8.ValidString(name) || len(name) > 300 {
 			return input, invalid("invalid composer spelling")
