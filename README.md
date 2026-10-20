@@ -210,17 +210,22 @@ deployment-ref flow as the other bitofbytes-io applications. The push passes
 each image's digest as an `image-digest` push option, so the hook deploys
 exactly the images that run built.
 
-The UI image is temporarily a port bridge: the existing `nginx:1.29-alpine`
-runtime serves the same files on container ports 80 and 8080. Its master still
-runs as root, and the image healthcheck remains on port 80 at `/health`.
-Directory redirects are relative, so neither internal port appears in browser
-redirects. For a local image check, publish either `127.0.0.1:4200:80` or
-`127.0.0.1:4200:8080` and open `http://localhost:4200`.
-`make test-ui-container-mime` builds the actual UI image and requires both
-listeners to pass health, route, asset-byte, MIME, and security-header checks.
-After this bridge is deployed and verified on every replica, deployment
-healthchecks and routing can move to 8080. A subsequent image will remove port
-80 and run Nginx as a non-root user; this bridge does not complete that change.
+The UI image retains `nginx:1.29-alpine` and runs Nginx directly as the `nginx`
+user, including its master process. It listens only on container port 8080;
+the image healthcheck uses `http://127.0.0.1:8080/health`. Nginx configuration
+and static assets are read-only, and PID and temporary files live under `/tmp`.
+The base image's configuration-generating entrypoint is disabled.
+For a local image check, publish `127.0.0.1:4200:8080` and open
+`http://localhost:4200`. Directory redirects remain relative.
+Docker inherits the base image's `EXPOSE 80` metadata, but nothing listens on
+port 80; deployment routing and healthchecks must use 8080.
+`make test-ui-container-mime` builds and runs the actual UI image with all
+capabilities dropped, a read-only root filesystem, and writable `/tmp`. It
+checks the runtime UID, PID 1, capabilities, absence of a port-80 listener,
+health, routes, asset bytes, MIME, and security headers.
+The preceding bridge release served both ports while deployment healthchecks
+and routing moved to 8080. If an image rollback is needed, keep routing and
+healthchecks on 8080 while returning to that bridge image.
 
 The API image reads PostgreSQL and Google credentials from the external
 `noted_database_url`, `noted_google_client_id`, and
