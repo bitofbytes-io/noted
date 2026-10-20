@@ -326,7 +326,7 @@ func TestLoadTrustedProxyCIDRs(t *testing.T) {
 }
 
 func TestLoadRejectsInvalidTrustedProxyCIDRs(t *testing.T) {
-	for _, raw := range []string{"proxy.example.test/32", "192.0.2.7", "192.0.2.0/33", "2001:db8::/129", "192.0.2.7/32,", ",192.0.2.7/32", "192.0.2.7/32,,2001:db8::/64", "::ffff:192.0.2.7/80"} {
+	for _, raw := range []string{"proxy.example.test/32", "192.0.2.7", "192.0.2.0/33", "2001:db8::/129", "192.0.2.7/32,", ",192.0.2.7/32", "192.0.2.7/32,,2001:db8::/64", "::ffff:192.0.2.7/80", "0.0.0.0/0", "::/0", "::ffff:0:0/96"} {
 		t.Run(raw, func(t *testing.T) {
 			t.Setenv("TRUSTED_PROXY_CIDRS", raw)
 			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "TRUSTED_PROXY_CIDRS") {

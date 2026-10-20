@@ -62,7 +62,8 @@ duration; a configured positive `SESSION_TTL` overrides the default.
 Session IPs default to the immediate socket peer, including the deployment proxy
 when running behind one. Forwarding headers are ignored unless
 `TRUSTED_PROXY_CIDRS` explicitly lists the proxies permitted to provide
-`X-Forwarded-For` (comma-separated IPv4/IPv6 CIDRs; invalid entries stop startup).
+`X-Forwarded-For` (comma-separated IPv4/IPv6 CIDRs). Invalid entries and trust-all
+prefixes (`0.0.0.0/0`, `::/0`, including mapped IPv4 equivalents) stop startup.
 Configure only narrow ranges for proxies you control that overwrite or append
 an accurate client address. Do not trust a whole overlay network or all clients.
 For a trusted peer, Noted walks the complete header chain from right to left,

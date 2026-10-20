@@ -288,6 +288,9 @@ func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
 			}
 			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
 		}
+		if prefix.Bits() == 0 {
+			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS CIDR %q would trust every peer", strings.TrimSpace(entry))
+		}
 		prefixes = append(prefixes, prefix.Masked())
 	}
 	return prefixes, nil
