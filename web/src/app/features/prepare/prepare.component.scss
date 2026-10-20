@@ -828,3 +828,14 @@ input[type='range'] {
 [hidden] {
   display: none !important;
 }
+.completion {
+  border-top: 1px solid var(--line);
+  padding-block: var(--space-5);
+  overflow-wrap: anywhere;
+}
+.completion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}

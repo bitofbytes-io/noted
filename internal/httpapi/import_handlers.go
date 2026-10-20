@@ -23,7 +23,7 @@ type ImportBackend interface {
 	DeleteImport(context.Context, string, string) error
 	UploadImportSource(context.Context, string, string, string, int64, io.Reader) (app.ImportDraft, error)
 	ImportSource(context.Context, string, string, string) (app.ImportAsset, assets.ReadSeekCloser, error)
-	FinalizeImport(context.Context, string, string, int64, io.Reader) (app.Piece, error)
+	FinalizeImport(context.Context, string, string, int64, io.Reader) (app.FinalizeResult, error)
 }
 
 func (h *Handler) importBackend(w http.ResponseWriter) (ImportBackend, bool) {

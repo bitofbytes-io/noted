@@ -70,6 +70,11 @@ export interface Preferences {
   librarySort: LibrarySort;
 }
 
+/** Finalization alone can report an advisory same-owner PDF match. */
+export interface FinalizeResult extends Piece {
+  duplicateOf?: { id: string; title: string };
+}
+
 export interface Piece {
   id: string;
   title: string;

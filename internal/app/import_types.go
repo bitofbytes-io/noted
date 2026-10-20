@@ -2,6 +2,18 @@ package app
 
 import "time"
 
+// FinalizeResult preserves the piece response shape and adds advisory metadata
+// only to finalization, including retries of an already completed draft.
+type FinalizeResult struct {
+	Piece
+	DuplicateOf *DuplicatePiece `json:"duplicateOf,omitempty"`
+}
+
+type DuplicatePiece struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
 type PageEdit struct {
 	Margins              []float64   `json:"margins,omitempty"` // top,right,bottom,left in PDF points
 	FitEdges             bool        `json:"fitEdges,omitempty"`

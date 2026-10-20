@@ -240,8 +240,19 @@
 
     <label class="field">
       <span>Title</span>
-      <input name="title" required maxlength="300" [(ngModel)]="form.title" />
+      <input
+        name="title"
+        required
+        maxlength="300"
+        [(ngModel)]="form.title"
+        [attr.aria-describedby]="duplicateTitle() ? 'duplicate-title-warning' : null"
+      />
     </label>
+    @if (duplicateTitle(); as duplicate) {
+      <p id="duplicate-title-warning" class="hint" role="status">
+        Already in your library as {{ duplicate.title }}. You can still save this piece.
+      </p>
+    }
     <label class="field">
       <span>Composer</span>
       <input name="composer" maxlength="300" [(ngModel)]="form.composer" />

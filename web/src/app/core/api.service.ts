@@ -9,6 +9,7 @@ import {
   ReaderState,
   Session,
   ImportDraft,
+  FinalizeResult,
   IMSLPSearch,
   ShortcutToken,
   ShortcutTokenCreated,
@@ -59,11 +60,11 @@ export class ApiService {
     body.set('revision', String(d.revision));
     return this.http.post<ImportDraft>(`/api/imports/${d.id}/sources`, body);
   }
-  finalizeImport(d: ImportDraft, file: Blob): Observable<Piece> {
+  finalizeImport(d: ImportDraft, file: Blob): Observable<FinalizeResult> {
     const body = new FormData();
     body.set('file', file, 'score.pdf');
     body.set('revision', String(d.revision));
-    return this.http.post<Piece>(`/api/imports/${d.id}/finalize`, body);
+    return this.http.post<FinalizeResult>(`/api/imports/${d.id}/finalize`, body);
   }
 
   session(): Observable<Session> {
