@@ -247,6 +247,14 @@ func (s *Service) MergeComposers(ctx context.Context, owner string, input Compos
 		return ComposerPreview{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort cleanup, including committed transactions.
+	// Older replicas create pieces without the owner advisory lock. Their FK
+	// check takes KEY SHARE on this user row, so lock it before selecting the
+	// merge set. An earlier insert is visible to that selection; a later insert
+	// waits until this merge commits. Keep advisory -> user -> piece lock order.
+	var lockedOwner string
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, owner).Scan(&lockedOwner); err != nil {
+		return ComposerPreview{}, err
+	}
 	preview, err := composerPreview(ctx, tx, owner, input)
 	if err != nil {
 		return ComposerPreview{}, err

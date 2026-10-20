@@ -11,6 +11,7 @@ import (
 
 	"github.com/bitofbytes-io/noted/internal/assets"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -354,5 +355,180 @@ func TestIntegrationComposerRepairBatches(t *testing.T) {
 	var bad int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pieces WHERE user_id=$1 AND (composer_sort<>'chopin frederic' OR composer_sort_source<>composer OR composer_sort_version<>1)`, owner).Scan(&bad); err != nil || bad != 0 {
 		t.Fatal("incorrect repaired keys", bad, err)
+	}
+}
+
+// Pause after rows have been consumed and the merge set has been selected, while
+// its transaction still holds locks. This is test instrumentation, not a DB trigger.
+type composerSelectionTraceKey struct{}
+type composerSelectionPause struct {
+	selected chan uint32
+	release  chan struct{}
+}
+
+func (p *composerSelectionPause) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, composerSelectionTraceKey{}, strings.Contains(data.SQL, "FOR UPDATE OF p"))
+}
+func (p *composerSelectionPause) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
+	if selected, _ := ctx.Value(composerSelectionTraceKey{}).(bool); !selected || data.Err != nil {
+		return
+	}
+	select {
+	case p.selected <- conn.PgConn().PID():
+	case <-ctx.Done():
+		return
+	}
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+	}
+}
+
+func TestIntegrationComposerMergeOldWriter(t *testing.T) {
+	dsn := os.Getenv("NOTED_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("NOTED_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	owner, other := uuid.NewString(), uuid.NewString()
+	for _, id := range []string{owner, other} {
+		if _, err := pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Mixed writer tester','development')`, id, id+"@example.test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() {
+		for _, q := range []string{`DELETE FROM pieces WHERE user_id=ANY($1::uuid[])`, `DELETE FROM users WHERE id=ANY($1::uuid[])`} {
+			if _, err := pool.Exec(context.Background(), q, []string{owner, other}); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	service := NewService(pool, nil)
+	first, err := service.CreatePiece(ctx, owner, PieceInput{Title: "Initial", Composer: "Chopin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := ComposerMerge{Spellings: []string{"Chopin"}, Target: "Frédéric Chopin"}
+	preview, err := service.PreviewComposerMerge(ctx, owner, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Fingerprint = preview.Fingerprint
+	// Emulate the old direct INSERT, deliberately taking no advisory lock.
+	const oldInsert = `INSERT INTO pieces(id,user_id,title,composer) VALUES($1,$2,'Old replica','Chopin')`
+	beforeID := uuid.NewString()
+	oldTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oldTx.Rollback(ctx) //nolint:errcheck // Best-effort cleanup, including committed transactions.
+	if _, err := oldTx.Exec(ctx, oldInsert, beforeID, owner); err != nil {
+		t.Fatal(err)
+	}
+	// An uncommitted old insert holds FK KEY SHARE. A waiting merge respects
+	// cancellation and leaves no writes or advisory lock behind.
+	waiting, stop := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, waitErr := service.MergeComposers(waiting, owner, input)
+	stop()
+	if !errors.Is(waitErr, context.DeadlineExceeded) {
+		t.Fatal("merge did not respect cancellation while waiting for old writer", waitErr)
+	}
+	if err := oldTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.MergeComposers(ctx, owner, input); !errors.Is(err, ErrComposerChanged) {
+		t.Fatal("old insert before merge accepted a stale fingerprint", err)
+	}
+	preview, err = service.PreviewComposerMerge(ctx, owner, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Fingerprint = preview.Fingerprint
+	pause := &composerSelectionPause{selected: make(chan uint32, 1), release: make(chan struct{})}
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.Tracer = pause
+	mergePool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mergePool.Close()
+	release := sync.OnceFunc(func() { close(pause.release) })
+	defer release()
+	merged := make(chan error, 1)
+	go func() {
+		result, err := NewService(mergePool, nil).MergeComposers(ctx, owner, input)
+		if err == nil && result.Count != 2 {
+			err = errors.New("merge changed the confirmed count")
+		}
+		merged <- err
+	}()
+	var mergePID uint32
+	select {
+	case mergePID = <-pause.selected:
+	case err := <-merged:
+		t.Fatal("merge ended before selection pause", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	writer, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Release()
+	writerPID := writer.Conn().PgConn().PID()
+	inserted := make(chan error, 1)
+	afterID := uuid.NewString()
+	go func() {
+		_, err := writer.Exec(ctx, oldInsert, afterID, owner)
+		inserted <- err
+	}()
+	// Observe the actual FK lock wait, rather than infer blocking from a sleep.
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var blocked bool
+		if err := pool.QueryRow(ctx, `SELECT $1::integer=ANY(pg_blocking_pids($2::integer))`, mergePID, writerPID).Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		select {
+		case err := <-inserted:
+			t.Fatal("old insert bypassed the selected merge set", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-ticker.C:
+		}
+	}
+	// The lock is per owner; an unrelated old replica insert still succeeds.
+	if _, err := pool.Exec(ctx, oldInsert, uuid.NewString(), other); err != nil {
+		t.Fatal("foreign owner insert was blocked", err)
+	}
+	release()
+	for _, done := range []<-chan error{merged, inserted} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	for id, want := range map[string]string{first.ID: input.Target, beforeID: input.Target, afterID: "Chopin"} {
+		piece, err := service.GetPiece(ctx, owner, id)
+		if err != nil || piece.Composer != want {
+			t.Fatal("old insert did not serialize after the merge", id, piece.Composer, want, err)
+		}
 	}
 }
