@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"net"
@@ -22,7 +23,9 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Print("optional .env file could not be loaded")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)

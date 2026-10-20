@@ -256,7 +256,7 @@ func (h *Handler) servePDFContent(
 		handleError(writer, err)
 		return
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	filename := safeFilename(source.OriginalFilename)
 	disposition := mime.FormatMediaType(dispositionType, map[string]string{"filename": filename})
 	writer.Header().Set("Content-Type", "application/pdf")
@@ -427,5 +427,8 @@ func writeJSON(writer http.ResponseWriter, status int, body any) {
 func writeJSONStatus(writer http.ResponseWriter, status int, body any) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
-	_ = json.NewEncoder(writer).Encode(body)
+	if err := json.NewEncoder(writer).Encode(body); err != nil {
+		// Headers may already be sent; never append a second response or log private data.
+		slog.Warn("writing JSON response failed")
+	}
 }

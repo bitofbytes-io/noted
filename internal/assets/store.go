@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -73,7 +74,11 @@ func (s *LocalStore) Save(_ context.Context, source io.Reader) (Object, error) {
 		return Object{}, fmt.Errorf("create temporary asset: %w", err)
 	}
 	tempName := temp.Name()
-	defer os.Remove(tempName)
+	defer func() {
+		if err := os.Remove(tempName); err != nil && !os.IsNotExist(err) {
+			slog.Warn("removing temporary asset failed")
+		}
+	}()
 
 	hash := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(temp, hash), source)
@@ -101,7 +106,7 @@ func (s *LocalStore) Open(_ context.Context, key string) (ReadSeekCloser, error)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- s.path validates an opaque key with no traversal beneath the configured asset root.
 	if err != nil {
 		return nil, err
 	}

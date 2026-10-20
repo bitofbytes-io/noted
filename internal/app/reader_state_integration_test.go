@@ -34,9 +34,18 @@ func TestIntegrationPDFReplacementAndReaderStateChecksum(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Reader tester','development')`, ownerID, fmt.Sprintf("reader-%s@example.test", ownerID)); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, ownerID)
-	})
+	defer func() {
+		// Remove references before the user cascade deletes their import assets.
+		if _, err := pool.Exec(context.Background(), `DELETE FROM import_drafts WHERE user_id=$1`, ownerID); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM pieces WHERE user_id=$1`, ownerID); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, ownerID); err != nil {
+			t.Error(err)
+		}
+	}()
 	piece, err := service.CreatePiece(ctx, ownerID, PieceInput{Title: "Replacement test"})
 	if err != nil {
 		t.Fatal(err)

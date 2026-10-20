@@ -168,7 +168,7 @@ func (s *Service) RefoldSearchText(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	var version int
 	if err = tx.QueryRow(ctx, `SELECT fold_version FROM search_index_state WHERE id FOR UPDATE`).Scan(&version); err != nil {
 		return 0, err

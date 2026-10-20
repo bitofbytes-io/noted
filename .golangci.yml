@@ -1,0 +1,20 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - staticcheck
+    - errcheck
+    - gosec
+    - bodyclose
+    - ineffassign
+    - unused
+  settings:
+    errcheck:
+      check-blank: true
+  exclusions:
+    presets: []
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

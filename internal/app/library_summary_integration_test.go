@@ -40,9 +40,11 @@ func TestIntegrationLibrarySummaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{owner.ID, other.ID})
-	})
+	defer func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{owner.ID, other.ID}); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	shelved := app.StatusShelved
 	humoresque, err := service.CreatePiece(ctx, owner.ID, app.PieceInput{

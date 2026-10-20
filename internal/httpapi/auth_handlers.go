@@ -20,7 +20,7 @@ import (
 
 const (
 	googleAuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
-	googleTokenEndpoint         = "https://oauth2.googleapis.com/token"
+	googleTokenEndpoint         = "https://oauth2.googleapis.com/token" // #nosec G101 -- Public OAuth endpoint, not a credential.
 	googleUserInfoEndpoint      = "https://openidconnect.googleapis.com/v1/userinfo"
 )
 
@@ -131,7 +131,7 @@ func (h *Handler) googleCallback(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	h.setSessionCookie(writer, token, expiresAt)
-	http.Redirect(
+	http.Redirect( // #nosec G710 -- Configured frontend URL plus auth.SafeReturnPath keeps the redirect on the application.
 		writer, request,
 		strings.TrimRight(h.config.FrontendURL, "/")+returnPath,
 		http.StatusFound,
@@ -231,9 +231,9 @@ func (h *Handler) exchangeGoogleIdentity(
 	if err != nil {
 		return auth.GoogleIdentity{}, err
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096)) //nolint:errcheck // Best-effort bounded drain for connection reuse; the HTTP status/header determines the result.
 		return auth.GoogleIdentity{}, fmt.Errorf("google token endpoint returned %s", response.Status)
 	}
 	var token struct {
@@ -255,9 +255,9 @@ func (h *Handler) exchangeGoogleIdentity(
 	if err != nil {
 		return auth.GoogleIdentity{}, err
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096)) //nolint:errcheck // Best-effort bounded drain for connection reuse; the HTTP status/header determines the result.
 		return auth.GoogleIdentity{}, fmt.Errorf("google userinfo endpoint returned %s", response.Status)
 	}
 	var identity struct {
@@ -277,7 +277,7 @@ func (h *Handler) exchangeGoogleIdentity(
 }
 
 func (h *Handler) setStateCookie(writer http.ResponseWriter, value string) {
-	http.SetCookie(writer, &http.Cookie{
+	http.SetCookie(writer, &http.Cookie{ // #nosec G124 -- Secure is required in production; HTTP-only local development intentionally omits it.
 		Name: auth.StateCookieName, Value: value, Path: "/api/auth/google/callback",
 		HttpOnly: true, Secure: h.config.AppEnv == "production", SameSite: http.SameSiteLaxMode,
 		MaxAge: 600,
@@ -285,7 +285,7 @@ func (h *Handler) setStateCookie(writer http.ResponseWriter, value string) {
 }
 
 func (h *Handler) clearStateCookie(writer http.ResponseWriter) {
-	http.SetCookie(writer, &http.Cookie{
+	http.SetCookie(writer, &http.Cookie{ // #nosec G124 -- Secure is required in production; HTTP-only local development intentionally omits it.
 		Name: auth.StateCookieName, Path: "/api/auth/google/callback", HttpOnly: true,
 		Secure: h.config.AppEnv == "production", SameSite: http.SameSiteLaxMode,
 		MaxAge: -1, Expires: time.Unix(1, 0),
@@ -293,7 +293,7 @@ func (h *Handler) clearStateCookie(writer http.ResponseWriter) {
 }
 
 func (h *Handler) setSessionCookie(writer http.ResponseWriter, value string, expiresAt time.Time) {
-	http.SetCookie(writer, &http.Cookie{
+	http.SetCookie(writer, &http.Cookie{ // #nosec G124 -- Secure is required in production; HTTP-only local development intentionally omits it.
 		Name: auth.SessionCookieName, Value: value, Path: "/", HttpOnly: true,
 		Secure: h.config.AppEnv == "production", SameSite: http.SameSiteLaxMode,
 		Expires: expiresAt, MaxAge: int(time.Until(expiresAt).Seconds()),
@@ -301,7 +301,7 @@ func (h *Handler) setSessionCookie(writer http.ResponseWriter, value string, exp
 }
 
 func (h *Handler) clearSessionCookie(writer http.ResponseWriter) {
-	http.SetCookie(writer, &http.Cookie{
+	http.SetCookie(writer, &http.Cookie{ // #nosec G124 -- Secure is required in production; HTTP-only local development intentionally omits it.
 		Name: auth.SessionCookieName, Path: "/", HttpOnly: true,
 		Secure: h.config.AppEnv == "production", SameSite: http.SameSiteLaxMode,
 		MaxAge: -1, Expires: time.Unix(1, 0),

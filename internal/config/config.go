@@ -123,7 +123,7 @@ func LoadDatabaseURL() (string, error) {
 		return "", err
 	}
 	if databaseURL == "" {
-		databaseURL = "postgres://noted:noted@localhost:5434/noted?sslmode=disable"
+		databaseURL = "postgres://noted:noted@localhost:5434/noted?sslmode=disable" // #nosec G101 -- Documented local Compose credentials; production supplies DATABASE_URL or its secret file.
 	}
 	return databaseURL, nil
 }
@@ -187,7 +187,7 @@ func getEnvOrFile(name string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 G703 -- Operator-provided *_FILE secret path, never an HTTP input.
 	if err != nil {
 		return "", fmt.Errorf("config: reading %s_FILE (%s): %w", name, path, err)
 	}
@@ -254,7 +254,10 @@ func validateOrigin(name, value string, requireHTTPS bool) error {
 	if err := validateAbsoluteURL(name, value, requireHTTPS); err != nil {
 		return err
 	}
-	parsed, _ := url.Parse(value)
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("%s must be an absolute URL", name)
+	}
 	if parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return fmt.Errorf("%s must contain only scheme and host", name)
 	}

@@ -226,8 +226,7 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 	if err != nil {
 		return Piece{}, err
 	}
-	var id string
-	id = uuid.NewString()
+	id := uuid.NewString()
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO pieces
 			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes,
@@ -251,7 +250,7 @@ func (s *Service) UpdatePiece(
 	if err != nil {
 		return Piece{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	current, err := scanPiece(tx.QueryRow(ctx, `SELECT `+pieceColumns+` FROM `+pieceTables+` WHERE p.id=$1 AND p.user_id=$2`, id, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Piece{}, ErrNotFound
@@ -315,7 +314,7 @@ func (s *Service) DeletePiece(ctx context.Context, userID, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	var key *string
 	err = tx.QueryRow(ctx, `
 		SELECT f.storage_key FROM pieces p
@@ -442,7 +441,7 @@ func (s *Service) PutReaderState(
 	if err != nil {
 		return ReaderState{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, id); err != nil {
 		return ReaderState{}, err
 	}

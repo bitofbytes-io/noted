@@ -125,7 +125,7 @@ func (s *Service) AuthenticateGoogle(ctx context.Context, identity GoogleIdentit
 	if err != nil {
 		return app.User{}, fmt.Errorf("begin google authentication: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 
 	var user app.User
 	err = scanUser(tx.QueryRow(ctx, `

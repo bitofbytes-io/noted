@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -280,10 +281,19 @@ func TestCORSRejectsMultipartMutationFromMismatchedOrigin(t *testing.T) {
 	}, nil)
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
-	_ = form.WriteField("revision", "1")
-	file, _ := form.CreateFormFile("file", "score.pdf")
-	_, _ = io.WriteString(file, "%PDF-safe")
-	_ = form.Close()
+	if err := form.WriteField("revision", "1"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := form.CreateFormFile("file", "score.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(file, "%PDF-safe"); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Error(err)
+	}
 	request := httptest.NewRequest(http.MethodPost, "/api/imports/"+testPieceID+"/sources", body)
 	request.Header.Set("Origin", "https://untrusted.example.test")
 	request.Header.Set("Content-Type", form.FormDataContentType())
@@ -746,5 +756,36 @@ func TestValidationStatusFollowsErrorType(t *testing.T) {
 				t.Fatalf("%d %s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+// A failed writer must not trigger another response or expose private payloads.
+type failedJSONWriter struct {
+	*httptest.ResponseRecorder
+	writes int
+}
+
+func (w *failedJSONWriter) Write([]byte) (int, error) {
+	w.writes++
+	return 0, errors.New("private transport detail")
+}
+
+func TestWriteJSONStatusHandlesFailuresWithoutLeakingData(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	writer := &failedJSONWriter{ResponseRecorder: httptest.NewRecorder()}
+	writeJSONStatus(writer, http.StatusCreated, map[string]string{"title": "private score title"})
+	if writer.Code != http.StatusCreated || writer.writes != 1 || writer.Body.Len() != 0 {
+		t.Fatalf("failed response: status=%d writes=%d body=%q", writer.Code, writer.writes, writer.Body.String())
+	}
+	recorder := httptest.NewRecorder()
+	writeJSONStatus(recorder, http.StatusOK, make(chan int))
+	if recorder.Code != http.StatusOK || recorder.Body.Len() != 0 {
+		t.Fatalf("encoding failure appended a response: %d %q", recorder.Code, recorder.Body.String())
+	}
+	if strings.Count(logs.String(), "writing JSON response failed") != 2 || strings.Contains(logs.String(), "private") {
+		t.Fatalf("unexpected failure logs: %s", logs.String())
 	}
 }

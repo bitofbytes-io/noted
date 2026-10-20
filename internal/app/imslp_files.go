@@ -52,12 +52,12 @@ func (s *imslpSearcher) resolveFile(number string) (IMSLPWork, bool) {
 // reverseLookup reads only the redirect target; the work page is never fetched.
 // Errors carry no URL, so the breaker log line never includes a file number.
 func (s *imslpSearcher) reverseLookup(number string) (IMSLPWork, bool, time.Duration, error) {
-	request, err := http.NewRequest(http.MethodGet, s.cfg.WikiURL+"Special:ReverseLookup/"+number, nil)
+	request, err := http.NewRequest(http.MethodGet, s.cfg.WikiURL+"Special:ReverseLookup/"+number, nil) // #nosec G704 -- Fixed IMSLP origin (test-injected otherwise); filename parsing supplies digits only.
 	if err != nil {
 		return IMSLPWork{}, false, 0, errors.New("invalid IMSLP lookup request")
 	}
 	request.Header.Set("User-Agent", imslpAgent)
-	response, err := s.client.Do(request)
+	response, err := s.client.Do(request) // #nosec G704 -- Request targets the fixed IMSLP origin; the client refuses redirects.
 	if err != nil {
 		var urlError *url.Error
 		if errors.As(err, &urlError) {
@@ -65,8 +65,8 @@ func (s *imslpSearcher) reverseLookup(number string) (IMSLPWork, bool, time.Dura
 		}
 		return IMSLPWork{}, false, 0, err
 	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+	defer response.Body.Close()                                       //nolint:errcheck // Read-only stream; the read/response result is handled separately.
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10)) //nolint:errcheck // Best-effort bounded drain for connection reuse; the HTTP status/header determines the result.
 	switch status := response.StatusCode; {
 	case status == http.StatusTooManyRequests:
 		return IMSLPWork{}, false, s.retryAfter(response.Header.Get("Retry-After")), errors.New("IMSLP lookup HTTP 429")

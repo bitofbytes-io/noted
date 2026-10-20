@@ -61,19 +61,28 @@ func TestMetricsLabelRoutePatternsAndCountDomainEvents(t *testing.T) {
 	if response := serve(router, httptest.NewRequest(http.MethodGet, "/metrics", nil)); response.Code != http.StatusNotFound {
 		t.Fatalf("public /metrics = %d, want 404", response.Code)
 	}
-	if code := serve(router, shortcutUpload(strings.Repeat("x", 43), "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusUnauthorized {
+	if code := serve(router, shortcutUpload(t, strings.Repeat("x", 43), "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusUnauthorized {
 		t.Fatalf("bad shortcut token = %d, want 401", code)
 	}
 	token := createToken(t, router)
-	if code := serve(router, shortcutUpload(token, "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusCreated {
+	if code := serve(router, shortcutUpload(t, token, "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusCreated {
 		t.Fatalf("shortcut upload = %d, want 201", code)
 	}
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
-	_ = form.WriteField("revision", "1")
-	file, _ := form.CreateFormFile("file", "score.pdf")
-	_, _ = io.WriteString(file, "%PDF-1.7")
-	_ = form.Close()
+	if err := form.WriteField("revision", "1"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := form.CreateFormFile("file", "score.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(file, "%PDF-1.7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Error(err)
+	}
 	request := httptest.NewRequest(http.MethodPost, "/api/imports/"+testPieceID+"/sources", body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	// fakeShortcutBackend has no import backend, so the upload fails with 503.
@@ -125,7 +134,7 @@ func TestMetricsCountRecoveredUploadPanicAsError(t *testing.T) {
 		MaxUploadBytes: 1024, AllowedOrigin: testAllowedOrigin,
 	}, m)
 	token := createToken(t, router)
-	if code := serve(router, shortcutUpload(token, "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusInternalServerError {
+	if code := serve(router, shortcutUpload(t, token, "score.pdf", "application/pdf", "%PDF-1.7")).Code; code != http.StatusInternalServerError {
 		t.Fatalf("panicking shortcut upload = %d, want 500", code)
 	}
 	output := scrape(t, m)

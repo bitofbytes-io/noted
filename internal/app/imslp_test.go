@@ -61,7 +61,7 @@ const clairDeLunePage = `{"batchcomplete":true,"query":{"pages":[{"pageid":1,"ns
 func replyJSON(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, body)
+		fmt.Fprint(w, body) //nolint:errcheck // Timeout/cancellation tests may close this fake upstream response.
 	}
 }
 
@@ -351,7 +351,10 @@ func TestIMSLPSearchLateSuccessDoesNotCloseOpenBreaker(t *testing.T) {
 	})
 	late := make(chan IMSLPSearch, 1)
 	go func() {
-		result, _ := s.search(context.Background(), "user-a", "slow query")
+		result, err := s.search(context.Background(), "user-a", "slow query")
+		if err != nil {
+			t.Error(err)
+		}
 		late <- result
 	}()
 	<-started
@@ -578,12 +581,18 @@ func TestIMSLPSearchSharesConcurrentIdenticalQueries(t *testing.T) {
 	results := make(chan IMSLPSearch, 2)
 	errs := make(chan error, 1)
 	go func() {
-		result, _ := s.search(context.Background(), "user-a", "Clair de lune")
+		result, err := s.search(context.Background(), "user-a", "Clair de lune")
+		if err != nil {
+			t.Error(err)
+		}
 		results <- result
 	}()
 	<-started
 	go func() {
-		result, _ := s.search(context.Background(), "user-b", "clair de lune")
+		result, err := s.search(context.Background(), "user-b", "clair de lune")
+		if err != nil {
+			t.Error(err)
+		}
 		results <- result
 	}()
 	go func() {

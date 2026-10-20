@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func (s *Service) importTx(ctx context.Context, owner string) (pgx.Tx, error) {
 		return nil, err
 	}
 	if err = lockOwner(ctx, tx, owner); err != nil {
-		tx.Rollback(ctx)
+		_ = tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 		return nil, err
 	}
 	return tx, nil
@@ -155,7 +156,7 @@ func (s *Service) GetImport(ctx context.Context, owner, id string) (ImportDraft,
 	if err != nil {
 		return ImportDraft{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	return s.draftTx(ctx, tx, owner, id)
 }
 func (s *Service) ListImports(ctx context.Context, owner string) ([]ImportDraft, error) {
@@ -191,7 +192,7 @@ func (s *Service) createImport(ctx context.Context, owner string, input CreateIm
 	if err != nil {
 		return ImportDraft{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	var count int
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM import_drafts WHERE user_id=$1 AND NOT finalized AND updated_at>now()-interval '7 days'`, owner).Scan(&count); err != nil {
 		return ImportDraft{}, err
@@ -260,8 +261,14 @@ func (s *Service) createImport(ctx context.Context, owner string, input CreateIm
 		}
 	}
 	d.InitialManifest = d.Manifest
-	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill, d.BaseMetadata)
-	manifest, _ := json.Marshal(d.Manifest)
+	meta, err := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill, d.BaseMetadata)
+	if err != nil {
+		return d, err
+	}
+	manifest, err := json.Marshal(d.Manifest)
+	if err != nil {
+		return d, err
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO import_drafts(id,user_id,piece_id,base_revision,metadata,manifest,initial_manifest) VALUES($1,$2,$3,$4,$5,$6,$6)`, d.ID, owner, d.PieceID, d.BaseRevision, meta, manifest)
 	if err != nil {
 		return d, err
@@ -281,7 +288,7 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 	if err != nil {
 		return ImportDraft{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	d, err := s.draftTx(ctx, tx, owner, id)
 	if err != nil {
 		return d, err
@@ -310,8 +317,14 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 	if err = validateIMSLPAutoFill(input.Metadata, input.IMSLPAutoFill); err != nil {
 		return d, err
 	}
-	meta, _ := marshalDraftMetadata(input.Metadata, input.IMSLPAutoFill, d.BaseMetadata)
-	manifest, _ := json.Marshal(input.Manifest)
+	meta, err := marshalDraftMetadata(input.Metadata, input.IMSLPAutoFill, d.BaseMetadata)
+	if err != nil {
+		return d, err
+	}
+	manifest, err := json.Marshal(input.Manifest)
+	if err != nil {
+		return d, err
+	}
 	_, err = tx.Exec(ctx, `UPDATE import_drafts SET metadata=$2,manifest=$3,revision=revision+1,updated_at=now() WHERE id=$1`, id, meta, manifest)
 	if err != nil {
 		return d, err
@@ -350,7 +363,7 @@ func (s *Service) attachSource(ctx context.Context, owner, id, filename string, 
 	if err != nil {
 		return ImportDraft{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	d, err := s.draftTx(ctx, tx, owner, id)
 	if err != nil {
 		return d, err
@@ -373,7 +386,7 @@ func (s *Service) attachSource(ctx context.Context, owner, id, filename string, 
 	defer func() {
 		if !committed {
 			cleanupCtx := context.WithoutCancel(ctx)
-			_ = tx.Rollback(cleanupCtx)
+			_ = tx.Rollback(cleanupCtx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 			s.queueObject(cleanupCtx, object.Key)
 		}
 	}()
@@ -394,8 +407,14 @@ func (s *Service) attachSource(ctx context.Context, owner, id, filename string, 
 		// choosing a work later can replace it.
 		d.IMSLPAutoFill.Title = &d.Metadata.Title
 	}
-	manifest, _ := json.Marshal(d.Manifest)
-	meta, _ := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill, d.BaseMetadata)
+	manifest, err := json.Marshal(d.Manifest)
+	if err != nil {
+		return d, err
+	}
+	meta, err := marshalDraftMetadata(d.Metadata, d.IMSLPAutoFill, d.BaseMetadata)
+	if err != nil {
+		return d, err
+	}
 	_, err = tx.Exec(ctx, `UPDATE import_drafts SET manifest=$2,metadata=$3,revision=revision+1,updated_at=now() WHERE id=$1`, id, manifest, meta)
 	if err != nil {
 		return d, err
@@ -426,7 +445,7 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 	if err != nil {
 		return Piece{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	d, err := s.draftTx(ctx, tx, owner, id)
 	if err != nil {
 		return Piece{}, err
@@ -435,7 +454,7 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		return Piece{}, ErrConflict
 	}
 	if d.Finalized && d.PieceID != nil {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 		return s.GetPiece(ctx, owner, *d.PieceID)
 	}
 	if err = validateManifest(d.Manifest, d.Sources, false); err != nil {
@@ -498,15 +517,21 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 			return Piece{}, err
 		}
 	}
-	manifestBytes, _ := json.Marshal(d.Manifest)
-	initialBytes, _ := json.Marshal(d.InitialManifest)
+	manifestBytes, err := json.Marshal(d.Manifest)
+	if err != nil {
+		return Piece{}, err
+	}
+	initialBytes, err := json.Marshal(d.InitialManifest)
+	if err != nil {
+		return Piece{}, err
+	}
 	if oldKey != "" && oldPageCount == count && bytes.Equal(manifestBytes, initialBytes) {
 		original, openErr := s.store.Open(ctx, oldKey)
 		if openErr != nil {
 			return Piece{}, openErr
 		}
 		data, err = io.ReadAll(original)
-		original.Close()
+		_ = original.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 		if err != nil {
 			return Piece{}, err
 		}
@@ -519,11 +544,14 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 	defer func() {
 		if !committed {
 			cleanupCtx := context.WithoutCancel(ctx)
-			_ = tx.Rollback(cleanupCtx)
+			_ = tx.Rollback(cleanupCtx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 			s.queueObject(cleanupCtx, object.Key)
 		}
 	}()
-	manifest, _ := json.Marshal(d.Manifest)
+	manifest, err := json.Marshal(d.Manifest)
+	if err != nil {
+		return Piece{}, err
+	}
 	metadata.Aliases = aliases
 	_, err = tx.Exec(ctx, `UPDATE pieces SET title=$2,composer=$3,favorite=$4,source_url=$5,listening_url=$6,notes=$7,preparation_manifest=$8,search_text=$9,content_revision=content_revision+1,updated_at=now() WHERE id=$1`, *d.PieceID, metadata.Title, metadata.Composer, metadata.Favorite, metadata.SourceURL, metadata.ListeningURL, metadata.Notes, manifest, searchText(metadata))
 	if err != nil {
@@ -574,7 +602,7 @@ func (s *Service) DeleteImport(ctx context.Context, owner, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	tag, err := tx.Exec(ctx, `DELETE FROM import_drafts WHERE id=$1 AND user_id=$2`, id, owner)
 	if err != nil {
 		return err
@@ -596,7 +624,9 @@ func collectOrphans(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 func (s *Service) queueObject(ctx context.Context, key string) {
-	_, _ = s.pool.Exec(ctx, `INSERT INTO asset_deletion_queue(storage_key) VALUES($1) ON CONFLICT DO NOTHING`, key)
+	if _, err := s.pool.Exec(ctx, `INSERT INTO asset_deletion_queue(storage_key) VALUES($1) ON CONFLICT DO NOTHING`, key); err != nil {
+		slog.Error("queueing unreferenced asset failed")
+	}
 }
 
 // Durable retries: deleting files happens only after committed references disappear.
@@ -605,7 +635,7 @@ func (s *Service) CleanupImports(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	if _, err = tx.Exec(ctx, `DELETE FROM import_drafts WHERE updated_at<now()-interval '7 days'`); err != nil {
 		return err
 	}
@@ -638,7 +668,9 @@ func (s *Service) CleanupImports(ctx context.Context) error {
 			continue
 		}
 		if err = s.store.Delete(ctx, k); err != nil {
-			_, _ = s.pool.Exec(ctx, `UPDATE asset_deletion_queue SET attempts=attempts+1 WHERE storage_key=$1`, k)
+			if _, retryErr := s.pool.Exec(ctx, `UPDATE asset_deletion_queue SET attempts=attempts+1 WHERE storage_key=$1`, k); retryErr != nil {
+				slog.Warn("recording asset deletion retry failed")
+			}
 			continue
 		}
 		if _, err = s.pool.Exec(ctx, `DELETE FROM asset_deletion_queue WHERE storage_key=$1`, k); err != nil {

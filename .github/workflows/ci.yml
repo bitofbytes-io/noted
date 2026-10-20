@@ -27,9 +27,7 @@ jobs:
       - name: Run ownership and intake integration tests
         run: make test-integration
       - name: Run API lint
-        run: |
-          test -z "$(gofmt -l cmd internal migrations)"
-          go vet ./...
+        run: make lint-api
       - name: Check Go vulnerabilities
         # Install, then run it with the go.mod toolchain so standard-library findings match
         # the version we ship.

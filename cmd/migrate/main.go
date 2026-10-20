@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 
@@ -13,7 +14,9 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Print("optional .env file could not be loaded")
+	}
 	databaseURL, err := config.LoadDatabaseURL()
 	if err != nil {
 		log.Fatal(err)
@@ -23,7 +26,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer conn.Close(ctx)
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			log.Print("closing migration connection failed")
+		}
+	}()
 	if len(os.Args) == 2 && os.Args[1] == "down" {
 		err = database.Rollback(ctx, conn, migrations.FS)
 	} else if len(os.Args) == 1 {

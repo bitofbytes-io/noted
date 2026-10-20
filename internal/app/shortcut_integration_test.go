@@ -64,9 +64,18 @@ func TestIntegrationShortcutImport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner, other})
-	})
+	defer func() {
+		// Remove references before the user cascade deletes their import assets.
+		if _, err := pool.Exec(context.Background(), `DELETE FROM import_drafts WHERE user_id=ANY($1::uuid[])`, []string{owner, other}); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM pieces WHERE user_id=ANY($1::uuid[])`, []string{owner, other}); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner, other}); err != nil {
+			t.Error(err)
+		}
+	}()
 	pdf, err := os.ReadFile("../../testdata/fixtures/noted-exercise.pdf")
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +140,9 @@ func TestIntegrationShortcutImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, err := io.ReadAll(reader)
-	reader.Close()
+	if err := reader.Close(); err != nil {
+		t.Error(err)
+	}
 	if err != nil || string(stored) != string(pdf) {
 		t.Fatalf("stored source differs from the upload: %d bytes, %v", len(stored), err)
 	}

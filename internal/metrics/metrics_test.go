@@ -176,34 +176,48 @@ func TestServeStartsAndStopsTheInternalListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := probe.Addr().String()
-	_ = probe.Close()
+	if err := probe.Close(); err != nil {
+		t.Error(err)
+	}
 	server := m.Serve(addr)
 	if server == nil {
 		t.Fatal("Serve returned nil for a free address")
 	}
 	// A second listener on the same address fails to bind and is not fatal.
 	if second := m.Serve(addr); second != nil {
-		_ = second.Close()
+		if err := second.Close(); err != nil {
+			t.Error(err)
+		}
 		t.Fatal("Serve on a bound address returned a server")
 	}
 	response, err := http.Get("http://" + addr + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(response.Body)
-	_ = response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Error(err)
+	}
 	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "noted_uploads_total") {
 		t.Fatalf("GET /metrics = %d", response.StatusCode)
 	}
 	if response, err := http.Get("http://" + addr + "/"); err != nil || response.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET / = %v %v, want 404", response, err)
 	} else {
-		_ = response.Body.Close()
+		if err := response.Body.Close(); err != nil {
+			t.Error(err)
+		}
 	}
 	if err := server.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := http.Get("http://" + addr + "/metrics"); err == nil {
+	if response, err := http.Get("http://" + addr + "/metrics"); err == nil {
+		if err := response.Body.Close(); err != nil {
+			t.Error(err)
+		}
 		t.Fatal("listener still serving after shutdown")
 	}
 }
