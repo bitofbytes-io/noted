@@ -186,6 +186,18 @@ Revision checks prevent stale saves; repeat finalization returns the same piece.
 Unchanged preparation preserves original output bytes and reader state; content
 changes reset position/page/zoom while retaining reading mode and scroll speed.
 
+Saving a PDF whose exact SHA-256 already belongs to another piece in the same
+user's library still saves the requested copy. Prepare then says “Already in
+your library as…” and offers Open saved copy and Open existing piece. Both
+copies remain independently readable; the completed draft cannot be saved or
+discarded again. Retrying finalization returns the same piece and resolves the
+warning against current owned pieces, excluding the saved target. Unedited
+single-PDF imports retain their original bytes; visually similar or re-encoded
+files are not treated as identical. No warning reveals another user's library.
+The details dialog also warns while typing a trimmed, folded title already in
+the loaded library, excluding the piece being edited. This is advisory: the
+user can still save the title.
+
 Editing pre-cropped or pre-rotated PDF geometry requires normalization and is
 explicitly rejected for now. Page copying, extraction and quarter turns preserve
 that source geometry. HEIC requires JPEG export. Curved-page correction, image

@@ -199,6 +199,16 @@ export class LibraryComponent implements OnDestroy {
   /** The whole piece in the details form, with its notes and source. */
   protected editing: Piece | null = null;
   protected form: PieceForm = emptyPiece();
+
+  // Form fields are plain properties: evaluate after each input event, rather
+  // than caching a computed signal that would not track title edits.
+  protected duplicateTitle(): PieceSummary | undefined {
+    const title = fold(this.form.title.trim());
+    if (!title) return undefined;
+    return this.allPieces().find(
+      (piece) => piece.id !== this.editing?.id && fold(piece.title.trim()) === title,
+    );
+  }
   /** Ignores a details read that finishes after another row's details were asked for. */
   private editRequest = 0;
   private readonly pieceLoadRequests = new Subject<() => void>();

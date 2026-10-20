@@ -9,13 +9,14 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LucideChevronDown, LucideChevronUp, LucideMinus, LucidePlus } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { LeaveGuarded } from '../../core/leave.guard';
 import {
   EditManifest,
+  FinalizeResult,
   ImportAsset,
   ImportDraft,
   MAX_PREPARED_PAGES,
@@ -53,6 +54,7 @@ interface Suggestion {
   selector: 'app-prepare',
   imports: [
     FormsModule,
+    RouterLink,
     LucideChevronDown,
     LucideChevronUp,
     LucideMinus,
@@ -77,9 +79,11 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   @ViewChild('surface') surface?: ElementRef<HTMLElement>;
+  @ViewChild('completionHeading') completionHeading?: ElementRef<HTMLElement>;
   @ViewChild('thumbRail') thumbRail?: ElementRef<HTMLElement>;
   @ViewChild(PrepareEdgesComponent) edgeEditor?: PrepareEdgesComponent;
   readonly draft = signal<ImportDraft | null>(null);
+  readonly completed = signal<FinalizeResult | null>(null);
   readonly step = signal<PrepareStep>('source');
   readonly error = signal('');
   readonly busy = signal(false);
@@ -260,7 +264,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
   }
   async discard() {
     const d = this.draft();
-    if (!d || this.busy() || this.editingEdges) return;
+    if (!d || d.finalized || this.busy() || this.editingEdges) return;
     if (!window.confirm('Discard this draft? Your saved score will remain unchanged.')) return;
     this.busy.set(true);
     this.error.set('');
@@ -281,7 +285,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
     }
   }
   mark() {
-    if (this.discarding || this.finalizing()) return;
+    if (this.discarding || this.finalizing() || this.draft()?.finalized) return;
     this.dirty = true;
     this.saved.set('Unsaved changes');
     clearTimeout(this.saveTimer);
@@ -291,7 +295,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
     );
   }
   updateMetadata<K extends keyof PieceInput>(key: K, value: PieceInput[K]): void {
-    if (this.finalizing()) return;
+    if (this.finalizing() || this.draft()?.finalized) return;
     this.draft.update((current) =>
       current
         ? {
@@ -318,7 +322,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
       return;
     }
     const d = this.draft();
-    if (!d || !this.dirty) return;
+    if (!d || d.finalized || !this.dirty) return;
     const snapshot = structuredClone(d);
     this.dirty = false;
     this.pendingSave = (async () => {
@@ -901,7 +905,7 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
   }
   async save() {
     const d = this.draft();
-    if (!d || this.busy() || this.finalizing()) return;
+    if (!d || d.finalized || this.busy() || this.finalizing()) return;
     try {
       this.applyIMSLP();
     } catch (e) {
@@ -952,7 +956,13 @@ export class PrepareComponent implements OnDestroy, LeaveGuarded, ImslpPanelHost
         ),
       );
       this.dirty = false;
-      await this.router.navigate(['/reader', piece.id]);
+      this.draft.update((d) => (d ? { ...d, finalized: true, pieceId: piece.id } : null));
+      this.completed.set(piece);
+      if (piece.duplicateOf) {
+        setTimeout(() => this.completionHeading?.nativeElement.focus());
+      } else {
+        await this.router.navigate(['/reader', piece.id]);
+      }
     } catch (e) {
       this.error.set(
         isProcessingStopped(e) && e.reason === 'cancelled'

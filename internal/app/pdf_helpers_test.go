@@ -32,7 +32,8 @@ func preparePDF(ctx context.Context, s *Service, owner, pieceID, filename string
 	}); err != nil {
 		return Piece{}, err
 	}
-	return s.FinalizeImport(ctx, owner, d.ID, d.Revision, bytes.NewReader(data))
+	result, err := s.FinalizeImport(ctx, owner, d.ID, d.Revision, bytes.NewReader(data))
+	return result.Piece, err
 }
 
 // storeLegacyPDF attaches data as a piece's PDF without a preparation

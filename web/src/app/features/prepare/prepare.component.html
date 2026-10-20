@@ -1,4 +1,8 @@
-<main class="prepare" [class.wide]="step() === 'pages'" [class.editing-edges]="editingEdges">
+<main
+  class="prepare"
+  [class.wide]="step() === 'pages' && !completed()"
+  [class.editing-edges]="editingEdges"
+>
   <header class="masthead">
     <a
       href="/"
@@ -8,51 +12,57 @@
       >Noted</a
     >
     <button class="btn-secondary" (click)="close()" [disabled]="busy() || editingEdges">
-      Save draft & close
+      {{ completed() ? 'Back to library' : 'Save draft & close' }}
     </button>
   </header>
   <div class="heading">
     <div class="heading-copy">
       <h1>
         {{
-          step() === 'source'
-            ? 'Add a score'
-            : step() === 'pages'
-              ? 'Prepare pages'
-              : 'Ready for your binder'
+          completed()
+            ? 'Saved to your binder'
+            : step() === 'source'
+              ? 'Add a score'
+              : step() === 'pages'
+                ? 'Prepare pages'
+                : 'Ready for your binder'
         }}
       </h1>
       <p class="subline">
-        <span>{{ draft()?.metadata?.title || 'A new piece' }}</span>
+        <span>{{ completed()?.title || draft()?.metadata?.title || 'A new piece' }}</span>
         <span class="tabular"
           >{{ draft()?.manifest?.pages?.length || 0 }}
           {{ draft()?.manifest?.pages?.length === 1 ? 'page' : 'pages' }}</span
         >
       </p>
     </div>
-    <nav class="steps" aria-label="Preparation steps">
-      @for (s of steps; track s.id; let i = $index) {
-        <button
-          type="button"
-          [class.active]="step() === s.id"
-          [attr.aria-current]="step() === s.id ? 'step' : null"
-          [disabled]="busy() || editingEdges"
-          (click)="setStep(s.id)"
-        >
-          <span class="step-number tabular">{{ i + 1 }}</span>
-          <span>{{ s.label }}</span>
-        </button>
-      }
-    </nav>
+    @if (!completed()) {
+      <nav class="steps" aria-label="Preparation steps">
+        @for (s of steps; track s.id; let i = $index) {
+          <button
+            type="button"
+            [class.active]="step() === s.id"
+            [attr.aria-current]="step() === s.id ? 'step' : null"
+            [disabled]="busy() || editingEdges"
+            (click)="setStep(s.id)"
+          >
+            <span class="step-number tabular">{{ i + 1 }}</span>
+            <span>{{ s.label }}</span>
+          </button>
+        }
+      </nav>
+    }
   </div>
   @if (error()) {
     <div role="alert" class="notice">
       <span>{{ error() }}</span>
       <span class="notice-actions">
         <button class="btn-quiet" (click)="error.set('')">Dismiss</button>
-        <button class="btn-quiet" [disabled]="busy() || editingEdges" (click)="load()">
-          Reload draft
-        </button>
+        @if (!completed()) {
+          <button class="btn-quiet" [disabled]="busy() || editingEdges" (click)="load()">
+            Reload draft
+          </button>
+        }
       </span>
     </div>
   }
@@ -66,7 +76,21 @@
       }
     </div>
   }
-  @if (draft(); as d) {
+  @if (completed(); as piece) {
+    <section class="completion" aria-labelledby="completion-title">
+      <h2 id="completion-title" #completionHeading tabindex="-1">Your score is saved</h2>
+      @if (piece.duplicateOf; as duplicate) {
+        <p role="status">Already in your library as {{ duplicate.title }}.</p>
+        <p class="hint">Both copies are saved. You can open either one.</p>
+        <div class="completion-actions">
+          <a class="btn-primary" [routerLink]="['/reader', piece.id]">Open saved copy</a>
+          <a class="btn-secondary" [routerLink]="['/reader', duplicate.id]">Open existing piece</a>
+        </div>
+      } @else {
+        <a class="btn-primary" [routerLink]="['/reader', piece.id]">Open saved score</a>
+      }
+    </section>
+  } @else if (draft(); as d) {
     <input
       #pdfInput
       hidden

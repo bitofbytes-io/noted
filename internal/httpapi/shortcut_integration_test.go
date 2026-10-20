@@ -92,6 +92,45 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 		t.Fatalf("token status after use: %s", response.Body.String())
 	}
 
+	// An unedited single-PDF re-share returns original bytes from the browser
+	// worker. Submit those bytes through the real finalize route twice.
+	var firstPiece app.FinalizeResult
+	for i := range 2 {
+		if i == 1 {
+			response = serve(router, shortcutUpload(t, created.Token, "Same edition.pdf", "application/pdf", string(pdf)))
+			if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+				t.Fatal("re-share draft failed")
+			}
+			response = serve(router, httptest.NewRequest(http.MethodGet, "/api/imports/"+result.DraftID+"/", nil))
+			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &draft) != nil {
+				t.Fatal("re-share draft read failed")
+			}
+		}
+		response = serve(router, duplicateFinalizeRequest(t, draft.ID, draft.Revision, pdf))
+		var saved app.FinalizeResult
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &saved) != nil || saved.PDF == nil {
+			t.Fatalf("finalize: %d %s", response.Code, response.Body.String())
+		}
+		if i == 0 {
+			firstPiece = saved
+			if saved.DuplicateOf != nil {
+				t.Fatal("first score was a duplicate")
+			}
+		} else if saved.ID == firstPiece.ID || saved.DuplicateOf == nil || saved.DuplicateOf.ID != firstPiece.ID {
+			t.Fatal("re-share did not return advisory existing piece")
+		}
+		response = serve(router, httptest.NewRequest(http.MethodGet, saved.PDF.ContentURL, nil))
+		if response.Code != http.StatusOK || response.Body.String() != string(pdf) {
+			t.Fatal("saved copy changed the original PDF bytes")
+		}
+		response = serve(router, duplicateFinalizeRequest(t, draft.ID, draft.Revision, nil))
+		var retry app.FinalizeResult
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &retry) != nil || retry.ID != saved.ID ||
+			(i == 1 && (retry.DuplicateOf == nil || retry.DuplicateOf.ID != firstPiece.ID)) {
+			t.Fatal("HTTP finalize retry changed result")
+		}
+	}
+
 	if response = serve(router, shortcutUpload(t, created.Token, "notes.txt", "text/plain", "hello")); response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("text file: %d %s", response.Code, response.Body.String())
 	}
