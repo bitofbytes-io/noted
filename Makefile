@@ -113,7 +113,7 @@ local: db-up migrate
 test: test-api test-web
 
 test-api:
-	go test ./...
+	go test -race ./...
 
 test-web:
 	cd web && npm test -- --watch=false
