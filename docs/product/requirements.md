@@ -31,7 +31,7 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   separate opus or key field. The API and web app share one fold and these
   search terms, tested against `testdata/search-fold-vectors.json`; the API
   stores each piece's folded text followed by the search terms it lacks, so
-  search needs no database extension. The library loads the
+  exact search needs no database extension. The library loads the
   user's pieces once, as summaries carrying that folded text instead of the
   notes, and filters, searches and sorts them on the device as the user types;
   it reloads them after a save or delete. A search lists titles that start
@@ -39,6 +39,26 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   each group in the chosen sort, and only ever matches the searcher's own
   pieces. The API and web app share the composer surname rule too, tested
   against `testdata/composer-surname-vectors.json`.
+- BND-040: Eligible searches also request **Similar matches**, even when exact
+  local matches exist. The separate section never rewrites the query or changes
+  exact filtering, ranking, highlighting, saved URLs or reader behavior. Each
+  original term must match exactly or (alphabetic terms of at least four letters)
+  by word similarity. Short, numeric and catalogue terms remain exact. Full exact
+  matches are excluded before the eight-result limit; owner, status and favorite
+  filters apply before that limit. Default-view searches include Shelved pieces.
+  Suggestions use the existing folded search text with a pg_trgm GIN index and
+  a transaction-local 0.6 word-similarity threshold. Rachmaninov/Rachmaninoff/
+  Rachmaninow work directly. Tchaikovsky/Tschaikowsky have raw scores 0.4 and
+  0.3888889, so only that named pair receives explicit bidirectional query-token
+  expansion, with each alternative still tested at 0.6. This is not an identity
+  merge, a display-name change or a change to stored/exact search text.
+  Requests debounce for 250 ms, cancel on query/filter/session changes, and
+  ignore superseded responses. Errors leave local results usable. Queries are
+  limited to 200 UTF-8 bytes/eight terms, with a two-second request deadline and
+  local database statement/lock timeouts. Each API process permits four requests
+  per second per user with an eight-request burst; throttling is retriable.
+  Migration 13 bounds index-build lock/time waits; rollback removes only the
+  index and retains the potentially shared pg_trgm extension.
 - BND-035: Each piece is Learning, Playing or Shelved (new and existing pieces
   start as Playing), separate from Favorite, and its status can be changed from
   the library row or the details dialog. One library menu, the same quiet

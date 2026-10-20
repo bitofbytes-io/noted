@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 import {
+  LibraryFilter,
   ComposerEntry,
   ComposerMerge,
   ComposerPreview,
@@ -68,6 +69,13 @@ export class ApiService {
     body.set('file', file, 'score.pdf');
     body.set('revision', String(d.revision));
     return this.http.post<FinalizeResult>(`/api/imports/${d.id}/finalize`, body);
+  }
+
+  suggestPieces(query: string, filter: LibraryFilter): Observable<PieceSummary[]> {
+    let params = new HttpParams().set('q', query);
+    if (filter === 'favorites') params = params.set('favorite', 'true').set('status', 'all');
+    else if (filter !== 'current') params = params.set('status', filter);
+    return this.http.get<PieceSummary[]>('/api/library/suggestions', { params });
   }
 
   composers(): Observable<ComposerEntry[]> {

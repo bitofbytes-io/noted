@@ -63,6 +63,7 @@ import {
   summaryOf,
 } from './library.utils';
 import { fold } from '../../core/search';
+import { SuggestionsComponent } from '../suggestions/suggestions.component';
 import { ComposerFieldComponent } from '../composers/composer-field.component';
 import { ChoiceMenuComponent } from './choice-menu.component';
 
@@ -89,6 +90,7 @@ type ShortcutState = 'loading' | 'none' | 'created' | 'active';
   selector: 'app-library',
   imports: [
     RouterLink,
+    SuggestionsComponent,
     ComposerFieldComponent,
     ChoiceMenuComponent,
     FormsModule,

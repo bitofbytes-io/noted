@@ -30,6 +30,7 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
@@ -219,7 +220,8 @@ if [ "$version" != "000001_binder
 000009_library_metadata
 000010_library_sort
 000011_library_search
-000012_composer_keys" ]; then
+000012_composer_keys
+000013_search_suggestions" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -346,6 +348,27 @@ fi
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE pieces SET aliases='Nickname', search_text='owned piece nickname'" >/dev/null
+
+# The typo index is additive; rollback retains the potentially shared extension.
+trgm_ready=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT (to_regclass('pieces_search_trgm_idx') IS NOT NULL) AND EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm')"
+)
+if [ "$trgm_ready" != "t" ]; then
+  echo "missing typo suggestion index or extension" >&2
+  exit 1
+fi
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+trgm_retained=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT (to_regclass('pieces_search_trgm_idx') IS NULL) AND EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm') AND to_regclass('pieces_composer_sort_idx') IS NOT NULL"
+)
+if [ "$trgm_retained" != "t" ]; then
+  echo "typo rollback removed shared structures or retained index" >&2
+  exit 1
+fi
 
 # The additive composer migration preserves display names and starts stale until
 # Go computes the keys. Its down removes only derived columns and their index.
@@ -481,7 +504,8 @@ VALUES (
 INSERT INTO reader_states (piece_id, scroll_speed)
 VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
 SQL
-# Roll back 000012, 000011, 000010, 000009, then 000008.
+# Roll back 000013, 000012, 000011, 000010, 000009, then 000008.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down

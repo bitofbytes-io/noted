@@ -31,13 +31,15 @@ type Service struct {
 	imslp          *imslpSearcher
 	shortcuts      *userLimiter
 	exports        *exportLimiter
+	suggestions    *userLimiter
 }
 
 func NewService(pool *pgxpool.Pool, store assets.Store, limits ...int64) *Service {
 	s := &Service{
 		pool: pool, store: store, imslp: newIMSLPSearcher(IMSLPSearchConfig{}),
-		shortcuts: newUserLimiter(10.0/60, 10, 10*time.Minute, time.Now),
-		exports:   newExportLimiter(time.Now),
+		shortcuts:   newUserLimiter(10.0/60, 10, 10*time.Minute, time.Now),
+		exports:     newExportLimiter(time.Now),
+		suggestions: newUserLimiter(4, 8, 10*time.Minute, time.Now),
 	}
 	if len(limits) > 0 {
 		s.maxUploadBytes = limits[0]
