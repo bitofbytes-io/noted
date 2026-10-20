@@ -210,6 +210,18 @@ deployment-ref flow as the other bitofbytes-io applications. The push passes
 each image's digest as an `image-digest` push option, so the hook deploys
 exactly the images that run built.
 
+The UI image is temporarily a port bridge: the existing `nginx:1.29-alpine`
+runtime serves the same files on container ports 80 and 8080. Its master still
+runs as root, and the image healthcheck remains on port 80 at `/health`.
+Directory redirects are relative, so neither internal port appears in browser
+redirects. For a local image check, publish either `127.0.0.1:4200:80` or
+`127.0.0.1:4200:8080` and open `http://localhost:4200`.
+`make test-ui-container-mime` builds the actual UI image and requires both
+listeners to pass health, route, asset-byte, MIME, and security-header checks.
+After this bridge is deployed and verified on every replica, deployment
+healthchecks and routing can move to 8080. A subsequent image will remove port
+80 and run Nginx as a non-root user; this bridge does not complete that change.
+
 The API image reads PostgreSQL and Google credentials from the external
 `noted_database_url`, `noted_google_client_id`, and
 `noted_google_client_secret` secrets and stores PDFs under `/data/assets`,

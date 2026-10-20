@@ -25,7 +25,8 @@ LABEL org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.title="noted-ui" \
       org.opencontainers.image.description="Noted sheet-music binder web application"
 
-EXPOSE 80
+# Temporary bridge while deployment healthchecks and routing move to 8080.
+EXPOSE 80 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
