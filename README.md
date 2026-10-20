@@ -59,6 +59,20 @@ sessions are opaque, database-backed, fixed at sign-in, and default to a
 90-day lifetime. Set `SESSION_TTL=12h` to roll back to the former 12-hour
 duration; a configured positive `SESSION_TTL` overrides the default.
 
+Session IPs default to the immediate socket peer, including the deployment proxy
+when running behind one. Forwarding headers are ignored unless
+`TRUSTED_PROXY_CIDRS` explicitly lists the proxies permitted to provide
+`X-Forwarded-For` (comma-separated IPv4/IPv6 CIDRs). Invalid entries and trust-all
+prefixes (`0.0.0.0/0`, `::/0`, including mapped IPv4 equivalents) stop startup.
+Configure only narrow ranges for proxies you control that overwrite or append
+an accurate client address. Do not trust a whole overlay network or all clients.
+For a trusted peer, Noted walks the complete header chain from right to left,
+skipping trusted proxies and recording the first untrusted address. Missing,
+malformed, or all-trusted chains fall back to the socket peer. Repeated header
+lines are combined in order, and IPv4-mapped IPv6 addresses are normalized.
+`X-Real-IP`, `True-Client-IP`, and `Forwarded` are never used. No proxy ranges
+are enabled by default; this setting changes session metadata, not authorization.
+
 Send to Noted needs no configuration. The UI serves the signed Shortcut
 template, `web/public/send-to-noted.shortcut`, at `/send-to-noted.shortcut`;
 it holds a placeholder token and asks for the user's own on import. See

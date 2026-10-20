@@ -295,3 +295,43 @@ func TestListenHostDefaultsToLoopbackOutsideProduction(t *testing.T) {
 		t.Fatalf("override ListenHost = %q %v", cfg.ListenHost, err)
 	}
 }
+
+func TestLoadTrustedProxyCIDRs(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want []string
+	}{
+		{"", nil},
+		{"  ", nil},
+		{"192.0.2.7/32", []string{"192.0.2.7/32"}},
+		{" 192.0.2.7/24, 2001:db8:1::7/64 ", []string{"192.0.2.0/24", "2001:db8:1::/64"}},
+		{"::ffff:192.0.2.7/120", []string{"192.0.2.0/24"}},
+	} {
+		t.Run(test.raw, func(t *testing.T) {
+			t.Setenv("TRUSTED_PROXY_CIDRS", test.raw)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.TrustedProxyCIDRs) != len(test.want) {
+				t.Fatalf("prefixes = %v, want %v", cfg.TrustedProxyCIDRs, test.want)
+			}
+			for i, want := range test.want {
+				if cfg.TrustedProxyCIDRs[i].String() != want {
+					t.Errorf("prefix %d = %s, want %s", i, cfg.TrustedProxyCIDRs[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidTrustedProxyCIDRs(t *testing.T) {
+	for _, raw := range []string{"proxy.example.test/32", "192.0.2.7", "192.0.2.0/33", "2001:db8::/129", "192.0.2.7/32,", ",192.0.2.7/32", "192.0.2.7/32,,2001:db8::/64", "::ffff:192.0.2.7/80", "0.0.0.0/0", "::/0", "::ffff:0:0/96"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("TRUSTED_PROXY_CIDRS", raw)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "TRUSTED_PROXY_CIDRS") {
+				t.Fatalf("Load() error = %v", err)
+			}
+		})
+	}
+}
