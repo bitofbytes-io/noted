@@ -86,6 +86,7 @@ func newRouter(handler *Handler) http.Handler {
 		router.Post("/api/composers/preview", handler.previewComposerMerge)
 		router.Patch("/api/composers/", handler.mergeComposers)
 		router.Get("/api/library/export", handler.exportLibrary)
+		router.Get("/api/library/suggestions", handler.suggestPieces)
 		router.Get("/api/account/shortcut-token", handler.shortcutTokenStatus)
 		router.Post("/api/account/shortcut-token", handler.createShortcutToken)
 		router.Delete("/api/account/shortcut-token", handler.deleteShortcutToken)

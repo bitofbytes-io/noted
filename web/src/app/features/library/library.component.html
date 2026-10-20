@@ -138,6 +138,14 @@
         }
       </div>
     }
+    <app-search-suggestions
+      [query]="query()"
+      [filter]="filter()"
+      [owner]="session()?.user?.id || ''"
+      [enabled]="!loading() && !signingOut() && !!session()?.authenticated"
+      [exact]="visible()"
+      (openPiece)="openPiece($event)"
+    />
   </section>
 </main>
 
