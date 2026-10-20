@@ -201,11 +201,11 @@ with the number of entries. The database transaction commits before the ZIP
 central directory is written.
 
 Each user can start one export per five minutes (burst one), with one active
-export per API process. Rejections return HTTP 429 and `Retry-After`. Limits
-are process-local: three replicas can admit up to three starts and active
-exports across those processes. Exports have a five-minute request timeout and
-write deadline. Disconnects and failures release the reader, snapshot, and
-active slot. A failed attempt still consumes its start allowance.
+export per user per API process. Rejections return HTTP 429 and `Retry-After`.
+Limits are process-local: three replicas can admit up to three starts and
+three active exports per user across those processes. Exports have a five-minute
+request timeout and write deadline. Disconnects and failures release the reader,
+snapshot, and active slot. A failed attempt still consumes its start allowance.
 
 Before streaming starts, failures return a sanitized JSON error. A failure
 after streaming starts aborts the response without finalizing the ZIP.
