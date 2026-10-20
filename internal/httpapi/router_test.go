@@ -184,6 +184,7 @@ type fakeAuthenticator struct {
 	consumedState string
 	identity      *auth.GoogleIdentity
 	sessionUserID string
+	sessionIP     string
 }
 
 func (fake *fakeAuthenticator) EnsureDevelopmentUser(context.Context, string) (app.User, error) {
@@ -204,8 +205,9 @@ func (fake *fakeAuthenticator) AuthenticateGoogle(_ context.Context, identity au
 	fake.identity = &identity
 	return app.User{ID: testUserID}, fake.authErr
 }
-func (fake *fakeAuthenticator) NewSession(_ context.Context, userID, _, _ string) (string, time.Time, error) {
+func (fake *fakeAuthenticator) NewSession(_ context.Context, userID, _, ip string) (string, time.Time, error) {
 	fake.sessionUserID = userID
+	fake.sessionIP = ip
 	return "token", time.Now().Add(time.Hour), fake.sessionErr
 }
 func (*fakeAuthenticator) ResolveSession(context.Context, string) (app.User, error) {

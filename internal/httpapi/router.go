@@ -58,9 +58,14 @@ func NewRouter(
 		maxUploadBytes: cfg.MaxUploadBytes, allowedOrigin: cfg.AllowedOrigin, metrics: m,
 		googleTokenURL: googleTokenEndpoint, googleUserInfoURL: googleUserInfoEndpoint,
 	}
+	return newRouter(handler)
+}
+
+func newRouter(handler *Handler) http.Handler {
+	m := handler.metrics
 	router := chi.NewRouter()
 	router.Use(m.Middleware("/api/health", "/api/ready"))
-	router.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
+	router.Use(middleware.RequestID, trustedProxyIP(handler.config.TrustedProxyCIDRs), middleware.Recoverer)
 	router.Use(handler.cors)
 	health := func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})

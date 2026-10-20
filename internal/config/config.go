@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -29,6 +30,8 @@ type Config struct {
 	GoogleRedirect string
 	AllowedEmails  []string
 	SessionTTL     time.Duration
+	// TrustedProxyCIDRs may supply X-Forwarded-For; empty trusts only the socket peer.
+	TrustedProxyCIDRs []netip.Prefix
 	// MetricsAddr is the internal Prometheus listener; "off" disables it.
 	MetricsAddr string
 }
@@ -43,6 +46,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	googleSecret, err := getEnvOrFile("AUTH_GOOGLE_CLIENT_SECRET")
+	if err != nil {
+		return Config{}, err
+	}
+	trustedProxies, err := parseTrustedProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	if err != nil {
 		return Config{}, err
 	}
@@ -77,6 +84,8 @@ func Load() (Config, error) {
 		AllowedEmails:  normalizeEmails(parseCSV(os.Getenv("AUTH_GOOGLE_ALLOWED_EMAILS"))),
 		SessionTTL:     defaultSessionTTL,
 		MetricsAddr:    value("METRICS_ADDR", net.JoinHostPort(defaultListenHost(appEnv), "9464")),
+
+		TrustedProxyCIDRs: trustedProxies,
 	}
 	if raw := os.Getenv("MAX_UPLOAD_BYTES"); raw != "" {
 		size, err := strconv.ParseInt(raw, 10, 64)
@@ -259,4 +268,27 @@ func isLocalHostname(hostname string) bool {
 	}
 	ip := net.ParseIP(hostname)
 	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
+}
+
+// parseTrustedProxyCIDRs accepts explicit networks, never hostnames or bare IPs.
+func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var prefixes []netip.Prefix
+	for _, entry := range strings.Split(raw, ",") {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(entry))
+		if err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q", strings.TrimSpace(entry))
+		}
+		// Use the same IPv4 representation as socket peers and forwarded addresses.
+		if prefix.Addr().Is4In6() {
+			if prefix.Bits() < 96 {
+				return nil, fmt.Errorf("TRUSTED_PROXY_CIDRS mapped IPv4 CIDR %q must stay within ::ffff:0:0/96", strings.TrimSpace(entry))
+			}
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }
