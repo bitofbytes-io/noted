@@ -3,6 +3,12 @@ import { canLeave } from './core/leave.guard';
 
 export const routes: Routes = [
   {
+    path: 'composers',
+    loadComponent: () =>
+      import('./features/composers/composers.component').then((m) => m.ComposersComponent),
+    title: 'Composers · Noted',
+  },
+  {
     path: '',
     loadComponent: () =>
       import('./features/library/library.component').then((module) => module.LibraryComponent),

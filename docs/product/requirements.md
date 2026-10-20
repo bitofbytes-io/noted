@@ -72,6 +72,31 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 - BND-009: A user cannot discover, fetch, or mutate another user's piece by
   guessing its identifier.
 
+### Composer browsing and explicit spelling merges
+
+Browse composers files owned pieces by the first token of a surname-first Go
+key: “Chopin, Frédéric” and “Frédéric Chopin” both file as “chopin frederic”,
+while “Chopin” files as “chopin”. Exact display spellings remain distinct;
+IMSLP names are not rewritten. A shared surname is a filing aid, not proof of
+identity: C. P. E. Bach and J. S. Bach remain separate choices. Empty composer
+values have a “Composer unknown” group. The details field suggests existing
+owned spellings and counts, with keyboard selection and unrestricted free text.
+
+Merge composer spellings starts with nothing selected. The user chooses exact
+spellings, types a target display name, reviews the affected owned pieces, then
+explicitly confirms “Merge N pieces”. A changed matching set or composer value
+invalidates that preview; the user must review again. A successful atomic merge
+changes composer, derived keys/search text and metadata modification time only.
+PDFs, aliases, notes, status, favorites, preparation revisions and reader state
+are preserved. A failure keeps both existing data and the user's selections.
+
+Derived composer keys retain their exact source name and a version marker.
+During a mixed-version deployment, new readers compute a correct key for stale
+rows written by older replicas. Bounded, resumable background repair updates
+only derived columns, never display names or modification times. The additive
+schema stays in place when rolling back API images; destructive down migrations
+are not a production rollback procedure.
+
 ### PDF storage and delivery
 
 - BND-010: Only PDFs with a valid PDF signature are accepted.

@@ -55,6 +55,7 @@ func main() {
 	} else if refolded > 0 {
 		slog.Info("Refolded library search text", "pieces", refolded)
 	}
+	go service.RunComposerRepair(ctx)
 	go service.RunImportCleanup(ctx, func(err error) {
 		appMetrics.JobRun(metrics.JobImportCleanup, err)
 	})

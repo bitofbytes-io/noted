@@ -82,6 +82,9 @@ func newRouter(handler *Handler) http.Handler {
 		Post("/api/shortcut/import", handler.shortcutImport)
 	router.Group(func(router chi.Router) {
 		router.Use(handler.authenticatedUser)
+		router.Get("/api/composers/", handler.listComposers)
+		router.Post("/api/composers/preview", handler.previewComposerMerge)
+		router.Patch("/api/composers/", handler.mergeComposers)
 		router.Get("/api/library/export", handler.exportLibrary)
 		router.Get("/api/account/shortcut-token", handler.shortcutTokenStatus)
 		router.Post("/api/account/shortcut-token", handler.createShortcutToken)
@@ -400,7 +403,7 @@ func decodeJSON(request *http.Request, destination any) error {
 func handleError(writer http.ResponseWriter, err error) {
 	var invalid *app.ValidationError
 	switch {
-	case errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged), errors.Is(err, app.ErrPDFChanged):
+	case errors.Is(err, app.ErrComposerChanged), errors.Is(err, app.ErrConflict), errors.Is(err, app.ErrPieceChanged), errors.Is(err, app.ErrPDFChanged):
 		writeError(writer, http.StatusConflict, err.Error())
 	case errors.Is(err, app.ErrImportLimit):
 		writeError(writer, http.StatusRequestEntityTooLarge, "Import limit reached: max 20 drafts, 200 MiB per draft, and configured per-file limit")

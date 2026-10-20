@@ -228,16 +228,24 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 	if err != nil {
 		return Piece{}, err
 	}
+	tx, err := s.importTx(ctx, userID)
+	if err != nil {
+		return Piece{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Best-effort cleanup, including already-committed transactions.
 	id := uuid.NewString()
-	err = s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO pieces
 			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes,
-				aliases, search_text)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+				aliases, search_text, composer_sort, composer_sort_source, composer_sort_version)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$4,1) RETURNING id`,
 		id, userID, input.Title, input.Composer, input.Favorite, *input.Status, input.SourceURL,
-		input.ListeningURL, input.Notes, input.Aliases, searchText(input),
+		input.ListeningURL, input.Notes, input.Aliases, searchText(input), composerSortKey(input.Composer),
 	).Scan(&id)
 	if err != nil {
+		return Piece{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return Piece{}, err
 	}
 	return s.GetPiece(ctx, userID, id)
@@ -295,10 +303,10 @@ func (s *Service) UpdatePiece(
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			listening_url=$6, notes=$7, status=$9, aliases=$10, search_text=$11, updated_at=now()
+			listening_url=$6, notes=$7, status=$9, aliases=$10, search_text=$11, composer_sort=$12, composer_sort_source=$3, composer_sort_version=1, updated_at=now()
 		WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
-		input.ListeningURL, input.Notes, userID, *input.Status, input.Aliases, searchText(input))
+		input.ListeningURL, input.Notes, userID, *input.Status, input.Aliases, searchText(input), composerSortKey(input.Composer))
 	if err != nil {
 		return Piece{}, err
 	}

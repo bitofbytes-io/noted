@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   LucideChevronDown,
   LucideDownload,
@@ -63,6 +63,7 @@ import {
   summaryOf,
 } from './library.utils';
 import { fold } from '../../core/search';
+import { ComposerFieldComponent } from '../composers/composer-field.component';
 import { ChoiceMenuComponent } from './choice-menu.component';
 
 /** The whole library, and the piece to continue whatever the filter. */
@@ -87,6 +88,8 @@ type ShortcutState = 'loading' | 'none' | 'created' | 'active';
 @Component({
   selector: 'app-library',
   imports: [
+    RouterLink,
+    ComposerFieldComponent,
     ChoiceMenuComponent,
     FormsModule,
     NgTemplateOutlet,
