@@ -112,20 +112,26 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 		defer google.mu.Unlock()
 		switch r.URL.Path {
 		case "/token":
-			_ = r.ParseForm()
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
 			google.tokenForm = r.PostForm
 			if google.tokenStatus != 0 {
 				w.WriteHeader(google.tokenStatus)
 				return
 			}
-			_, _ = io.WriteString(w, `{"access_token":"google-access-token"}`)
+			if _, err := io.WriteString(w, `{"access_token":"google-access-token"}`); err != nil {
+				t.Error(err)
+			}
 		case "/userinfo":
 			google.authorization = r.Header.Get("Authorization")
 			if google.userStatus != 0 {
 				w.WriteHeader(google.userStatus)
 				return
 			}
-			_, _ = io.WriteString(w, `{"sub":"google-subject","email":"learner@noted.local","email_verified":true,"name":"Learner","picture":"https://example.test/avatar.png"}`)
+			if _, err := io.WriteString(w, `{"sub":"google-subject","email":"learner@noted.local","email_verified":true,"name":"Learner","picture":"https://example.test/avatar.png"}`); err != nil {
+				t.Error(err)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -157,7 +163,7 @@ func callbackHandler(authenticator *fakeAuthenticator, google *fakeGoogle) *Hand
 func callback(handler *Handler, query, stateCookie string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?"+query, nil)
 	if stateCookie != "" {
-		request.AddCookie(&http.Cookie{Name: auth.StateCookieName, Value: stateCookie})
+		request.AddCookie(&http.Cookie{Name: auth.StateCookieName, Value: stateCookie, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	}
 	response := httptest.NewRecorder()
 	handler.googleCallback(response, request)
@@ -264,7 +270,9 @@ func TestGoogleCallbackFailuresNeverStartASession(t *testing.T) {
 			}
 
 			var body struct{ Error string }
-			_ = json.Unmarshal(response.Body.Bytes(), &body)
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
 			if response.Code != test.status || body.Error != test.message {
 				t.Fatalf("%d %s", response.Code, response.Body.String())
 			}

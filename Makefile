@@ -1,12 +1,13 @@
 SHELL := /bin/sh
 COMPOSE := docker compose -p noted -f compose.local.yml
+GOLANGCI_LINT_VERSION := v2.15.0
 
 REGISTRY ?= registry.tail209cfc.ts.net
 API_IMAGE_REPO ?= noted-api
 UI_IMAGE_REPO ?= noted-ui
 PLATFORMS ?= linux/arm64/v8
 
-.PHONY: setup db-up db-down db-reset migrate api-run web-start local test test-api test-web test-integration test-migrations test-ui-container-mime lint build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-push docker-push-api docker-push-ui docker-publish docker-buildx docker-buildx-api docker-buildx-ui
+.PHONY: setup db-up db-down db-reset migrate api-run web-start local test test-api test-web test-integration test-migrations test-ui-container-mime lint lint-api build clean configure-image ensure-image-tag docker-build docker-build-api docker-build-ui docker-push docker-push-api docker-push-ui docker-publish docker-buildx docker-buildx-api docker-buildx-ui
 
 configure-image:
 	$(eval SHORT_SHA := $(shell git rev-parse --short=7 HEAD 2>/dev/null))
@@ -127,10 +128,13 @@ test-migrations: db-up
 test-ui-container-mime: docker-build-ui
 	./scripts/verify-ui-worker-mime.sh $(UI_IMAGE)
 
-lint:
+lint: lint-api
+	cd web && npm run lint
+
+lint-api:
 	test -z "$$(gofmt -l cmd internal migrations)"
 	go vet ./...
-	cd web && npm run lint
+	GOTOOLCHAIN="$$(go env GOVERSION)" go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
 
 build:
 	go build ./...

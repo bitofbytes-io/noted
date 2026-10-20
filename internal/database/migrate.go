@@ -52,7 +52,7 @@ func Migrate(ctx context.Context, conn *pgx.Conn, files fs.FS) error {
 			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version)
 		}
 		if err != nil {
-			_ = tx.Rollback(ctx)
+			_ = tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -143,7 +143,7 @@ func resetLegacySchema(ctx context.Context, conn *pgx.Conn, files fs.FS) (bool, 
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 
 	// These are the complete set of tables created by the pre-binder Noted
 	// migrations (000001_initial through 000010_decoupled_practice_playback).
@@ -238,7 +238,7 @@ func Rollback(ctx context.Context, conn *pgx.Conn, files fs.FS) error {
 		_, err = tx.Exec(ctx, `DELETE FROM schema_migrations WHERE version=$1`, version)
 	}
 	if err != nil {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback(ctx) //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 		return fmt.Errorf("rollback %s: %w", name, err)
 	}
 	return tx.Commit(ctx)

@@ -47,7 +47,7 @@ func (s *Service) CreateShortcutToken(ctx context.Context, userID string) (strin
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("begin shortcut token: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // Best-effort transaction cleanup; keep the operation error and allow already-committed transactions.
 	if _, err := tx.Exec(ctx, `DELETE FROM shortcut_tokens WHERE user_id=$1`, userID); err != nil {
 		return "", time.Time{}, fmt.Errorf("replace shortcut token: %w", err)
 	}

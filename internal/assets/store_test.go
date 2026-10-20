@@ -31,8 +31,15 @@ func TestLocalStoreUsesOpaqueKeysAndRejectsTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-	body, _ := io.ReadAll(reader)
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(body) != "%PDF-fixture" {
 		t.Fatalf("unexpected stored body %q", body)
 	}

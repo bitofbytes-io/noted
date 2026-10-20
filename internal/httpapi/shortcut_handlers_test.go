@@ -125,15 +125,23 @@ func shortcutRouter(backend Backend, authenticator Authenticator, mode string, m
 }
 
 // shortcutUpload builds the Shortcut's multipart request: one "file" part.
-func shortcutUpload(token, filename, contentType, content string) *http.Request {
+func shortcutUpload(t *testing.T, token, filename, contentType, content string) *http.Request {
+	t.Helper()
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
 	header := textproto.MIMEHeader{}
 	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, filename))
 	header.Set("Content-Type", contentType)
-	part, _ := form.CreatePart(header)
-	_, _ = io.WriteString(part, content)
-	_ = form.Close()
+	part, err := form.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Error(err)
+	}
 	request := httptest.NewRequest(http.MethodPost, "/api/shortcut/import", body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	if token != "" {
@@ -181,7 +189,7 @@ func TestShortcutTokenLifecycle(t *testing.T) {
 		return body
 	}
 	upload := func(token string) int {
-		return serve(router, shortcutUpload(token, "score.pdf", "application/pdf", "%PDF-1.7")).Code
+		return serve(router, shortcutUpload(t, token, "score.pdf", "application/pdf", "%PDF-1.7")).Code
 	}
 
 	if got := status(); got["active"] != false || got["createdAt"] != nil || got["lastUsedAt"] != nil {
@@ -227,9 +235,9 @@ func TestShortcutTokenLifecycle(t *testing.T) {
 func TestShortcutBearerMiddlewareRejectsAnythingButALiveToken(t *testing.T) {
 	tokens, backend := newFakeShortcutAuth(), &fakeShortcutBackend{}
 	router := shortcutRouter(backend, tokens, "development", 1024)
-	live := createToken(t, router)
+	createToken(t, router)
 	revoked := createToken(t, router)
-	live = createToken(t, router)
+	live := createToken(t, router)
 	tokens.ensureDevelopmentUserCalls = 0
 
 	unknown := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
@@ -245,7 +253,7 @@ func TestShortcutBearerMiddlewareRejectsAnythingButALiveToken(t *testing.T) {
 		"unknown":       "Bearer " + unknown,
 		"revoked":       "Bearer " + revoked,
 	} {
-		request := shortcutUpload("", "score.pdf", "application/pdf", "%PDF-1.7")
+		request := shortcutUpload(t, "", "score.pdf", "application/pdf", "%PDF-1.7")
 		if header != "" {
 			request.Header.Set("Authorization", header)
 		}
@@ -265,7 +273,7 @@ func TestShortcutBearerMiddlewareRejectsAnythingButALiveToken(t *testing.T) {
 		t.Fatalf("malformed headers reached the token store: %d lookups", tokens.resolves)
 	}
 
-	request := shortcutUpload(live, `..\..\IMSLP01240-Debussy.pdf`, "application/pdf", "%PDF-1.7")
+	request := shortcutUpload(t, live, `..\..\IMSLP01240-Debussy.pdf`, "application/pdf", "%PDF-1.7")
 	request.Header.Set("Authorization", "bearer "+live)
 	if response := serve(router, request); response.Code != http.StatusCreated || backend.userID != testUserID {
 		t.Fatalf("live token: %d user=%q %s", response.Code, backend.userID, response.Body.String())
@@ -290,7 +298,7 @@ func TestShortcutTokenOwnerMustStillBeAllowed(t *testing.T) {
 			token := createToken(t, shortcutRouter(backend, tokens, "development", 1024))
 			tokens.user.Email = test.email
 			response := serve(shortcutRouter(backend, tokens, test.mode, 1024),
-				shortcutUpload(token, "score.pdf", "application/pdf", "%PDF-1.7"))
+				shortcutUpload(t, token, "score.pdf", "application/pdf", "%PDF-1.7"))
 			if (response.Code == http.StatusCreated) != test.allowed {
 				t.Fatalf("status %d: %s", response.Code, response.Body.String())
 			}
@@ -322,14 +330,14 @@ func TestShortcutTokenOpensOnlyTheImportRoute(t *testing.T) {
 	}
 
 	// The import route takes no session cookie, and development mode signs nobody in.
-	withCookie := shortcutUpload("", "score.pdf", "application/pdf", "%PDF-1.7")
-	withCookie.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "session"})
+	withCookie := shortcutUpload(t, "", "score.pdf", "application/pdf", "%PDF-1.7")
+	withCookie.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "session", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	if response := serve(google, withCookie); response.Code != http.StatusUnauthorized {
 		t.Fatalf("session cookie opened the import route: %d", response.Code)
 	}
 	tokens.ensureDevelopmentUserCalls = 0
 	development := shortcutRouter(backend, tokens, "development", 1024)
-	if response := serve(development, shortcutUpload("", "score.pdf", "application/pdf", "%PDF-1.7")); response.Code != http.StatusUnauthorized {
+	if response := serve(development, shortcutUpload(t, "", "score.pdf", "application/pdf", "%PDF-1.7")); response.Code != http.StatusUnauthorized {
 		t.Fatalf("development mode imported without a token: %d", response.Code)
 	}
 	if backend.calls != 0 || tokens.ensureDevelopmentUserCalls != 0 {
@@ -345,7 +353,7 @@ func TestShortcutImportChecksTheFileAndMapsErrors(t *testing.T) {
 	}
 
 	backend := &fakeShortcutBackend{}
-	response := send(backend, 1024, shortcutUpload(token, `..\Downloads\IMSLP01240-Debussy.pdf`, "application/octet-stream", "%PDF-1.7 bytes"))
+	response := send(backend, 1024, shortcutUpload(t, token, `..\Downloads\IMSLP01240-Debussy.pdf`, "application/octet-stream", "%PDF-1.7 bytes"))
 	var result map[string]any
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &result) != nil {
 		t.Fatalf("import: %d %s", response.Code, response.Body.String())
@@ -368,7 +376,7 @@ func TestShortcutImportChecksTheFileAndMapsErrors(t *testing.T) {
 
 	// A PDF type is enough without a .pdf name, as on the drop target.
 	backend = &fakeShortcutBackend{}
-	if response := send(backend, 1024, shortcutUpload(token, "Shared score", "application/pdf", "%PDF-1.7")); response.Code != http.StatusCreated {
+	if response := send(backend, 1024, shortcutUpload(t, token, "Shared score", "application/pdf", "%PDF-1.7")); response.Code != http.StatusCreated {
 		t.Fatalf("PDF type without .pdf name: %d %s", response.Code, response.Body.String())
 	}
 
@@ -380,21 +388,23 @@ func TestShortcutImportChecksTheFileAndMapsErrors(t *testing.T) {
 		message  string
 		reached  bool
 	}{
-		"image":            {shortcutUpload(token, "photo.jpg", "image/jpeg", "\xff\xd8"), &fakeShortcutBackend{}, 1024, 415, "Only PDF files can be sent.", false},
-		"PDF name, image":  {shortcutUpload(token, "photo.pdf", "application/pdf", "\xff\xd8"), &fakeShortcutBackend{err: app.ErrNotPDF}, 1024, 415, "Only PDF files can be sent.", true},
-		"oversize":         {shortcutUpload(token, "big.pdf", "application/pdf", "%PDF-"+strings.Repeat("x", 64)), &fakeShortcutBackend{}, 16, 413, "File is larger than Noted allows.", false},
-		"over the request": {shortcutUpload(token, "big.pdf", "application/pdf", "%PDF-"+strings.Repeat("x", 2<<20)), &fakeShortcutBackend{}, 16, 413, "File is larger than Noted allows.", false},
-		"draft limit":      {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: fmt.Errorf("create: %w", app.ErrDraftLimit)}, 1024, 429, "You have 20 open drafts. Finish or delete one in Noted, then send again.", true},
-		"size from app":    {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: app.ErrImportLimit}, 1024, 413, "File is larger than Noted allows.", true},
-		"asset store":      {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: fmt.Errorf("%w: disk full", app.ErrAssetStore)}, 1024, 503, "Noted couldn't store the file. Try again later.", true},
-		"unreadable PDF":   {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: &app.ValidationError{Message: "PDF must be readable and unencrypted", Cause: errors.New("pdfcpu: bad xref")}}, 1024, 400, "PDF must be readable and unencrypted", true},
-		"server failure":   {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: errors.New("connection reset")}, 1024, 500, "internal server error", true},
-		"too fast":         {shortcutUpload(token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{throttled: true}, 1024, 429, "Too many files sent in a minute. Wait a moment and send again.", false},
+		"image":            {shortcutUpload(t, token, "photo.jpg", "image/jpeg", "\xff\xd8"), &fakeShortcutBackend{}, 1024, 415, "Only PDF files can be sent.", false},
+		"PDF name, image":  {shortcutUpload(t, token, "photo.pdf", "application/pdf", "\xff\xd8"), &fakeShortcutBackend{err: app.ErrNotPDF}, 1024, 415, "Only PDF files can be sent.", true},
+		"oversize":         {shortcutUpload(t, token, "big.pdf", "application/pdf", "%PDF-"+strings.Repeat("x", 64)), &fakeShortcutBackend{}, 16, 413, "File is larger than Noted allows.", false},
+		"over the request": {shortcutUpload(t, token, "big.pdf", "application/pdf", "%PDF-"+strings.Repeat("x", 2<<20)), &fakeShortcutBackend{}, 16, 413, "File is larger than Noted allows.", false},
+		"draft limit":      {shortcutUpload(t, token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: fmt.Errorf("create: %w", app.ErrDraftLimit)}, 1024, 429, "You have 20 open drafts. Finish or delete one in Noted, then send again.", true},
+		"size from app":    {shortcutUpload(t, token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: app.ErrImportLimit}, 1024, 413, "File is larger than Noted allows.", true},
+		"asset store":      {shortcutUpload(t, token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: fmt.Errorf("%w: disk full", app.ErrAssetStore)}, 1024, 503, "Noted couldn't store the file. Try again later.", true},
+		"unreadable PDF":   {shortcutUpload(t, token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: &app.ValidationError{Message: "PDF must be readable and unencrypted", Cause: errors.New("pdfcpu: bad xref")}}, 1024, 400, "PDF must be readable and unencrypted", true},
+		"server failure":   {shortcutUpload(t, token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{err: errors.New("connection reset")}, 1024, 500, "internal server error", true},
+		"too fast":         {shortcutUpload(t, token, "a.pdf", "application/pdf", "%PDF-"), &fakeShortcutBackend{throttled: true}, 1024, 429, "Too many files sent in a minute. Wait a moment and send again.", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			response := send(test.backend, test.maxBytes, test.request)
 			var body struct{ Error string }
-			_ = json.Unmarshal(response.Body.Bytes(), &body)
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
 			if response.Code != test.status || body.Error != test.message || response.Header().Get("Content-Type") != "application/json" {
 				t.Fatalf("%d %s", response.Code, response.Body.String())
 			}
@@ -422,7 +432,7 @@ func TestShortcutImportLogsTheUseButNeverTheFileOrToken(t *testing.T) {
 	tokens, backend := newFakeShortcutAuth(), &fakeShortcutBackend{}
 	router := shortcutRouter(backend, tokens, "development", 1024)
 	token := createToken(t, router)
-	response := serve(router, shortcutUpload(token, "IMSLP01240-Secret_title.pdf", "application/pdf", "%PDF-1.7"))
+	response := serve(router, shortcutUpload(t, token, "IMSLP01240-Secret_title.pdf", "application/pdf", "%PDF-1.7"))
 	if response.Code != http.StatusCreated {
 		t.Fatalf("import: %d", response.Code)
 	}

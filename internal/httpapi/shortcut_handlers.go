@@ -141,7 +141,7 @@ func bearerToken(header string) (string, bool) {
 		return "", false
 	}
 	for _, r := range token {
-		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+		if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' {
 			return "", false
 		}
 	}
@@ -171,7 +171,7 @@ func (h *Handler) shortcutImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+(1<<20))
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
+	if err := r.ParseMultipartForm(1 << 20); err != nil { // #nosec G120 -- MaxBytesReader above caps the entire body before parsing; memory is capped at 1 MiB.
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, shortcutTooLarge)
@@ -181,14 +181,18 @@ func (h *Handler) shortcutImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
+		defer func() {
+			if err := r.MultipartForm.RemoveAll(); err != nil {
+				slog.Warn("removing multipart temporary files failed")
+			}
+		}()
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, shortcutNoFile)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	if header.Size > h.maxUploadBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, shortcutTooLarge)
 		return

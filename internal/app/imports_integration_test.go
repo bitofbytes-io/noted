@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"io"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -45,9 +46,11 @@ func TestIntegrationImports(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner.ID, other.ID})
-	})
+	defer func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner.ID, other.ID}); err != nil {
+			t.Error(err)
+		}
+	}()
 	pdf, err := os.ReadFile("../../testdata/fixtures/noted-exercise.pdf")
 	if err != nil {
 		t.Fatal(err)
@@ -128,6 +131,20 @@ func TestIntegrationImports(t *testing.T) {
 		*filenameDraft.IMSLPAutoFill.Title != "my-book" {
 		t.Fatalf("filename fallback did not acquire title ownership: %+v %v", filenameDraft, err)
 	}
+	// Unencodable typed input must fail before changing the saved draft.
+	invalidManifest := filenameDraft.Manifest
+	invalidManifest.Pages = append([]PageEdit(nil), invalidManifest.Pages...)
+	invalidManifest.Pages[0].Scale = math.NaN()
+	if _, err := s.UpdateImport(ctx, owner.ID, filenameDraft.ID, UpdateImport{
+		Revision: filenameDraft.Revision, Metadata: filenameDraft.Metadata,
+		IMSLPAutoFill: filenameDraft.IMSLPAutoFill, Manifest: invalidManifest,
+	}); err == nil {
+		t.Fatal("unencodable manifest was accepted")
+	}
+	retainedDraft, err := s.GetImport(ctx, owner.ID, filenameDraft.ID)
+	if err != nil || retainedDraft.Revision != filenameDraft.Revision || len(retainedDraft.Manifest.Pages) != len(filenameDraft.Manifest.Pages) || math.IsNaN(retainedDraft.Manifest.Pages[0].Scale) {
+		t.Fatalf("encoding failure changed draft: %+v %v", retainedDraft, err)
+	}
 	filenameDraft.Metadata.Title = selectedTitle
 	filenameDraft.Metadata.SourceURL = "https://imslp.org/wiki/Nocturne_(Sample,_Bea)"
 	filenameDraft.IMSLPAutoFill.Title = &selectedTitle
@@ -205,8 +222,13 @@ func TestIntegrationImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual, _ := io.ReadAll(reader)
-	reader.Close()
+	actual, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Error(err)
+	}
 	if !bytes.Equal(actual, pdf) {
 		t.Fatal("no-op changed PDF bytes")
 	}
@@ -297,7 +319,9 @@ func TestIntegrationImports(t *testing.T) {
 		t.Fatalf("expired draft: %v", err)
 	}
 	if r, err := store.Open(ctx, key); err == nil {
-		r.Close()
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
 		t.Fatal("expired source not removed")
 	}
 	// Failed writes must release the sole pool connection before queueing files.
@@ -366,7 +390,9 @@ func TestIntegrationImports(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r, err := store.Open(ctx, retryKey); err == nil {
-		r.Close()
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
 		t.Fatal("retried delete still present")
 	}
 	if err = s.DeletePiece(ctx, owner.ID, piece.ID); err != nil {
@@ -446,7 +472,11 @@ func TestIntegrationPiecePatchWaitsForFinalize(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Patch tester','development')`, owner, owner+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner)
+	defer func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner); err != nil {
+			t.Error(err)
+		}
+	}()
 	piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: "Before finalize"})
 	if err != nil {
 		t.Fatal(err)
@@ -561,7 +591,11 @@ func TestIntegrationPreparationPageLimit(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Limit tester','development')`, owner, owner+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner)
+	defer func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner); err != nil {
+			t.Error(err)
+		}
+	}()
 	upload := func(pages int) (Piece, []byte) {
 		t.Helper()
 		piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: fmt.Sprintf("%d pages", pages)})
@@ -599,8 +633,13 @@ func TestIntegrationPreparationPageLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual, _ := io.ReadAll(reader)
-	reader.Close()
+	actual, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Error(err)
+	}
 	if piece.PDF.PageCount != MaxPreparedPages || !bytes.Equal(actual, data) {
 		t.Fatalf("unchanged preparation replaced the PDF: %d pages", piece.PDF.PageCount)
 	}
@@ -653,7 +692,18 @@ func TestIntegrationLegacyDraftKeepsNewerMetadata(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,display_name,auth_provider) VALUES($1,$2,'Legacy tester','development')`, owner, owner+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner)
+	defer func() {
+		// Remove references before the user cascade deletes their import assets.
+		if _, err := pool.Exec(context.Background(), `DELETE FROM import_drafts WHERE user_id=$1`, owner); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM pieces WHERE user_id=$1`, owner); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, owner); err != nil {
+			t.Error(err)
+		}
+	}()
 	data := blankPDF(2)
 	piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: "Legacy"})
 	if err != nil {

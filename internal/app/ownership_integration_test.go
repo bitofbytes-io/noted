@@ -40,9 +40,11 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{userA.ID, userB.ID})
-	})
+	defer func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{userA.ID, userB.ID}); err != nil {
+			t.Error(err)
+		}
+	}()
 	googleAuth := auth.NewService(pool, []string{"owner-a@example.test"}, time.Hour)
 	googleUser, err := googleAuth.AuthenticateGoogle(ctx, auth.GoogleIdentity{
 		Subject: "google-owner-a", Email: "OWNER-A@example.test",
@@ -176,7 +178,9 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	}
 	if _, reader, err := service.PDFSource(ctx, userB.ID, pieceA.ID); !errors.Is(err, app.ErrNotFound) {
 		if reader != nil {
-			_ = reader.Close()
+			if err := reader.Close(); err != nil {
+				t.Error(err)
+			}
 		}
 		t.Fatalf("cross-user PDFSource error = %v", err)
 	}

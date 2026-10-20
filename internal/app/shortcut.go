@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 )
 
 // ErrNotPDF means a Send to Noted upload was not a PDF.
@@ -69,7 +70,9 @@ func (s *Service) ShortcutImport(ctx context.Context, owner, filename string, re
 	attached, err := s.attachSource(ctx, owner, d.ID, filename, d.Revision, source)
 	if err != nil {
 		// Do not leave an empty draft behind for a file that never arrived.
-		_ = s.DeleteImport(context.WithoutCancel(ctx), owner, d.ID)
+		if cleanupErr := s.DeleteImport(context.WithoutCancel(ctx), owner, d.ID); cleanupErr != nil {
+			slog.Warn("removing failed shortcut draft failed")
+		}
 		return ShortcutImport{}, err
 	}
 	return shortcutResult(attached, filename), nil

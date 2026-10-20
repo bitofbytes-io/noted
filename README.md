@@ -91,11 +91,20 @@ recreates and migrates it. It does not drop other databases or roles.
 
 ```sh
 make test            # Go and Angular unit tests
-make lint            # gofmt, go vet, Prettier, and strict TypeScript
+make lint            # API lint, Prettier, and strict TypeScript
+make lint-api        # gofmt, go vet, and pinned golangci-lint (no Node.js required)
 make build           # Go and production Angular builds
 make test-migrations # isolated apply/rollback/reapply check (requires Docker)
 make docker-build    # build the production API and UI images
 ```
+
+`make lint-api` runs golangci-lint v2.15.0 through the Go module cache, so local
+checks and CI use the same version without a separate installation. The first
+run may download the tool. `.golangci.yml` enables staticcheck, errcheck
+(including blank assignments), gosec, bodyclose, ineffassign, and unused for
+production and test code. Intentional best-effort cleanup and verified security
+false positives are explained at the affected lines; there are no blanket
+path or rule exclusions.
 
 There is no browser end-to-end suite. Final acceptance requires opening
 representative large scans on the physical 13-inch iPad in Safari and confirming

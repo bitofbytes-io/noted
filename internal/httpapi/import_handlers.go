@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strconv"
@@ -131,12 +132,16 @@ func (h *Handler) importUpload(w http.ResponseWriter, r *http.Request, final boo
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+(1<<20))
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
+	if err := r.ParseMultipartForm(1 << 20); err != nil { // #nosec G120 -- MaxBytesReader above caps the entire body before parsing; memory is capped at 1 MiB.
 		writeError(w, 413, "file must fit the upload limit")
 		return
 	}
 	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
+		defer func() {
+			if err := r.MultipartForm.RemoveAll(); err != nil {
+				slog.Warn("removing multipart temporary files failed")
+			}
+		}()
 	}
 	revision, err := strconv.ParseInt(r.FormValue("revision"), 10, 64)
 	if err != nil || revision < 0 {
@@ -148,7 +153,7 @@ func (h *Handler) importUpload(w http.ResponseWriter, r *http.Request, final boo
 		writeError(w, 400, "file must be supplied")
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	if header.Size > h.maxUploadBytes {
 		writeError(w, 413, "file exceeds upload limit")
 		return
@@ -193,7 +198,7 @@ func (h *Handler) serveImportSource(w http.ResponseWriter, r *http.Request) {
 		handleError(w, err)
 		return
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	w.Header().Set("Content-Type", a.MIME)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, no-store")

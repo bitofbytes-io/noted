@@ -32,9 +32,11 @@ func TestIntegrationShortcutTokens(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner, other})
-	})
+	defer func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id=ANY($1::uuid[])`, []string{owner, other}); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	if status, err := s.ShortcutTokenStatus(ctx, owner); err != nil || status.Active || status.CreatedAt != nil {
 		t.Fatalf("no token yet: %+v %v", status, err)
@@ -63,7 +65,7 @@ func TestIntegrationShortcutTokens(t *testing.T) {
 	if err = s.TouchShortcutToken(ctx, first); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ = s.ShortcutTokenStatus(ctx, owner); status.LastUsedAt == nil || !status.LastUsedAt.Equal(now) {
+	if status, err = s.ShortcutTokenStatus(ctx, owner); err != nil || status.LastUsedAt == nil || !status.LastUsedAt.Equal(now) {
 		t.Fatalf("last use: %+v", status)
 	}
 
@@ -82,7 +84,7 @@ func TestIntegrationShortcutTokens(t *testing.T) {
 	if err = s.TouchShortcutToken(ctx, first); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ = s.ShortcutTokenStatus(ctx, owner); status.LastUsedAt != nil {
+	if status, err = s.ShortcutTokenStatus(ctx, owner); err != nil || status.LastUsedAt != nil {
 		t.Fatalf("the old token's use marked the new one: %+v", status)
 	}
 	var rows int
@@ -104,7 +106,7 @@ func TestIntegrationShortcutTokens(t *testing.T) {
 	if _, err = s.ResolveShortcutToken(ctx, second); !errors.Is(err, ErrNotAuthenticated) {
 		t.Fatalf("turned-off token resolves: %v", err)
 	}
-	if status, _ = s.ShortcutTokenStatus(ctx, owner); status.Active {
+	if status, err = s.ShortcutTokenStatus(ctx, owner); err != nil || status.Active {
 		t.Fatal("turned-off token is still active")
 	}
 	if err = s.DeleteShortcutToken(ctx, owner); err != nil {

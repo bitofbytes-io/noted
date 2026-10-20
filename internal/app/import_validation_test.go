@@ -143,7 +143,11 @@ func TestBinaryAssetsRetainLegacyPDFKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	actual, err := io.ReadAll(reader)
 	if err != nil || !bytes.Equal(actual, input) {
 		t.Fatal("binary asset not preserved")

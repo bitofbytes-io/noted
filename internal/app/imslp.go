@@ -24,7 +24,7 @@ import (
 
 const (
 	imslpAPIURL  = "https://imslp.org/api.php"
-	imslpWikiURL = "https://imslp.org/wiki/"
+	imslpWikiURL = "https://imslp.org/wiki/" // #nosec G101 -- Public IMSLP endpoint, not a credential.
 	imslpAgent   = "Noted/1.0 (private score binder; live work search)"
 )
 
@@ -468,7 +468,7 @@ func (s *imslpSearcher) fetch(terms, what string) ([]IMSLPWork, time.Duration, e
 		}
 		return nil, 0, err
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck // Read-only stream; the read/response result is handled separately.
 	if response.StatusCode == http.StatusTooManyRequests {
 		return nil, s.retryAfter(response.Header.Get("Retry-After")), errors.New("IMSLP search HTTP 429")
 	}

@@ -38,7 +38,18 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	email := "shortcut-e2e-" + uuid.NewString() + "@example.test"
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE email=$1`, email) })
+	defer func() {
+		// Remove references before the user cascade deletes their import assets.
+		if _, err := pool.Exec(context.Background(), `DELETE FROM import_drafts WHERE user_id IN (SELECT id FROM users WHERE email=$1)`, email); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM pieces WHERE user_id IN (SELECT id FROM users WHERE email=$1)`, email); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE email=$1`, email); err != nil {
+			t.Error(err)
+		}
+	}()
 	router := NewRouter(app.NewService(pool, store, 1<<20), auth.NewService(pool, nil, time.Hour), config.Config{
 		AppEnv: "test", AuthMode: "development", DevUserEmail: email,
 		MaxUploadBytes: 1 << 20, AllowedOrigin: testAllowedOrigin,
@@ -57,7 +68,7 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 		t.Fatalf("create token: %d %s", response.Code, response.Body.String())
 	}
 
-	response = serve(router, shortcutUpload(created.Token, "Prelude - Example.pdf", "application/pdf", string(pdf)))
+	response = serve(router, shortcutUpload(t, created.Token, "Prelude - Example.pdf", "application/pdf", string(pdf)))
 	var result app.ShortcutImport
 	if response.Code != http.StatusCreated || json.Unmarshal(response.Body.Bytes(), &result) != nil ||
 		result.Message != "New draft created." || result.Title != "Prelude - Example" || result.DraftPath != "/prepare/"+result.DraftID {
@@ -81,15 +92,15 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 		t.Fatalf("token status after use: %s", response.Body.String())
 	}
 
-	if response = serve(router, shortcutUpload(created.Token, "notes.txt", "text/plain", "hello")); response.Code != http.StatusUnsupportedMediaType {
+	if response = serve(router, shortcutUpload(t, created.Token, "notes.txt", "text/plain", "hello")); response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("text file: %d %s", response.Code, response.Body.String())
 	}
-	if response = serve(router, shortcutUpload(created.Token, "fake.pdf", "application/pdf", "not a pdf")); response.Code != http.StatusUnsupportedMediaType {
+	if response = serve(router, shortcutUpload(t, created.Token, "fake.pdf", "application/pdf", "not a pdf")); response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("non-PDF bytes: %d %s", response.Code, response.Body.String())
 	}
 	// A damaged PDF is the user's to fix: 400, worded for the Shortcut's
 	// notification without pdfcpu's internals.
-	if response = serve(router, shortcutUpload(created.Token, "damaged.pdf", "application/pdf", string(pdf[:len(pdf)/2]))); response.Code != http.StatusBadRequest ||
+	if response = serve(router, shortcutUpload(t, created.Token, "damaged.pdf", "application/pdf", string(pdf[:len(pdf)/2]))); response.Code != http.StatusBadRequest ||
 		response.Body.String() != "{\"error\":\"PDF must be readable and unencrypted\"}\n" {
 		t.Fatalf("damaged PDF: %d %s", response.Code, response.Body.String())
 	}
@@ -97,7 +108,7 @@ func TestIntegrationShortcutImportEndToEnd(t *testing.T) {
 	if response = serve(router, httptest.NewRequest(http.MethodDelete, "/api/account/shortcut-token", nil)); response.Code != http.StatusNoContent {
 		t.Fatalf("turn off: %d", response.Code)
 	}
-	if response = serve(router, shortcutUpload(created.Token, "Prelude - Example.pdf", "application/pdf", string(pdf))); response.Code != http.StatusUnauthorized {
+	if response = serve(router, shortcutUpload(t, created.Token, "Prelude - Example.pdf", "application/pdf", string(pdf))); response.Code != http.StatusUnauthorized {
 		t.Fatalf("turned-off token: %d %s", response.Code, response.Body.String())
 	}
 }
