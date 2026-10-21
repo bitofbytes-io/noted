@@ -87,6 +87,9 @@ func Load() (Config, error) {
 
 		TrustedProxyCIDRs: trustedProxies,
 	}
+	if cfg.MetricsAddr, err = validateMetricsAddr(cfg.MetricsAddr); err != nil {
+		return Config{}, err
+	}
 	if raw := os.Getenv("MAX_UPLOAD_BYTES"); raw != "" {
 		size, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || size < 1024 {

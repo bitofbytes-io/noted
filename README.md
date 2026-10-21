@@ -221,6 +221,8 @@ health/readiness endpoints, without downloading a real user's private library.
 
 ## Metrics
 
+`METRICS_ADDR` is trimmed and `off` is case-insensitive. Other values must be a valid IP address or hostname plus a numeric port from 0 to 65535 (IPv6 addresses need brackets). Invalid syntax stops startup; validation does not resolve hostnames. Keep the metrics port private and never publish it through Docker or the public proxy.
+
 The API serves Prometheus metrics at `GET /metrics` on a separate internal
 listener, never on the public API port, so public Traefik routers cannot expose
 it (`/metrics` on the API port is a 404). Set the address with `METRICS_ADDR`
