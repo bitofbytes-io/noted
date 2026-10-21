@@ -1,7 +1,7 @@
 # Noted Digital Binder v1 Requirements
 
 Status: Authoritative implementation scope
-Last updated: 2026-10-18
+Last updated: 2026-10-21
 
 ## Product outcome
 
@@ -14,7 +14,10 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
 
 - BND-001: The first screen is a search-first library.
 - BND-002: A user can create, edit, and delete a piece with title, composer,
-  favorite, optional source URL, optional listening URL, and optional notes.
+  favorite, optional opus/catalogue number, optional musical key, optional source URL,
+  optional listening URL, and optional notes. Opus and key are free text, trimmed
+  and bounded to 100 UTF-8 bytes each; an empty value clears them. They are edited
+  in Details, preserved during PDF preparation, and included in JSON/CSV exports.
 - BND-003: Choosing a PDF prefills its filename as the editable title.
 - BND-004: A user can search title and composer and filter favorites.
 - BND-037: Search ignores accents, case and punctuation, so "dvorak" finds
@@ -26,16 +29,21 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   either side wrote them: "op 28 no 4", "op28/4" and "Opus 28, Nr. 4" are
   all op28 no4; "BWV 846" is bwv846; "K. 545" and "KV 545" are k545; "Hob.
   XVI:52" is hobxvi52 (D., L., S., HWV, RV, BB, WoO and Sz. likewise); and
-  "c# minor", "c-sharp minor" and "cis-moll" are all c sharp minor. These
-  are read from the title, composer, aliases and notes, so a piece needs no
-  separate opus or key field. The API and web app share one fold and these
+  "c# minor", "c-sharp minor" and "cis-moll" are all csharpminor. "es-dur"
+  means eflatmajor; bare keys such as "Eb", "E♭" and "C#" match either major
+  or minor mode. Key terms match as a whole,
+  preventing "c# minor" from matching F♯ minor plus Chopin. Explicit opus and
+  music_key columns supplement title, composer, aliases and notes; old pieces
+  start with empty values, without inferring metadata from titles. Each field is
+  parsed separately. S/D/L catalogues require a dot or the start of a field,
+  and N°/Nº mean No. The API and web app share one fold and these
   search terms, tested against `testdata/search-fold-vectors.json`; the API
   stores each piece's folded text followed by the search terms it lacks, so
   exact search needs no database extension. The library loads the
   user's pieces once, as summaries carrying that folded text instead of the
   notes, and filters, searches and sorts them on the device as the user types;
-  it reloads them after a save or delete. A search lists titles that start
-  with it first, then pieces where every word starts a word, then the rest,
+  it reloads them after a save or delete. Whole-term matches rank above prefixes (Op. 10 before Op. 101). Within
+  each group, a search lists titles that start with it first, then pieces where every word starts a word, then the rest,
   each group in the chosen sort, and only ever matches the searcher's own
   pieces. The API and web app share the composer surname rule too, tested
   against `testdata/composer-surname-vectors.json`.
@@ -43,7 +51,7 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   local matches exist. The separate section never rewrites the query or changes
   exact filtering, ranking, highlighting, saved URLs or reader behavior. Each
   original term must match exactly or (alphabetic terms of at least four letters)
-  by word similarity. Short, numeric and catalogue terms remain exact. Full exact
+  by word similarity. Short, numeric, catalogue and joined musical-key terms remain exact. Full exact
   matches are excluded before the eight-result limit; owner, status and favorite
   filters apply before that limit. Default-view searches include Shelved pieces.
   Suggestions use the existing folded search text with a pg_trgm GIN index and
@@ -311,3 +319,23 @@ Listen, favorite and an Edit details action with accessible labels; Add PDF (Edi
 or replace PDF once one exists) lives inside the details dialog and opens Prepare,
 and unfinished drafts appear as rows with a Resume action. PDF pages, including
 IMSLP downloads, retain removal, reordering and extraction controls.
+
+### Musical search rollout (migration 14, fold version 3)
+
+Migration 14 adds empty optional `opus` and `music_key` fields; it does not infer
+metadata or change timestamps. Apply it before starting the new API. Startup
+refolds derived search text before serving requests. During a rolling update,
+old API replicas can still write the previous search representation after that
+startup pass. After **all old API writers and in-flight writes have drained**,
+run the new image's `/app/noted-migrate refold-search` command once through the existing
+migration-job database credential path, then verify key search. This final job
+is a rollout completion gate; it requires no application shutdown. The command
+has a five-minute deadline and atomically recomputes only `search_text` and the
+fold marker, never piece metadata, ownership or modification times. It rejects
+a newer fold marker, and is safe to repeat after a timeout/failure or rollback.
+
+Retain the additive columns when rolling an API image back. An older API can
+again write old search text; after re-upgrading and draining those writers,
+repeat the final refold job. Do not use the destructive down migration as an
+image rollback procedure. Physical iPad Safari and pedal checks remain separate
+from automated viewport checks.

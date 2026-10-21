@@ -266,7 +266,7 @@ func (s *Service) MergeComposers(ctx context.Context, owner string, input Compos
 		var metadata PieceInput
 		// Preserve every field used by search. The owner lock and row locks keep
 		// concurrent metadata edits from being overwritten while this merge commits.
-		if err := tx.QueryRow(ctx, `SELECT title,aliases,notes FROM pieces WHERE id=$1 AND user_id=$2`, p.ID, owner).Scan(&metadata.Title, &metadata.Aliases, &metadata.Notes); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT title,aliases,notes,opus,music_key FROM pieces WHERE id=$1 AND user_id=$2`, p.ID, owner).Scan(&metadata.Title, &metadata.Aliases, &metadata.Notes, &metadata.Opus, &metadata.MusicKey); err != nil {
 			return ComposerPreview{}, err
 		}
 		metadata.Composer = input.Target

@@ -25,6 +25,8 @@ const exportPageSize = 100
 
 // These portability DTOs deliberately exclude storage keys and application URLs.
 type exportPiece struct {
+	Opus         string             `json:"opus"`
+	MusicKey     string             `json:"musicKey"`
 	ID           string             `json:"id"`
 	Title        string             `json:"title"`
 	Composer     string             `json:"composer"`
@@ -75,7 +77,7 @@ func (p pgExportSnapshot) page(ctx context.Context, after string) ([]exportRecor
 		cursor = &after
 	}
 	rows, err := p.tx.Query(ctx, `SELECT p.id, p.title, p.composer, p.aliases, p.favorite, p.status,
- p.source_url, p.listening_url, p.notes, p.created_at, p.updated_at, COALESCE(f.storage_key,''),
+ p.source_url, p.listening_url, p.notes, p.opus, p.music_key, p.created_at, p.updated_at, COALESCE(f.storage_key,''),
  CASE WHEN f.piece_id IS NOT NULL THEN jsonb_build_object('originalFilename',f.original_filename,
  'sizeBytes',f.size_bytes,'checksumSha256',f.checksum_sha256,'pageCount',f.page_count,'uploadedAt',f.uploaded_at) END,
  CASE WHEN r.piece_id IS NOT NULL THEN jsonb_build_object('mode',r.mode,'lastPage',r.last_page,
@@ -92,7 +94,7 @@ func (p pgExportSnapshot) page(ctx context.Context, after string) ([]exportRecor
 		var r exportRecord
 		var pdf, state []byte
 		v := &r.piece
-		if err := rows.Scan(&v.ID, &v.Title, &v.Composer, &v.Aliases, &v.Favorite, &v.Status, &v.SourceURL, &v.ListeningURL, &v.Notes, &v.CreatedAt, &v.UpdatedAt, &r.key, &pdf, &state); err != nil {
+		if err := rows.Scan(&v.ID, &v.Title, &v.Composer, &v.Aliases, &v.Favorite, &v.Status, &v.SourceURL, &v.ListeningURL, &v.Notes, &v.Opus, &v.MusicKey, &v.CreatedAt, &v.UpdatedAt, &r.key, &pdf, &state); err != nil {
 			return nil, err
 		}
 		if pdf != nil {
@@ -199,12 +201,12 @@ func streamLibrary(ctx context.Context, writer io.Writer, snapshot exportSnapsho
 		return err
 	}
 	table := csv.NewWriter(csvEntry)
-	if err = table.Write([]string{"id", "title", "composer", "aliases", "favorite", "status", "sourceUrl", "listeningUrl", "notes", "createdAt", "updatedAt", "pdfPath", "originalFilename", "sizeBytes", "checksumSha256", "pageCount", "uploadedAt", "readerState"}); err != nil {
+	if err = table.Write([]string{"id", "title", "composer", "aliases", "favorite", "status", "sourceUrl", "listeningUrl", "notes", "createdAt", "updatedAt", "pdfPath", "originalFilename", "sizeBytes", "checksumSha256", "pageCount", "uploadedAt", "readerState", "opus", "musicKey"}); err != nil {
 		return err
 	}
 	err = walk(func(r exportRecord) error {
 		p := r.piece
-		fields := []string{p.ID, p.Title, p.Composer, p.Aliases, strconv.FormatBool(p.Favorite), p.Status, p.SourceURL, p.ListeningURL, p.Notes, p.CreatedAt.Format(time.RFC3339Nano), p.UpdatedAt.Format(time.RFC3339Nano), "", "", "", "", "", "", ""}
+		fields := []string{p.ID, p.Title, p.Composer, p.Aliases, strconv.FormatBool(p.Favorite), p.Status, p.SourceURL, p.ListeningURL, p.Notes, p.CreatedAt.Format(time.RFC3339Nano), p.UpdatedAt.Format(time.RFC3339Nano), "", "", "", "", "", "", "", p.Opus, p.MusicKey}
 		if p.PDF != nil {
 			f := p.PDF
 			copy(fields[11:], []string{f.Path, f.OriginalFilename, strconv.FormatInt(f.SizeBytes, 10), f.ChecksumSHA256, strconv.Itoa(f.PageCount), f.UploadedAt.Format(time.RFC3339Nano)})

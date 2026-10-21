@@ -114,7 +114,17 @@ describe('Additional library matches', () => {
   });
   it('never sends punctuation, numeric, oversized or excessive-term requests and cancels on destroy', async () => {
     const { api, fixture, change } = await setup();
-    for (const q of ['%_', '12345', 'op28', 'x'.repeat(201), 'word '.repeat(9)]) {
+    for (const q of [
+      '%_',
+      '12345',
+      'op28',
+      'c# minor',
+      'Eb',
+      'C#',
+      'es-dur',
+      'x'.repeat(201),
+      'word '.repeat(9),
+    ]) {
       change('query', q);
       vi.advanceTimersByTime(500);
     }

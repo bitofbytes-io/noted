@@ -168,6 +168,8 @@ describe('ReaderComponent', () => {
             listeningUrl: '',
             notes: '',
             aliases: '',
+            opus: '',
+            musicKey: '',
             createdAt: '',
             updatedAt: '',
             pdf: {

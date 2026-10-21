@@ -1,0 +1,110 @@
+[
+  {
+    "fields": [
+      "Scherzo in F♯ minor",
+      "Chopin"
+    ],
+    "query": "c# minor",
+    "matches": false
+  },
+  {
+    "fields": [
+      "Nocturne in C♯ minor",
+      "Chopin"
+    ],
+    "query": "cis-moll",
+    "matches": true
+  },
+  {
+    "fields": [
+      "E♭ major"
+    ],
+    "query": "Eb",
+    "matches": true
+  },
+  {
+    "fields": [
+      "E♭ major"
+    ],
+    "query": "es-dur",
+    "matches": true
+  },
+  {
+    "fields": [
+      "E♭ minor"
+    ],
+    "query": "E♭",
+    "matches": true
+  },
+  {
+    "fields": [
+      "C♯ major"
+    ],
+    "query": "c#",
+    "matches": true
+  },
+  {
+    "fields": [
+      "C♯ minor"
+    ],
+    "query": "c#",
+    "matches": true
+  },
+  {
+    "fields": [
+      "Chopin's 24 Préludes"
+    ],
+    "query": "s24",
+    "matches": false
+  },
+  {
+    "fields": [
+      "Sonata Op.",
+      "",
+      "",
+      "10"
+    ],
+    "query": "op10",
+    "matches": false
+  },
+  {
+    "fields": [
+      "Sonata",
+      "",
+      "",
+      "C#",
+      "minor"
+    ],
+    "query": "c# minor",
+    "matches": false
+  },
+  {
+    "fields": [
+      "Sonata",
+      "",
+      "",
+      "S. 24"
+    ],
+    "query": "s24",
+    "matches": true
+  },
+  {
+    "fields": [
+      "Nocturne Op. 9 Nº 2"
+    ],
+    "query": "op9 no2",
+    "matches": true
+  },
+  {
+    "fields": [
+      "Étude",
+      "",
+      "",
+      "",
+      "Op. 10",
+      "C♯ minor"
+    ],
+    "query": "op10 cis-moll",
+    "matches": true
+  }
+]

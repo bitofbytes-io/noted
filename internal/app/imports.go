@@ -311,6 +311,9 @@ func (s *Service) UpdateImport(ctx context.Context, owner, id string, input Upda
 	if metadata.Status != nil {
 		return d, invalid("a draft cannot set the piece status")
 	}
+	if metadata.Opus != "" || metadata.MusicKey != "" {
+		return d, invalid("a draft cannot set opus or music key")
+	}
 	if metadata.Aliases != "" {
 		return d, invalid("a draft cannot set the piece aliases")
 	}
@@ -479,12 +482,12 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 	}
 	var oldKey, oldChecksum string
 	var oldPageCount int
-	// A draft never carries aliases; the piece keeps its own.
-	var aliases string
+	// Details-only aliases and musical metadata always keep their current saved values.
+	var aliases, opus, musicKey string
 	if d.PieceID != nil {
 		var rev int64
 		var current PieceInput
-		err = tx.QueryRow(ctx, `SELECT content_revision,title,composer,favorite,source_url,listening_url,notes,aliases FROM pieces WHERE id=$1 AND user_id=$2 FOR UPDATE`, *d.PieceID, owner).Scan(&rev, &current.Title, &current.Composer, &current.Favorite, &current.SourceURL, &current.ListeningURL, &current.Notes, &aliases)
+		err = tx.QueryRow(ctx, `SELECT content_revision,title,composer,favorite,source_url,listening_url,notes,aliases,opus,music_key FROM pieces WHERE id=$1 AND user_id=$2 FOR UPDATE`, *d.PieceID, owner).Scan(&rev, &current.Title, &current.Composer, &current.Favorite, &current.SourceURL, &current.ListeningURL, &current.Notes, &aliases, &opus, &musicKey)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return FinalizeResult{}, ErrNotFound
 		}
@@ -552,6 +555,7 @@ func (s *Service) FinalizeImport(ctx context.Context, owner, id string, revision
 		return FinalizeResult{}, err
 	}
 	metadata.Aliases = aliases
+	metadata.Opus, metadata.MusicKey = opus, musicKey
 	_, err = tx.Exec(ctx, `UPDATE pieces SET title=$2,composer=$3,favorite=$4,source_url=$5,listening_url=$6,notes=$7,preparation_manifest=$8,search_text=$9,composer_sort=$10,composer_sort_source=$3,composer_sort_version=$11,content_revision=content_revision+1,updated_at=now() WHERE id=$1`, *d.PieceID, metadata.Title, metadata.Composer, metadata.Favorite, metadata.SourceURL, metadata.ListeningURL, metadata.Notes, manifest, searchText(metadata), composerSortKey(metadata.Composer), composerKeyVersion)
 	if err != nil {
 		return FinalizeResult{}, err

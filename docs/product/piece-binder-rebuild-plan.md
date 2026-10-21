@@ -15,7 +15,7 @@ One job: sit at the piano, pull up the iPad, search your digitized pieces, open 
 
 - Upload PDF scores (from iPhone document scan, flatbed scanner, or manually downloaded IMSLP PDFs — all arrive as PDFs, no photo stitching).
 - Piece metadata: title, composer, favorite, optional source URL, optional
-  listening URL, and notes. A listening URL is an outbound HTTP(S) link only;
+  listening URL, opus/catalogue number, musical key, and notes. A listening URL is an outbound HTTP(S) link only;
   manual entry uses smart defaults (e.g., prefill title from filename), while
   automated metadata is a later enhancement.
 - Library: list, search by title/composer, filter favorites, and open an optional
@@ -50,7 +50,7 @@ fetching (bot-blocked), photo-to-piece stitching, and sharing.
   - `users`: Google/development identity and profile metadata.
   - `user_sessions` and `oauth_login_states`: hashed opaque browser
     authentication state.
-  - `pieces`: id, user_id, title, composer, favorite, source_url, listening_url, notes,
+  - `pieces`: id, user_id, title, composer, favorite, source_url, listening_url, notes, opus, music_key,
     timestamps.
   - `piece_pdfs`: piece_id (unique — one PDF per piece in v1), storage_key, original_filename, size, checksum, page_count, uploaded_at.
   - `reader_states`: piece_id, mode, last_page/scroll_position, zoom, scroll_speed, updated_at.

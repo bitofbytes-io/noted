@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Subject, catchError, map, of, switchMap, timer } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { LibraryFilter, PieceSummary } from '../../core/models';
-import { searchTerms } from '../../core/search';
+import { isKeyTerm, searchTerms } from '../../core/search';
 
 @Component({
   selector: 'app-search-suggestions',
@@ -133,7 +133,7 @@ export class SuggestionsComponent implements OnChanges, OnDestroy {
       !!this.owner &&
       new TextEncoder().encode(this.query).length <= 200 &&
       terms.length <= 8 &&
-      terms.some((term) => /^\p{L}{4,}$/u.test(term));
+      terms.some((term) => !isKeyTerm(term) && /^\p{L}{4,}$/u.test(term));
     this.requests.next({
       query: this.query,
       filter: this.filter,

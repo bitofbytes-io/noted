@@ -26,6 +26,8 @@ function summary(fields: Partial<Piece> & Pick<Piece, 'title'>): PieceSummary {
     listeningUrl: '',
     notes: '',
     aliases: '',
+    opus: '',
+    musicKey: '',
     createdAt: '2026-10-01T09:00:00Z',
     updatedAt: '2026-10-01T09:00:00Z',
     pdf: { pageCount: 1, contentUrl: '' } as Piece['pdf'],
@@ -199,6 +201,42 @@ describe('filterAndSort', () => {
         aliases: 'Lento con gran espressione',
         notes: 'Op. posth.',
       }).searchText,
-    ).toBe('nocturne in c sharp minor frederic chopin lento con gran espressione op posth');
+    ).toBe(
+      'nocturne in c sharp minor frederic chopin lento con gran espressione op posth csharpminor',
+    );
+  });
+});
+
+describe('whole catalogue ranking', () => {
+  it('puts op10 before op101/106 while preserving the chosen sort in ties', () => {
+    const pieces = [
+      summary({ title: 'Op. 101', composer: 'Bach' }),
+      summary({ title: 'Op. 106', composer: 'Chopin' }),
+      summary({ title: 'Z study', composer: 'Bach', opus: 'Op. 10', favorite: true }),
+      summary({ title: 'A study', composer: 'Chopin', opus: 'Op. 10', favorite: true }),
+    ];
+    expect(titles(filterAndSort(pieces, view({ query: 'op10', sort: 'composer' })))).toEqual([
+      'Z study',
+      'A study',
+      'Op. 101',
+      'Op. 106',
+    ]);
+    expect(titles(filterAndSort(pieces, view({ query: 'op10 ba' })))).toEqual([
+      'Z study',
+      'Op. 101',
+    ]);
+    expect(titles(filterAndSort(pieces, view({ query: 'op10', filter: 'favorites' })))).toEqual([
+      'A study',
+      'Z study',
+    ]);
+  });
+  it('uses separate fields after a save and excludes the wrong key', () => {
+    const pieces = [
+      summary({ title: 'F♯ minor', composer: 'Chopin' }),
+      summary({ title: 'Etude', musicKey: 'C♯ minor' }),
+      summary({ title: 'Op.', notes: '10' }),
+    ];
+    expect(titles(filterAndSort(pieces, view({ query: 'c# minor' })))).toEqual(['Etude']);
+    expect(titles(filterAndSort(pieces, view({ query: 'op10' })))).toEqual([]);
   });
 });

@@ -509,6 +509,8 @@ export class LibraryComponent implements OnDestroy {
       listeningUrl: piece.listeningUrl,
       notes: piece.notes,
       aliases: piece.aliases,
+      opus: piece.opus ?? '',
+      musicKey: piece.musicKey ?? '',
     };
     // The form fields are not signals, and nothing else marks the view after the read.
     this.changes.markForCheck();
@@ -538,7 +540,9 @@ export class LibraryComponent implements OnDestroy {
       this.form.sourceUrl !== piece.sourceUrl ||
       this.form.listeningUrl.trim() !== piece.listeningUrl ||
       this.form.notes !== piece.notes ||
-      this.form.aliases !== piece.aliases
+      this.form.aliases !== piece.aliases ||
+      this.form.opus !== (piece.opus ?? '') ||
+      this.form.musicKey !== (piece.musicKey ?? '')
     );
   }
 
@@ -664,5 +668,7 @@ function emptyPiece(): PieceForm {
     listeningUrl: '',
     notes: '',
     aliases: '',
+    opus: '',
+    musicKey: '',
   };
 }
