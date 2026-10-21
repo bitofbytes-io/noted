@@ -264,6 +264,14 @@
     }
     <app-composer-field [value]="form.composer" (valueChange)="form.composer = $event" />
     <label class="field">
+      <span>Opus or catalogue number</span>
+      <input name="opus" maxlength="100" placeholder="Op. 28 No. 4" [(ngModel)]="form.opus" />
+    </label>
+    <label class="field">
+      <span>Musical key</span>
+      <input name="musicKey" maxlength="100" placeholder="C♯ minor" [(ngModel)]="form.musicKey" />
+    </label>
+    <label class="field">
       <span>Also known as</span>
       <input
         name="aliases"

@@ -19,7 +19,7 @@ const suggestionMaxTerms = 8
 var ErrSuggestionsThrottled = errors.New("similar-match requests are arriving too quickly")
 
 func fuzzyTerm(term string) bool {
-	if utf8.RuneCountInString(term) < 4 {
+	if isKeyTerm(term) || utf8.RuneCountInString(term) < 4 {
 		return false
 	}
 	for _, r := range term {
@@ -54,8 +54,9 @@ func suggestionQuery(owner string, options ListOptions) (string, []any, error) {
 	scores := []string{}
 	eligible := false
 	for _, term := range terms {
-		args = append(args, "%"+likeEscape(term)+"%")
-		exact := fmt.Sprintf(`p.search_text LIKE $%d ESCAPE '\'`, len(args))
+		column, pattern := searchPattern(term)
+		args = append(args, pattern)
+		exact := fmt.Sprintf(column+` LIKE $%d ESCAPE '\'`, len(args))
 		exacts = append(exacts, exact)
 		if !fuzzyTerm(term) {
 			where = append(where, exact)

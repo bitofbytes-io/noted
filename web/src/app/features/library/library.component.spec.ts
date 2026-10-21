@@ -26,6 +26,8 @@ function testPiece(fields: Partial<Piece> & Pick<Piece, 'id' | 'title'>): TestPi
     listeningUrl: '',
     notes: '',
     aliases: '',
+    opus: '',
+    musicKey: '',
     createdAt: '2026-10-01T09:00:00Z',
     updatedAt: '2026-10-01T09:00:00Z',
     pdf: null,
@@ -136,11 +138,11 @@ describe('LibraryComponent', () => {
     );
     expect(type('chopin waltz')).toEqual([]);
     expect(root.querySelector('.empty-state h2')?.textContent).toBe('No matching pieces');
-    // A title that starts with the search comes before a match further in.
+    // Whole terms outrank prefixes, even a title prefix; remaining matches further in.
     expect(type('no')).toEqual([
-      'Nocturne in C♯ minor',
       'Gymnopédie No. 1',
       'Prelude Op. 28 No. 4',
+      'Nocturne in C♯ minor',
     ]);
     expect(api.pieceSummaries).toHaveBeenCalledTimes(1);
     fixture.destroy();
@@ -249,7 +251,9 @@ describe('LibraryComponent', () => {
       preferences: vi.fn(() => of({ libraryFilter: 'current' })),
       pieceSummaries: vi.fn(() => of([saved])),
       continuePiece: vi.fn(() => of(null)),
-      piece: vi.fn(() => of({ ...saved, aliases: 'Moonlight' })),
+      piece: vi.fn(() =>
+        of({ ...saved, aliases: 'Moonlight', opus: 'Op. 27 No. 2', musicKey: 'C♯ minor' }),
+      ),
       updatePiece: vi.fn((_id: string, input: Partial<Piece>) => of({ ...saved, ...input })),
       createPiece: vi.fn((input: Partial<Piece>) => of({ ...saved, ...input, id: 'new' })),
     };
@@ -279,6 +283,16 @@ describe('LibraryComponent', () => {
     // The form fills itself once the whole piece arrives, with no change detection forced here.
     await fixture.whenStable();
     expect(aliasesInput().value).toBe('Moonlight');
+    const opusInput = fixture.nativeElement.querySelector('input[name="opus"]') as HTMLInputElement;
+    const keyInput = fixture.nativeElement.querySelector(
+      'input[name="musicKey"]',
+    ) as HTMLInputElement;
+    expect(opusInput.value).toBe('Op. 27 No. 2');
+    expect(keyInput.value).toBe('C♯ minor');
+    opusInput.value = '';
+    opusInput.dispatchEvent(new Event('input'));
+    keyInput.value = 'D minor';
+    keyInput.dispatchEvent(new Event('input'));
     expect(
       (fixture.nativeElement.querySelector('textarea[name="notes"]') as HTMLTextAreaElement).value,
     ).toBe('Pedal through each bar');
@@ -292,7 +306,12 @@ describe('LibraryComponent', () => {
     await component.save();
     expect(api.updatePiece).toHaveBeenCalledWith(
       'sonata',
-      expect.objectContaining({ aliases: 'Moonlight Sonata', notes: 'Pedal through each bar' }),
+      expect.objectContaining({
+        aliases: 'Moonlight Sonata',
+        notes: 'Pedal through each bar',
+        opus: '',
+        musicKey: 'D minor',
+      }),
     );
     // Saving reloads the library from the server.
     expect(api.pieceSummaries).toHaveBeenCalledTimes(2);

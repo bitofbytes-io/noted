@@ -32,6 +32,8 @@ DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+
 # A works table alone is not enough to identify the historical Noted schema.
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" <<'SQL'
@@ -221,7 +223,8 @@ if [ "$version" != "000001_binder
 000010_library_sort
 000011_library_search
 000012_composer_keys
-000013_search_suggestions" ]; then
+000013_search_suggestions
+000014_musical_metadata" ]; then
   printf 'unexpected migration version after legacy reset: %s\n' "$version" >&2
   exit 1
 fi
@@ -348,6 +351,35 @@ fi
 docker compose -p "$project" -f "$compose_file" exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
   -c "UPDATE pieces SET aliases='Nickname', search_text='owned piece nickname'" >/dev/null
+
+# Musical metadata starts empty and is bounded; rollback removes only these fields.
+musical_defaults=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT bool_and(opus='' AND music_key='') FROM pieces"
+)
+if [ "$musical_defaults" != "t" ]; then
+  echo "unexpected musical metadata defaults" >&2
+  exit 1
+fi
+for column in opus music_key; do
+  if docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" \
+    -c "UPDATE pieces SET $column=repeat('a',101)" >/dev/null 2>&1; then
+    echo "musical metadata constraint accepted an oversized value" >&2
+    exit 1
+  fi
+done
+DATABASE_URL="$database_url" go run ./cmd/migrate down
+musical_removed=$(
+  docker compose -p "$project" -f "$compose_file" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U noted -d "$database" -Atc \
+    "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name='pieces' AND column_name IN ('opus','music_key')) || '|' || (SELECT aliases FROM pieces WHERE id='4f607127-fb97-4b22-90f5-1b9bec77b739')"
+)
+if [ "$musical_removed" != "0|Nickname" ]; then
+  echo "musical metadata rollback changed unrelated fields or retained columns" >&2
+  exit 1
+fi
 
 # The typo index is additive; rollback retains the potentially shared extension.
 trgm_ready=$(
@@ -504,7 +536,8 @@ VALUES (
 INSERT INTO reader_states (piece_id, scroll_speed)
 VALUES ('4f607127-fb97-4b22-90f5-1b9bec77b739', 5);
 SQL
-# Roll back 000013, 000012, 000011, 000010, 000009, then 000008.
+# Roll back 000014, 000013, 000012, 000011, 000010, 000009, then 000008.
+DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down
 DATABASE_URL="$database_url" go run ./cmd/migrate down

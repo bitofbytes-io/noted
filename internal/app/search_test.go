@@ -69,7 +69,7 @@ func TestSearchTermsMatchAcrossSpellings(t *testing.T) {
 		index := " " + searchIndex(group[0])
 		for _, query := range group[1:] {
 			for _, term := range searchTerms(query) {
-				if !strings.Contains(index, term) {
+				if !matchesSearchTerm(index, term) {
 					t.Errorf("%q: term %q of %q not in %q", group[0], term, query, index)
 				}
 			}
@@ -105,5 +105,42 @@ func TestSearchTextCoversTitleComposerAliasesAndNotes(t *testing.T) {
 	want := "piano sonata no 14 ludwig van beethoven moonlight sonata adagio sostenuto first no14"
 	if got := searchText(input); got != want {
 		t.Fatalf("searchText = %q, want %q", got, want)
+	}
+}
+
+func TestSharedSearchMatches(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/search-match-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors []struct {
+		Fields  []string
+		Query   string
+		Matches bool
+	}
+	if err = json.Unmarshal(data, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vectors {
+		index := searchIndex(v.Fields...)
+		got := true
+		for _, term := range searchTerms(v.Query) {
+			got = got && matchesSearchTerm(index, term)
+		}
+		if got != v.Matches {
+			t.Errorf("fields %q query %q: got %v, want %v (index %q)", v.Fields, v.Query, got, v.Matches, index)
+		}
+	}
+}
+
+func TestMusicalMetadataValidation(t *testing.T) {
+	input, err := validatePiece(PieceInput{Title: "Etude", Opus: " Op. 10 ", MusicKey: " C♯ minor "})
+	if err != nil || input.Opus != "Op. 10" || input.MusicKey != "C♯ minor" {
+		t.Fatalf("metadata %+v: %v", input, err)
+	}
+	for _, input := range []PieceInput{{Title: "Etude", Opus: strings.Repeat("a", 101)}, {Title: "Etude", MusicKey: strings.Repeat("♯", 34)}} {
+		if _, err := validatePiece(input); err == nil {
+			t.Fatal("accepted oversized metadata")
+		}
 	}
 }

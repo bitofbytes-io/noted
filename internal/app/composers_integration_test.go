@@ -47,7 +47,7 @@ func TestIntegrationComposers(t *testing.T) {
 	}()
 	create := func(user, name string) Piece {
 		t.Helper()
-		p, err := service.CreatePiece(ctx, user, PieceInput{Title: "Exercise " + name, Composer: name, Aliases: "Nickname", Notes: "Keep notes"})
+		p, err := service.CreatePiece(ctx, user, PieceInput{Title: "Exercise " + name, Composer: name, Aliases: "Nickname", Notes: "Keep notes", Opus: "Op. 10", MusicKey: "C♯ minor"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -231,7 +231,7 @@ func TestIntegrationComposers(t *testing.T) {
 	}
 	for _, id := range []string{first.ID, second.ID} {
 		p, err := service.GetPiece(ctx, owner, id)
-		if err != nil || p.Composer != input.Target || p.Aliases != "Nickname" || p.Notes != "Keep notes" {
+		if err != nil || p.Composer != input.Target || p.Aliases != "Nickname" || p.Notes != "Keep notes" || p.Opus != "Op. 10" || p.MusicKey != "C♯ minor" {
 			t.Fatal("merge changed unrelated metadata", p, err)
 		}
 		assertKey(id, input.Target)

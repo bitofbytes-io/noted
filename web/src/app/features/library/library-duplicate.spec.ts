@@ -19,6 +19,8 @@ describe('Library duplicate title warning', () => {
       listeningUrl: '',
       notes: '',
       aliases: '',
+      opus: '',
+      musicKey: '',
       createdAt: '2026-10-20T00:00:00Z',
       updatedAt: '2026-10-20T00:00:00Z',
       lastPlayedAt: null,

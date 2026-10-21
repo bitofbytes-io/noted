@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func (s *Service) CheckAssetStore(ctx context.Context) error {
 
 const pieceColumns = `
 	p.id, p.title, p.composer, p.favorite, p.status, p.source_url, p.listening_url, p.notes,
-	p.aliases, p.created_at, p.updated_at,
+	p.aliases, p.opus, p.music_key, p.created_at, p.updated_at,
 	f.original_filename, f.size_bytes, f.checksum_sha256, f.page_count, f.uploaded_at,
 	r.updated_at`
 
@@ -111,6 +112,15 @@ func (s *Service) ListPieces(ctx context.Context, userID string, options ListOpt
 	if options.Sort == SortComposer {
 		sortByComposer(pieces, func(piece Piece) string { return piece.Composer })
 	}
+	terms := searchTerms(options.Query)
+	if len(terms) > 0 {
+		ranks := make(map[string]int, len(pieces))
+		for _, p := range pieces {
+			ranks[p.ID] = exactTermRank(searchText(PieceInput{Title: p.Title, Composer: p.Composer, Aliases: p.Aliases, Notes: p.Notes, Opus: p.Opus, MusicKey: p.MusicKey}), terms)
+		}
+		sort.SliceStable(pieces, func(i, j int) bool { return ranks[pieces[i].ID] < ranks[pieces[j].ID] })
+	}
+
 	return pieces, nil
 }
 
@@ -156,6 +166,12 @@ func (s *Service) ListPieceSummaries(
 	if options.Sort == SortComposer {
 		sortByComposer(summaries, func(summary PieceSummary) string { return summary.Composer })
 	}
+	terms := searchTerms(options.Query)
+	if len(terms) > 0 {
+		sort.SliceStable(summaries, func(i, j int) bool {
+			return exactTermRank(summaries[i].SearchText, terms) < exactTermRank(summaries[j].SearchText, terms)
+		})
+	}
 	return summaries, nil
 }
 
@@ -171,8 +187,9 @@ func listClauses(userID string, options ListOptions) (string, string, []any, err
 	// Each word may match anywhere, so "chopin nocturne" finds the Chopin
 	// nocturnes, "dvorak" finds Dvořák and "op28/4" finds Op. 28 No. 4.
 	for _, token := range searchTerms(options.Query) {
-		args = append(args, "%"+likeEscape(token)+"%")
-		clauses = append(clauses, fmt.Sprintf(`p.search_text LIKE $%d ESCAPE '\'`, len(args)))
+		column, pattern := searchPattern(token)
+		args = append(args, pattern)
+		clauses = append(clauses, fmt.Sprintf(column+` LIKE $%d ESCAPE '\'`, len(args)))
 	}
 	if options.Favorite != nil {
 		args = append(args, *options.Favorite)
@@ -239,10 +256,10 @@ func (s *Service) CreatePiece(ctx context.Context, userID string, input PieceInp
 	err = tx.QueryRow(ctx, `
 		INSERT INTO pieces
 			(id, user_id, title, composer, favorite, status, source_url, listening_url, notes,
-				aliases, search_text, composer_sort, composer_sort_source, composer_sort_version)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$4,$13) RETURNING id`,
+				aliases, search_text, composer_sort, composer_sort_source, composer_sort_version, opus, music_key)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$4,$13,$14,$15) RETURNING id`,
 		id, userID, input.Title, input.Composer, input.Favorite, *input.Status, input.SourceURL,
-		input.ListeningURL, input.Notes, input.Aliases, searchText(input), composerSortKey(input.Composer), composerKeyVersion,
+		input.ListeningURL, input.Notes, input.Aliases, searchText(input), composerSortKey(input.Composer), composerKeyVersion, input.Opus, input.MusicKey,
 	).Scan(&id)
 	if err != nil {
 		return Piece{}, err
@@ -273,7 +290,13 @@ func (s *Service) UpdatePiece(
 	input := PieceInput{
 		Title: current.Title, Composer: current.Composer, Favorite: current.Favorite,
 		Status: &current.Status, SourceURL: current.SourceURL, ListeningURL: current.ListeningURL,
-		Notes: current.Notes, Aliases: current.Aliases,
+		Notes: current.Notes, Aliases: current.Aliases, Opus: current.Opus, MusicKey: current.MusicKey,
+	}
+	if patch.Opus != nil {
+		input.Opus = *patch.Opus
+	}
+	if patch.MusicKey != nil {
+		input.MusicKey = *patch.MusicKey
 	}
 	if patch.Title != nil {
 		input.Title = *patch.Title
@@ -305,10 +328,10 @@ func (s *Service) UpdatePiece(
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE pieces SET title=$2, composer=$3, favorite=$4, source_url=$5,
-			listening_url=$6, notes=$7, status=$9, aliases=$10, search_text=$11, composer_sort=$12, composer_sort_source=$3, composer_sort_version=$13, updated_at=now()
+			listening_url=$6, notes=$7, status=$9, aliases=$10, search_text=$11, composer_sort=$12, composer_sort_source=$3, composer_sort_version=$13, opus=$14, music_key=$15, updated_at=now()
 		WHERE id=$1 AND user_id=$8`,
 		id, input.Title, input.Composer, input.Favorite, input.SourceURL,
-		input.ListeningURL, input.Notes, userID, *input.Status, input.Aliases, searchText(input), composerSortKey(input.Composer), composerKeyVersion)
+		input.ListeningURL, input.Notes, userID, *input.Status, input.Aliases, searchText(input), composerSortKey(input.Composer), composerKeyVersion, input.Opus, input.MusicKey)
 	if err != nil {
 		return Piece{}, err
 	}
@@ -513,7 +536,7 @@ func scanPiece(row rowScanner) (Piece, error) {
 	var uploaded *time.Time
 	err := row.Scan(
 		&piece.ID, &piece.Title, &piece.Composer, &piece.Favorite, &piece.Status,
-		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.Aliases, &piece.CreatedAt, &piece.UpdatedAt,
+		&piece.SourceURL, &piece.ListeningURL, &piece.Notes, &piece.Aliases, &piece.Opus, &piece.MusicKey, &piece.CreatedAt, &piece.UpdatedAt,
 		&filename, &size, &checksum, &pages, &uploaded, &piece.LastPlayedAt,
 	)
 	if err != nil {

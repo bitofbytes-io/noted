@@ -1,4 +1,11 @@
-import { catalogueTerms, fold, searchIndex, searchTerms } from '../../core/search';
+import {
+  catalogueTerms,
+  exactTermRank,
+  fold,
+  matchesSearchTerm,
+  searchIndex,
+  searchTerms,
+} from '../../core/search';
 import { LibraryFilter, LibrarySort, Piece, PieceSummary } from '../../core/models';
 
 /** What the library shows: the search as typed, the filter and the sort. */
@@ -20,7 +27,7 @@ export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView
   const shown = pieces.filter(
     (piece) =>
       inFilter(piece, view.filter, words.length > 0) &&
-      words.every((word) => piece.searchText.includes(word)),
+      words.every((word) => matchesSearchTerm(piece.searchText, word)),
   );
   const order = ORDERS[view.sort];
   if (!words.length) return shown.sort(order);
@@ -30,7 +37,12 @@ export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView
     parts: catalogueTerms(view.query, true).join(' '),
   };
   const ranks = new Map(shown.map((piece) => [piece.id, matchRank(piece, prefix, words)]));
-  return shown.sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)! || order(a, b));
+  return shown.sort(
+    (a, b) =>
+      exactTermRank(a.searchText, words) - exactTermRank(b.searchText, words) ||
+      ranks.get(a.id)! - ranks.get(b.id)! ||
+      order(a, b),
+  );
 }
 
 /** The search in each form a title may start with it. */
@@ -166,7 +178,14 @@ export function summaryOf(piece: Piece): PieceSummary {
     pdf: piece.pdf && { pageCount: piece.pdf.pageCount, contentUrl: piece.pdf.contentUrl },
     lastPlayedAt: piece.lastPlayedAt,
     createdAt: piece.createdAt,
-    searchText: searchIndex(`${piece.title} ${piece.composer} ${piece.aliases} ${piece.notes}`),
+    searchText: searchIndex(
+      piece.title,
+      piece.composer,
+      piece.aliases,
+      piece.notes,
+      piece.opus ?? '',
+      piece.musicKey ?? '',
+    ),
   };
 }
 

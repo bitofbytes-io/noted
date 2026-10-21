@@ -274,14 +274,15 @@ func TestIntegrationImports(t *testing.T) {
 		t.Fatal(err)
 	}
 	title, favorite, aliases := "Concurrent title", true, "Concurrent alias"
-	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite, Aliases: &aliases}); err != nil {
+	opus, musicKey := "Op. 10", "C♯ minor"
+	if _, err = s.UpdatePiece(ctx, owner.ID, piece.ID, PiecePatch{Title: &title, Favorite: &favorite, Aliases: &aliases, Opus: &opus, MusicKey: &musicKey}); err != nil {
 		t.Fatal(err)
 	}
 	current, err := s.FinalizeImport(ctx, owner.ID, metadataDraft.ID, metadataDraft.Revision, bytes.NewReader(pdf))
 	if err != nil {
 		t.Fatalf("metadata-only change blocked finalize: %v", err)
 	}
-	if current.Title != title || !current.Favorite || current.Composer != "Draft composer" || current.Aliases != aliases {
+	if current.Title != title || !current.Favorite || current.Composer != "Draft composer" || current.Aliases != aliases || current.Opus != opus || current.MusicKey != musicKey {
 		t.Fatalf("finalize did not merge metadata: %+v", current)
 	}
 	// Finalizing refreshes the search text with the merged metadata.
@@ -289,7 +290,7 @@ func TestIntegrationImports(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT search_text FROM pieces WHERE id=$1`, piece.ID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	if want := searchIndex(title + " Draft composer " + aliases + " " + current.Notes); stored != want {
+	if want := searchIndex(title, "Draft composer", aliases, current.Notes, opus, musicKey); stored != want {
 		t.Fatalf("search text after finalize = %q, want %q", stored, want)
 	}
 	retained, err := s.GetReaderState(ctx, owner.ID, piece.ID)

@@ -58,7 +58,7 @@ func exportIntegrationSetup(t *testing.T) (context.Context, *Service, string, st
 }
 func exportIntegrationPDF(t *testing.T, ctx context.Context, s *Service, owner string, data []byte) (Piece, assets.Object) {
 	t.Helper()
-	piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: "Private score", Aliases: "Other title", SourceURL: "https://example.test/source", ListeningURL: "https://example.test/listen", Notes: "=private note", Favorite: true})
+	piece, err := s.CreatePiece(ctx, owner, PieceInput{Title: "Private score", Opus: "Op. 10", MusicKey: "C♯ minor", Aliases: "Other title", SourceURL: "https://example.test/source", ListeningURL: "https://example.test/listen", Notes: "=private note", Favorite: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestIntegrationLibraryExportOwnershipPagingAndSnapshot(t *testing.T) {
 		}
 		if piece.ID == score.ID {
 			saved++
-			if piece.ReaderState == nil || piece.ReaderState.Mode != "scroll" || piece.ReaderState.LastPage != 2 || piece.ReaderState.Zoom != 1.5 || piece.ReaderState.ScrollPaused || !piece.Favorite || piece.Notes != "=private note" || piece.PDF.ChecksumSHA256 != old.Checksum || !bytes.Equal(files[piece.PDF.Path], original) {
+			if piece.ReaderState == nil || piece.ReaderState.Mode != "scroll" || piece.ReaderState.LastPage != 2 || piece.ReaderState.Zoom != 1.5 || piece.ReaderState.ScrollPaused || !piece.Favorite || piece.Notes != "=private note" || piece.Opus != "Op. 10" || piece.MusicKey != "C♯ minor" || piece.PDF.ChecksumSHA256 != old.Checksum || !bytes.Equal(files[piece.PDF.Path], original) {
 				t.Fatalf("snapshot data mismatch: %+v", piece)
 			}
 		} else if piece.PDF != nil || piece.ReaderState != nil {

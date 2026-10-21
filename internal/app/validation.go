@@ -25,6 +25,14 @@ func invalid(format string, args ...any) error {
 }
 
 func validatePiece(input PieceInput) (PieceInput, error) {
+	input.Opus = strings.TrimSpace(input.Opus)
+	input.MusicKey = strings.TrimSpace(input.MusicKey)
+	if len(input.Opus) > 100 {
+		return input, invalid("opus must be at most 100 bytes")
+	}
+	if len(input.MusicKey) > 100 {
+		return input, invalid("music key must be at most 100 bytes")
+	}
 	input.Title = strings.TrimSpace(input.Title)
 	input.Composer = strings.TrimSpace(input.Composer)
 	input.SourceURL = strings.TrimSpace(input.SourceURL)
@@ -58,7 +66,7 @@ func validatePiece(input PieceInput) (PieceInput, error) {
 
 // searchText is what library search matches for a validated piece.
 func searchText(input PieceInput) string {
-	return searchIndex(input.Title + " " + input.Composer + " " + input.Aliases + " " + input.Notes)
+	return searchIndex(input.Title, input.Composer, input.Aliases, input.Notes, input.Opus, input.MusicKey)
 }
 
 func validStatus(status string) bool {

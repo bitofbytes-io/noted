@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -12,7 +14,7 @@ import (
 // searchFoldVersion changes whenever foldSearch or searchTerms does, so the API
 // refolds every piece's search_text once on its next start (see
 // RefoldSearchText).
-const searchFoldVersion = 2
+const searchFoldVersion = 3
 
 // foldLeftovers are letters that keep no combining mark to strip, and the
 // accidentals, which become words so "C#" finds "C♯".
@@ -22,13 +24,19 @@ var foldLeftovers = strings.NewReplacer(
 	"♯", " sharp ", "#", " sharp ", "♭", " flat ",
 )
 
+// Normalize number signs before NFKD turns º into an ordinary o.
+func normalizedSearch(text string) string {
+	text = strings.NewReplacer("N°", "no ", "n°", "no ", "Nº", "no ", "nº", "no ").Replace(text)
+	return foldLeftovers.Replace(strings.ToLower(norm.NFKD.String(text)))
+}
+
 // foldSearch is the library's search form of a text: without accents, lower
 // case, with every run of other characters a single space. A title such as
 // "Dvořák: Humoresque Op.101/7" folds to "dvorak humoresque op 101 7". The web
 // app's fold in web/src/app/core/search.ts is the same function; both are
 // tested against testdata/search-fold-vectors.json.
 func foldSearch(text string) string {
-	text = foldLeftovers.Replace(strings.ToLower(norm.NFKD.String(text)))
+	text = normalizedSearch(text)
 	var folded strings.Builder
 	gap := false
 	for _, r := range text {
@@ -74,13 +82,15 @@ var (
 	opusPart     = regexp.MustCompile(`^[0-9]{1,3}$`)
 	romanNumeral = regexp.MustCompile(`^[ivxl]+$`)
 	englishFlat  = regexp.MustCompile(`^[a-g]b$`)
+	searchWord   = regexp.MustCompile(`[\p{L}\p{N}\p{M}]+`)
+	musicalKey   = regexp.MustCompile(`^[a-g](?:sharp|flat)?(?:major|minor)$|^[a-g](?:sharp|flat)$`)
 )
 
 // searchTerms are the words search matches for a text: its fold, with
 // catalogue numbers and keys written one way however they were typed.
 // "Op. 28 No. 4" and "op28/4" are both op28 no4, "KV 545" is k545,
 // "Hob. XVI:52" hobxvi52, and "cis-moll", "C# minor" and "c-sharp minor" are
-// all c sharp minor. Each word of a search is one of these terms. The web
+// all csharpminor. Each word of a search is one of these terms. The web
 // app's searchTerms in web/src/app/core/search.ts is the same function; both
 // are tested against testdata/search-fold-vectors.json.
 //
@@ -94,12 +104,18 @@ func searchTerms(text string) []string {
 // catalogueTerms are searchTerms, with a 1–3 digit number straight after an
 // opus read as its number within it ("Op. 28/4" is op28 no4) when opusParts.
 func catalogueTerms(text string, opusParts bool) []string {
-	words := []string{}
-	for _, word := range strings.Fields(foldSearch(text)) {
-		if parts := gluedCatalogue.FindStringSubmatch(word); parts != nil && catalogues[parts[1]] != "" {
+	words, shortAllowed := []string{}, []bool{}
+	normalized := normalizedSearch(text)
+	// Keep punctuation until catalogue recognition: a possessive's s is not S.
+	for _, span := range searchWord.FindAllStringIndex(normalized, -1) {
+		word := foldSearch(normalized[span[0]:span[1]])
+		allowed := strings.TrimSpace(normalized[:span[0]]) == "" || strings.HasPrefix(normalized[span[1]:], ".")
+		if parts := gluedCatalogue.FindStringSubmatch(word); parts != nil && catalogues[parts[1]] != "" && (!shortCatalogue(parts[1]) || allowed) {
 			words = append(words, parts[1], parts[2])
+			shortAllowed = append(shortAllowed, allowed, false)
 		} else {
 			words = append(words, word)
+			shortAllowed = append(shortAllowed, allowed)
 		}
 	}
 	at := func(i int) string {
@@ -112,6 +128,9 @@ func catalogueTerms(text string, opusParts bool) []string {
 	for i := 0; i < len(words); i++ {
 		word, next := words[i], at(i+1)
 		catalogue := catalogues[word]
+		if shortCatalogue(word) && !shortAllowed[i] {
+			catalogue = ""
+		}
 		switch {
 		case catalogue == "hob" && romanNumeral.MatchString(next) && catalogueNumber.MatchString(at(i+2)):
 			terms = append(terms, catalogue+next+at(i+2))
@@ -124,11 +143,29 @@ func catalogueTerms(text string, opusParts bool) []string {
 				i++
 			}
 		case germanKeys[word] != "" && germanModes[next] != "":
-			terms = append(terms, strings.Fields(germanKeys[word]+" "+germanModes[next])...)
+			terms = append(terms, strings.ReplaceAll(germanKeys[word], " ", "")+germanModes[next])
 			i++
-		case englishFlat.MatchString(word) && (next == "major" || next == "minor"):
-			// "Bb major" is B♭ major.
-			terms = append(terms, word[:1], "flat", next)
+		case englishFlat.MatchString(word):
+			mode := ""
+			if next == "major" || next == "minor" {
+				mode = next
+				i++
+			}
+			terms = append(terms, word[:1]+"flat"+mode)
+		case len(word) == 1 && strings.Contains("abcdefg", word) && (next == "sharp" || next == "flat"):
+			key := word + next
+			i++
+			if at(i+1) == "major" || at(i+1) == "minor" || at(i+1) == "m" {
+				mode := at(i + 1)
+				if mode == "m" {
+					mode = "minor"
+				}
+				key += mode
+				i++
+			}
+			terms = append(terms, key)
+		case len(word) == 1 && strings.Contains("abcdefg", word) && (next == "major" || next == "minor"):
+			terms = append(terms, word+next)
 			i++
 		default:
 			terms = append(terms, word)
@@ -137,24 +174,73 @@ func catalogueTerms(text string, opusParts bool) []string {
 	return terms
 }
 
-// searchIndex is the search text stored for a text: its fold, then any of its
-// catalogue terms the fold lacks, opus parts included. "Prelude Op.28/4" is
-// stored as "prelude op 28 4 op28 no4", so searches for "op28/4", "op 28 no 4"
-// and "op" all find it.
-func searchIndex(text string) string {
-	folded := foldSearch(text)
+func shortCatalogue(word string) bool { return word == "s" || word == "d" || word == "l" }
+
+// searchIndex parses fields independently before combining their raw folds and
+// canonical terms. Field boundaries never turn a trailing Op. into Op. 24.
+func searchIndex(fields ...string) string {
+	folds, terms := []string{}, []string{}
+	for _, field := range fields {
+		if folded := foldSearch(field); folded != "" {
+			folds = append(folds, folded)
+		}
+		terms = append(terms, catalogueTerms(field, true)...)
+	}
+	index := strings.Join(folds, " ")
 	seen := map[string]bool{}
-	for _, word := range strings.Fields(folded) {
+	for _, word := range strings.Fields(index) {
 		seen[word] = true
 	}
-	index := folded
-	for _, term := range catalogueTerms(text, true) {
+	for _, term := range terms {
 		if !seen[term] {
 			seen[term] = true
-			index += " " + term
+			if index != "" {
+				index += " "
+			}
+			index += term
 		}
 	}
 	return index
+}
+
+func isKeyTerm(term string) bool { return musicalKey.MatchString(term) }
+
+// Keys match complete tokens; an accidental without a mode intentionally matches
+// either mode while the user is typing. Other words retain substring search.
+func matchesSearchTerm(index, term string) bool {
+	if !isKeyTerm(term) {
+		return strings.Contains(index, term)
+	}
+	for _, word := range strings.Fields(index) {
+		if word == term || (!strings.HasSuffix(term, "major") && !strings.HasSuffix(term, "minor") && strings.HasPrefix(word, term)) {
+			return true
+		}
+	}
+	return false
+}
+
+func searchPattern(term string) (string, string) {
+	if isKeyTerm(term) {
+		suffix := " %"
+		if !strings.HasSuffix(term, "major") && !strings.HasSuffix(term, "minor") {
+			suffix = "%"
+		}
+		return "(' ' || p.search_text || ' ')", "% " + likeEscape(term) + suffix
+	}
+	return "p.search_text", "%" + likeEscape(term) + "%"
+}
+
+// Exact whole terms outrank catalogue prefixes, retaining the selected sort
+// inside each group.
+func exactTermRank(index string, terms []string) int {
+	words := strings.Fields(index)
+	rank := 0
+	for _, term := range terms {
+		if !slices.Contains(words, term) {
+			rank++
+		}
+	}
+	return rank
 }
 
 // likeEscape makes every character of a LIKE pattern literal, for ESCAPE '\'.
@@ -164,6 +250,16 @@ var likeEscape = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace
 // since it was last stored. The API runs it once on start; concurrent starts
 // wait on the state row, so only one does the work.
 func (s *Service) RefoldSearchText(ctx context.Context) (int, error) {
+	return s.refoldSearchText(ctx, false)
+}
+
+// ForceRefoldSearchText repairs rows last written by an older API after the
+// startup version marker advanced. Run only after all old writers have drained.
+func (s *Service) ForceRefoldSearchText(ctx context.Context) (int, error) {
+	return s.refoldSearchText(ctx, true)
+}
+
+func (s *Service) refoldSearchText(ctx context.Context, force bool) (int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -173,10 +269,13 @@ func (s *Service) RefoldSearchText(ctx context.Context) (int, error) {
 	if err = tx.QueryRow(ctx, `SELECT fold_version FROM search_index_state WHERE id FOR UPDATE`).Scan(&version); err != nil {
 		return 0, err
 	}
-	if version == searchFoldVersion {
+	if version > searchFoldVersion {
+		return 0, fmt.Errorf("search fold version %d is newer than this API", version)
+	}
+	if version == searchFoldVersion && !force {
 		return 0, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT id, title, composer, aliases, notes FROM pieces FOR UPDATE`)
+	rows, err := tx.Query(ctx, `SELECT id, title, composer, aliases, notes, opus, music_key FROM pieces FOR UPDATE`)
 	if err != nil {
 		return 0, err
 	}
@@ -184,7 +283,7 @@ func (s *Service) RefoldSearchText(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var id string
 		var input PieceInput
-		if err = rows.Scan(&id, &input.Title, &input.Composer, &input.Aliases, &input.Notes); err != nil {
+		if err = rows.Scan(&id, &input.Title, &input.Composer, &input.Aliases, &input.Notes, &input.Opus, &input.MusicKey); err != nil {
 			rows.Close()
 			return 0, err
 		}

@@ -10,7 +10,7 @@ import (
 
 func TestSuggestionBoundsAndLimiter(t *testing.T) {
 	s := NewService(nil, nil)
-	for _, q := range []string{"", "a", "12345", "op28", "%_"} {
+	for _, q := range []string{"", "a", "12345", "op28", "%_", "c# minor", "Eb", "c#"} {
 		p, err := s.SuggestPieces(context.Background(), "owner", ListOptions{Query: q})
 		if err != nil || len(p) != 0 {
 			t.Fatal(q, p, err)
@@ -38,7 +38,7 @@ func TestSuggestionBoundsAndLimiter(t *testing.T) {
 	if !s.suggestions.allow("owner") {
 		t.Fatal("no token refill")
 	}
-	for _, term := range []string{"abc", "op281", "1234", "bwv"} {
+	for _, term := range []string{"abc", "op281", "1234", "bwv", "csharpminor", "eflatmajor", "bminor", "csharp"} {
 		if fuzzyTerm(term) {
 			t.Fatal("short/catalogue token became fuzzy", term)
 		}

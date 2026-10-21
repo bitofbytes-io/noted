@@ -76,6 +76,8 @@ export interface FinalizeResult extends Piece {
 }
 
 export interface Piece {
+  opus: string;
+  musicKey: string;
   id: string;
   title: string;
   composer: string;
@@ -115,6 +117,9 @@ export type PieceSummary = Pick<
 };
 
 export interface PieceInput {
+  /** Details-only metadata; preparation leaves these out. */
+  opus?: string;
+  musicKey?: string;
   title: string;
   composer: string;
   favorite: boolean;

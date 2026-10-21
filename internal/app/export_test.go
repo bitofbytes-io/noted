@@ -143,6 +143,7 @@ func TestExportMetadataAndEmptyArchive(t *testing.T) {
 			data := []byte("rights-safe synthetic PDF bytes")
 			record := exportTestRecord(1, data)
 			record.piece.Favorite = true
+			record.piece.Opus, record.piece.MusicKey = "Op. 10", "C♯ minor"
 			snapshot := &exportTestSnapshot{}
 			if !empty {
 				snapshot.records = []exportRecord{record, exportTestRecord(2, nil)}
@@ -183,6 +184,9 @@ func TestExportMetadataAndEmptyArchive(t *testing.T) {
 			}
 			if len(manifest.Pieces) != 2 || manifest.Pieces[0].ReaderState != nil || manifest.Pieces[1].PDF != nil {
 				t.Fatal("synthesized or missing metadata")
+			}
+			if manifest.Pieces[0].Opus != "Op. 10" || manifest.Pieces[0].MusicKey != "C♯ minor" || rows[0][18] != "opus" || rows[0][19] != "musicKey" || rows[1][18] != "Op. 10" || rows[1][19] != "C♯ minor" {
+				t.Fatal("musical metadata missing from export")
 			}
 			if !bytes.Equal(files[manifest.Pieces[0].PDF.Path], data) || closed != 1 {
 				t.Fatal("PDF/close mismatch")

@@ -502,7 +502,7 @@ func TestContinuePieceForTheCurrentUser(t *testing.T) {
 	response = httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/pieces/continue", nil))
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), `"piece":{"id":"`+testPieceID+`","title":"Nocturne"`) {
+		!strings.Contains(response.Body.String(), `"id":"`+testPieceID+`","title":"Nocturne"`) {
 		t.Fatalf("continue: %d %s", response.Code, response.Body.String())
 	}
 }
@@ -787,5 +787,29 @@ func TestWriteJSONStatusHandlesFailuresWithoutLeakingData(t *testing.T) {
 	}
 	if strings.Count(logs.String(), "writing JSON response failed") != 2 || strings.Contains(logs.String(), "private") {
 		t.Fatalf("unexpected failure logs: %s", logs.String())
+	}
+}
+
+func TestCreateAndPatchMusicalMetadata(t *testing.T) {
+	fake := &fakeBackend{}
+	router := testRouter(fake, 1024)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/pieces/", strings.NewReader(`{"title":"Study","opus":"Op. 10","musicKey":"C♯ minor"}`)))
+	if response.Code != http.StatusCreated || fake.createUserID != testUserID || fake.createInput.Opus != "Op. 10" || fake.createInput.MusicKey != "C♯ minor" {
+		t.Fatal("create metadata", response.Code, fake.createInput)
+	}
+	for _, body := range []string{`{"opus":"","musicKey":""}`, `{"notes":"Keep metadata"}`} {
+		response = httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPatch, "/api/pieces/"+testPieceID+"/", strings.NewReader(body)))
+		if response.Code != http.StatusOK || fake.patchUserID != testUserID {
+			t.Fatal("patch metadata", response.Code)
+		}
+		if strings.Contains(body, "notes") {
+			if fake.patchInput.Opus != nil || fake.patchInput.MusicKey != nil {
+				t.Fatal("missing fields became clears")
+			}
+		} else if fake.patchInput.Opus == nil || *fake.patchInput.Opus != "" || fake.patchInput.MusicKey == nil || *fake.patchInput.MusicKey != "" {
+			t.Fatal("explicit clear lost")
+		}
 	}
 }

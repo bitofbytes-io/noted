@@ -27,6 +27,7 @@ const LEFTOVER = new RegExp(`[${Object.keys(LEFTOVERS).join('')}]`, 'gu');
  */
 export function fold(text: string): string {
   return text
+    .replace(/[nN][°º]/gu, 'no ')
     .normalize('NFKD')
     .toLowerCase()
     .replace(LEFTOVER, (letter) => LEFTOVERS[letter] ?? letter)
@@ -104,7 +105,7 @@ const ENGLISH_FLAT = /^[a-g]b$/;
  * The words search matches for a text: its fold, with catalogue numbers and
  * keys written one way however they were typed. "Op. 28 No. 4" and "op28/4"
  * are both op28 no4, "KV 545" is k545, "Hob. XVI:52" hobxvi52, and "cis-moll",
- * "C# minor" and "c-sharp minor" are all c sharp minor. Each word of a search
+ * "C# minor" and "c-sharp minor" are all csharpminor. Each word of a search
  * is one of these terms. It is the API's searchTerms (internal/app/search.go);
  * both are tested against testdata/search-fold-vectors.json.
  *
@@ -122,17 +123,32 @@ export function searchTerms(text: string): string[] {
  */
 export function catalogueTerms(text: string, opusParts: boolean): string[] {
   const words: string[] = [];
-  for (const word of fold(text).split(' ').filter(Boolean)) {
+  const shortAllowed: boolean[] = [];
+  const normalized = text
+    .replace(/[nN][°º]/gu, 'no ')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(LEFTOVER, (letter) => LEFTOVERS[letter] ?? letter);
+  for (const match of normalized.matchAll(/[\p{L}\p{N}\p{M}]+/gu)) {
+    const word = fold(match[0]);
+    const allowed =
+      !normalized.slice(0, match.index).trim() ||
+      normalized.slice(match.index + match[0].length).startsWith('.');
     const parts = GLUED_CATALOGUE.exec(word);
-    if (parts && CATALOGUES.has(parts[1])) words.push(parts[1], parts[2]);
-    else words.push(word);
+    if (parts && CATALOGUES.has(parts[1]) && (!shortCatalogue(parts[1]) || allowed)) {
+      words.push(parts[1], parts[2]);
+      shortAllowed.push(allowed, false);
+    } else {
+      words.push(word);
+      shortAllowed.push(allowed);
+    }
   }
   const at = (i: number) => words[i] ?? '';
   const terms: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     const next = at(i + 1);
-    const catalogue = CATALOGUES.get(word);
+    const catalogue = shortCatalogue(word) && !shortAllowed[i] ? undefined : CATALOGUES.get(word);
     if (catalogue === 'hob' && ROMAN_NUMERAL.test(next) && CATALOGUE_NUMBER.test(at(i + 2))) {
       terms.push(catalogue + next + at(i + 2));
       i += 2;
@@ -144,11 +160,25 @@ export function catalogueTerms(text: string, opusParts: boolean): string[] {
         i++;
       }
     } else if (GERMAN_KEYS.has(word) && GERMAN_MODES.has(next)) {
-      terms.push(...`${GERMAN_KEYS.get(word)} ${GERMAN_MODES.get(next)}`.split(' '));
+      terms.push(GERMAN_KEYS.get(word)!.replaceAll(' ', '') + GERMAN_MODES.get(next));
       i++;
-    } else if (ENGLISH_FLAT.test(word) && (next === 'major' || next === 'minor')) {
-      // "Bb major" is B♭ major.
-      terms.push(word[0], 'flat', next);
+    } else if (ENGLISH_FLAT.test(word)) {
+      let mode = '';
+      if (next === 'major' || next === 'minor') {
+        mode = next;
+        i++;
+      }
+      terms.push(word[0] + 'flat' + mode);
+    } else if (/^[a-g]$/.test(word) && (next === 'sharp' || next === 'flat')) {
+      let key = word + next;
+      i++;
+      if (['major', 'minor', 'm'].includes(at(i + 1))) {
+        key += at(i + 1) === 'm' ? 'minor' : at(i + 1);
+        i++;
+      }
+      terms.push(key);
+    } else if (/^[a-g]$/.test(word) && (next === 'major' || next === 'minor')) {
+      terms.push(word + next);
       i++;
     } else {
       terms.push(word);
@@ -162,15 +192,36 @@ export function catalogueTerms(text: string, opusParts: boolean): string[] {
  * terms the fold lacks, opus parts included, so "Prelude Op.28/4" is stored as
  * "prelude op 28 4 op28 no4". It is the API's searchIndex.
  */
-export function searchIndex(text: string): string {
-  const folded = fold(text);
-  const seen = new Set(folded.split(' '));
-  let index = folded;
-  for (const term of catalogueTerms(text, true)) {
-    if (!seen.has(term)) {
-      seen.add(term);
-      index += ` ${term}`;
+export function searchIndex(...fields: string[]): string {
+  let index = fields.map(fold).filter(Boolean).join(' ');
+  const seen = new Set(index.split(' '));
+  for (const field of fields) {
+    for (const term of catalogueTerms(field, true)) {
+      if (!seen.has(term)) {
+        seen.add(term);
+        index += `${index ? ' ' : ''}${term}`;
+      }
     }
   }
   return index;
+}
+
+function shortCatalogue(word: string): boolean {
+  return ['s', 'd', 'l'].includes(word);
+}
+
+export function isKeyTerm(term: string): boolean {
+  return /^[a-g](?:sharp|flat)?(?:major|minor)$|^[a-g](?:sharp|flat)$/.test(term);
+}
+
+export function matchesSearchTerm(index: string, term: string): boolean {
+  if (!isKeyTerm(term)) return index.includes(term);
+  return index
+    .split(' ')
+    .some((word) => word === term || (!/(?:major|minor)$/.test(term) && word.startsWith(term)));
+}
+
+export function exactTermRank(index: string, terms: string[]): number {
+  const words = new Set(index.split(' '));
+  return terms.filter((term) => !words.has(term)).length;
 }

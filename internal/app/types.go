@@ -19,6 +19,8 @@ type PDF struct {
 }
 
 type Piece struct {
+	Opus         string    `json:"opus"`
+	MusicKey     string    `json:"musicKey"`
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
 	Composer     string    `json:"composer"`
@@ -63,6 +65,9 @@ type SummaryPDF struct {
 }
 
 type PieceInput struct {
+	// Set from details only, like aliases; preparation preserves the saved values.
+	Opus     string `json:"opus,omitempty"`
+	MusicKey string `json:"musicKey,omitempty"`
 	Title    string `json:"title"`
 	Composer string `json:"composer"`
 	Favorite bool   `json:"favorite"`
@@ -79,6 +84,8 @@ type PieceInput struct {
 }
 
 type PiecePatch struct {
+	Opus         *string `json:"opus"`
+	MusicKey     *string `json:"musicKey"`
 	Title        *string `json:"title"`
 	Composer     *string `json:"composer"`
 	Favorite     *bool   `json:"favorite"`
