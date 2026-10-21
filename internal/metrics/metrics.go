@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -134,7 +135,8 @@ func (m *Metrics) Handler() http.Handler {
 // shutdown. It returns nil when addr is Off or cannot be bound: losing metrics
 // must never stop the API.
 func (m *Metrics) Serve(addr string) *http.Server {
-	if addr == Off {
+	addr = strings.TrimSpace(addr)
+	if strings.EqualFold(addr, Off) {
 		slog.Info("metrics listener disabled")
 		return nil
 	}
