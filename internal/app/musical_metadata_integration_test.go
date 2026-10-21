@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"slices"
 	"testing"
 )
@@ -117,8 +118,8 @@ func TestIntegrationMusicalMetadataAndSearch(t *testing.T) {
 	if _, err = s.pool.Exec(ctx, `UPDATE search_index_state SET fold_version=4`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ForceRefoldSearchText(ctx); err == nil {
-		t.Fatal("accepted newer schema fold version")
+	if _, err = s.ForceRefoldSearchText(ctx); !errors.Is(err, ErrSearchFoldVersionAhead) {
+		t.Fatal("expected recognizable newer fold version error", err)
 	}
 	if _, err = s.pool.Exec(ctx, `UPDATE search_index_state SET fold_version=3`); err != nil {
 		t.Fatal(err)
