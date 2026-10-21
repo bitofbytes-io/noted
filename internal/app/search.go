@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -15,6 +16,9 @@ import (
 // refolds every piece's search_text once on its next start (see
 // RefoldSearchText).
 const searchFoldVersion = 3
+
+// ErrSearchFoldVersionAhead prevents an older API from replacing a newer index.
+var ErrSearchFoldVersionAhead = errors.New("search fold version is newer than this API")
 
 // foldLeftovers are letters that keep no combining mark to strip, and the
 // accidentals, which become words so "C#" finds "C♯".
@@ -270,7 +274,7 @@ func (s *Service) refoldSearchText(ctx context.Context, force bool) (int, error)
 		return 0, err
 	}
 	if version > searchFoldVersion {
-		return 0, fmt.Errorf("search fold version %d is newer than this API", version)
+		return 0, fmt.Errorf("%w: %d", ErrSearchFoldVersionAhead, version)
 	}
 	if version == searchFoldVersion && !force {
 		return 0, nil
