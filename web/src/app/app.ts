@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterOutlet } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from './core/api.service';
+import { clearLibraryParams } from './core/library-address';
 import { Session } from './core/models';
 import { SessionExpiryEvents } from './core/session-expiry.interceptor';
 
@@ -30,7 +31,9 @@ export class App implements OnInit {
 
   async ngOnInit(): Promise<void> {
     try {
-      this.session.set(await firstValueFrom(this.api.session()));
+      const session = await firstValueFrom(this.api.session());
+      this.session.set(session);
+      if (!session.authenticated) this.forgetLibrarySearch();
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 401) {
         this.showSignInGate();
@@ -47,12 +50,36 @@ export class App implements OnInit {
   }
 
   protected googleSignInURL(): string {
-    return `/api/auth/google?returnTo=${encodeURIComponent(this.router.url || '/')}`;
+    const tree = this.router.parseUrl(this.router.url || '/');
+    delete tree.queryParams['q'];
+    delete tree.queryParams['show'];
+    delete tree.queryParams['sort'];
+    const returnTo = this.router.serializeUrl(tree) || '/';
+    return `/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
   }
 
   private showSignInGate(): void {
+    this.forgetLibrarySearch();
     this.session.set({ authenticated: false, authMode: 'google', development: false });
     this.loadingSession.set(false);
     this.apiOffline.set(false);
+  }
+
+  /** The next account must not inherit this one's search, filter or sort. */
+  private forgetLibrarySearch(): void {
+    clearLibraryParams();
+    const tree = this.router.parseUrl(this.router.url || '/');
+    if (
+      tree.queryParams['q'] === undefined &&
+      tree.queryParams['show'] === undefined &&
+      tree.queryParams['sort'] === undefined
+    ) {
+      return;
+    }
+    delete tree.queryParams['q'];
+    delete tree.queryParams['show'];
+    delete tree.queryParams['sort'];
+    // The sign-in link strips the query on its own if this navigation cannot run.
+    void this.router.navigateByUrl(tree, { replaceUrl: true }).catch(() => undefined);
   }
 }

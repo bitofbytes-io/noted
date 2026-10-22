@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import vectors from '../../../../../testdata/composer-surname-vectors.json';
 import { Piece, PieceSummary } from '../../core/models';
-import { LibraryView, composerSurname, filterAndSort, summaryOf } from './library.utils';
+import { convertToParamMap } from '@angular/router';
+import {
+  LibraryView,
+  composerSurname,
+  filterAndSort,
+  matchParts,
+  paramsOfView,
+  summaryOf,
+  viewFromParams,
+} from './library.utils';
 
 // The API's composerSurname reads the same vectors (internal/app/composer_sort_test.go).
 describe('composerSurname', () => {
@@ -238,5 +247,88 @@ describe('whole catalogue ranking', () => {
     ];
     expect(titles(filterAndSort(pieces, view({ query: 'c# minor' })))).toEqual(['Etude']);
     expect(titles(filterAndSort(pieces, view({ query: 'op10' })))).toEqual([]);
+  });
+});
+
+describe('matchParts', () => {
+  /** The text with each marked run in brackets. */
+  const marked = (text: string, query: string) =>
+    matchParts(text, query)
+      .map((part) => (part.mark ? `[${part.text}]` : part.text))
+      .join('');
+
+  it('marks nothing without a search, or where nothing matches', () => {
+    expect(matchParts('Humoresque', '')).toEqual([{ text: 'Humoresque', mark: false }]);
+    expect(marked('Humoresque', '  …  ')).toBe('Humoresque');
+    expect(marked('Humoresque', 'chopin')).toBe('Humoresque');
+  });
+
+  it('marks the text as written where its fold matches', () => {
+    expect(marked('Antonín Dvořák', 'dvor')).toBe('Antonín [Dvoř]ák');
+    expect(marked('Antonín Dvořák', 'ANTONIN dvorak')).toBe('[Antonín] [Dvořák]');
+    // Letters that fold to two, and combining marks, keep their place.
+    expect(marked('Straße', 'strass')).toBe('[Straß]e');
+    expect(marked('Café Music', 'cafe')).toBe('[Café] Music');
+    expect(marked('Nocturne in C♯ minor', 'c# minor')).toBe('Nocturne in [C♯ minor]');
+    expect(marked('Nocturne in C♯ minor', 'c#')).toBe('Nocturne in [C♯] minor');
+  });
+
+  it('marks a word where it starts a word, else where it first appears', () => {
+    expect(marked('Nocturne No. 2', 'no')).toBe('[No]cturne [No]. 2');
+    expect(marked('Humoresque', 'res')).toBe('Humo[res]que');
+    // A letter alone is marked only as a word of its own.
+    expect(marked('Prelude in C major', 'c')).toBe('Prelude in [C] major');
+    expect(marked('Chopin', 'c')).toBe('Chopin');
+  });
+
+  it('marks catalogue numbers and keys in the same terms the search uses', () => {
+    expect(marked('Sonata in C major, K. 545', 'k545')).toBe('Sonata in C major, [K. 545]');
+    expect(marked('Sonata KV 545', 'k545')).toBe('Sonata [KV 545]');
+    expect(marked('Prelude and Fugue BWV 846', 'bwv846')).toBe('Prelude and Fugue [BWV 846]');
+    expect(marked('Prelude Op. 28 No. 4', 'op28 no4')).toBe('Prelude [Op. 28] [No. 4]');
+    expect(marked('n° 4', 'no4')).toBe('[n° 4]');
+    expect(marked('cis-Moll', 'cis-moll')).toBe('[cis-Moll]');
+    expect(marked('Nocturne in C♯ minor', 'cis-moll')).toBe('Nocturne in [C♯ minor]');
+    expect(marked('Ballade in C# minor', 'cis-moll')).toBe('Ballade in [C# minor]');
+  });
+});
+
+describe('the library address', () => {
+  const remembered = { filter: 'current', sort: 'title' } as const;
+
+  it('reads the search, filter and sort, leaving out what it does not know', () => {
+    const read = (params: Record<string, string>) => viewFromParams(convertToParamMap(params));
+    expect(read({ q: 'bach', show: 'favorites', sort: 'fresh' })).toEqual({
+      query: 'bach',
+      filter: 'favorites',
+      sort: 'fresh',
+    });
+    expect(read({ show: 'sets', sort: 'random', q: '' })).toEqual({});
+  });
+
+  it('names a filter or sort only when this tab chose it or the address had it', () => {
+    const chosen = { filter: true, sort: true };
+    const rememberedOnly = { filter: false, sort: false };
+    expect(paramsOfView(view({ filter: 'current', sort: 'title' }), remembered, chosen)).toEqual(
+      {},
+    );
+    expect(
+      paramsOfView(view({ query: 'bach', filter: 'shelved', sort: 'added' }), remembered, chosen),
+    ).toEqual({ q: 'bach', show: 'shelved', sort: 'added' });
+    expect(
+      paramsOfView(
+        view({ filter: 'current', sort: 'title' }),
+        { filter: 'all', sort: 'recent' },
+        chosen,
+      ),
+    ).toEqual({ show: 'current', sort: 'title' });
+    // A saved preference the address did not name, and this tab did not choose, stays out.
+    expect(
+      paramsOfView(
+        view({ query: 'bach', filter: 'all', sort: 'composer' }),
+        { filter: 'all', sort: 'composer' },
+        rememberedOnly,
+      ),
+    ).toEqual({ q: 'bach' });
   });
 });

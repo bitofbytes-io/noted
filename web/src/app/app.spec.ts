@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { ApiService } from './core/api.service';
 import { Session } from './core/models';
@@ -11,6 +11,8 @@ import { SessionExpiryEvents } from './core/session-expiry.interceptor';
 describe('App authentication gate', () => {
   let fixture: ComponentFixture<App>;
   let sessionResponse: Observable<Session>;
+
+  afterEach(() => sessionStorage.clear());
 
   beforeEach(async () => {
     sessionResponse = of({
@@ -79,6 +81,32 @@ describe('App authentication gate', () => {
     expect(
       fixture.nativeElement.querySelector('a[href="/api/auth/google?returnTo=%2F"]'),
     ).not.toBeNull();
+  });
+
+  it('does not hand the library search to the next account', async () => {
+    sessionStorage.setItem('noted.libraryQuery', JSON.stringify({ q: 'private notes' }));
+    sessionResponse = of({ authenticated: false, authMode: 'google', development: false });
+    vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue(
+      '/?q=private%20notes&show=favorites&sort=composer',
+    );
+    await render();
+
+    expect(sessionStorage.getItem('noted.libraryQuery')).toBeNull();
+    const link: HTMLAnchorElement | null = fixture.nativeElement.querySelector('a.btn-primary');
+    expect(link?.getAttribute('href')).toBe('/api/auth/google?returnTo=%2F');
+  });
+
+  it('keeps a bookmarked reader when stripping the library search from sign-in', async () => {
+    sessionResponse = of({ authenticated: false, authMode: 'google', development: false });
+    vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue(
+      '/reader/piece-123?mode=scroll&q=leftover#page-4',
+    );
+    await render();
+
+    const link: HTMLAnchorElement | null = fixture.nativeElement.querySelector('a.btn-primary');
+    expect(link?.getAttribute('href')).toBe(
+      '/api/auth/google?returnTo=%2Freader%2Fpiece-123%3Fmode%3Dscroll%23page-4',
+    );
   });
 
   it('distinguishes an offline API from an unauthenticated session', async () => {

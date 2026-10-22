@@ -33,11 +33,15 @@
         <svg lucideSearch aria-hidden="true"></svg>
         <span class="sr-only">Search by title, composer, other names or notes</span>
         <input
+          #searchInput
           type="search"
           placeholder="Search title or composer"
           autocomplete="off"
+          enterkeyhint="go"
+          aria-keyshortcuts="/"
           [ngModel]="query()"
           (ngModelChange)="query.set($event)"
+          (keydown)="searchKey($event)"
         />
       </label>
       <app-choice-menu
@@ -158,15 +162,22 @@
     tabindex="0"
     (click)="openPiece(piece)"
     (keydown.enter)="openPieceFromKeyboard(piece, $event)"
+    (keydown)="rowKey($event)"
   >
     <div class="piece-mark" aria-hidden="true">
       <svg lucideFileText aria-hidden="true"></svg>
       <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
     </div>
     <div class="piece-copy">
-      <h2>{{ piece.title }}</h2>
+      <h2>
+        <ng-container *ngTemplateOutlet="matched; context: { $implicit: piece.title }" />
+      </h2>
       <p>
-        {{ piece.composer || 'Composer unknown' }}
+        @if (piece.composer) {
+          <ng-container *ngTemplateOutlet="matched; context: { $implicit: piece.composer }" />
+        } @else {
+          Composer unknown
+        }
         @if (continuing) {
           <span class="piece-note">
             <strong class="continue-word">Continue</strong>, played
@@ -230,6 +241,17 @@
       </button>
     </div>
   </article>
+</ng-template>
+
+<!-- A row's text, with what matches the search marked. -->
+<ng-template #matched let-text>
+  @for (part of text | matchParts: query(); track $index) {
+    @if (part.mark) {
+      <mark>{{ part.text }}</mark>
+    } @else {
+      <span>{{ part.text }}</span>
+    }
+  }
 </ng-template>
 
 <dialog #editor class="editor" (cancel)="closeEditor()">

@@ -11,9 +11,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, Location } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, PRIMARY_OUTLET, Router } from '@angular/router';
 import {
   LucideArrowLeft,
   LucideChevronLeft,
@@ -28,6 +28,7 @@ import {
 } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { rememberedLibraryParams } from '../../core/library-address';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { measureAsync } from '../../core/performance';
 import { PageMetric, PdfDocument } from './pdf-document.service';
@@ -68,6 +69,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
   private readonly pdf = new PdfDocument();
   private readonly wakeLock = new ScreenWakeLock();
   protected readonly piece = signal<Piece | null>(null);
@@ -185,8 +187,17 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  /**
+   * Returns to the library as it was left: Back, when the reader was opened
+   * from it, or else the library's last search, filter and sort in this tab.
+   */
   back(): void {
-    void this.router.navigate(['/']);
+    const previous = this.router.lastSuccessfulNavigation()?.previousNavigation?.finalUrl;
+    if (previous && !previous.root.children[PRIMARY_OUTLET]) {
+      this.location.back();
+    } else {
+      void this.router.navigate(['/'], { queryParams: rememberedLibraryParams() });
+    }
   }
 
   reload(): void {

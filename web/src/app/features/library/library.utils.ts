@@ -2,11 +2,20 @@ import {
   catalogueTerms,
   exactTermRank,
   fold,
+  foldWithOffsets,
   matchesSearchTerm,
   searchIndex,
+  searchTermSpans,
   searchTerms,
 } from '../../core/search';
-import { LibraryFilter, LibrarySort, Piece, PieceSummary } from '../../core/models';
+import {
+  LIBRARY_FILTERS,
+  LIBRARY_SORTS,
+  LibraryFilter,
+  LibrarySort,
+  Piece,
+  PieceSummary,
+} from '../../core/models';
 
 /** What the library shows: the search as typed, the filter and the sort. */
 export interface LibraryView {
@@ -43,6 +52,101 @@ export function filterAndSort(pieces: readonly PieceSummary[], view: LibraryView
       ranks.get(a.id)! - ranks.get(b.id)! ||
       order(a, b),
   );
+}
+
+/** The library's address: /?q=bach&show=favorites&sort=composer. */
+export type LibraryParams = Partial<Record<'q' | 'show' | 'sort', string>>;
+
+/** The parts of the view an address names; a filter or sort it does not know is left out. */
+export function viewFromParams(params: { get(name: string): string | null }): Partial<LibraryView> {
+  const view: Partial<LibraryView> = {};
+  const query = params.get('q');
+  const filter = LIBRARY_FILTERS.find((option) => option.value === params.get('show'));
+  const sort = LIBRARY_SORTS.find((option) => option.value === params.get('sort'));
+  if (query) view.query = query;
+  if (filter) view.filter = filter.value;
+  if (sort) view.sort = sort.value;
+  return view;
+}
+
+/**
+ * The address of a view. The search is always named. A filter or sort is named
+ * only when this tab chose it or the address already carried it — a saved
+ * preference on its own stays out, so a reload or the reader's back-fallback
+ * can pick up a change made on another device. Even then it is left out when
+ * it is both the default and the one the server remembers: a bare address
+ * opens on that one.
+ */
+export function paramsOfView(
+  view: LibraryView,
+  remembered: Pick<LibraryView, 'filter' | 'sort'>,
+  explicit: { filter: boolean; sort: boolean },
+): LibraryParams {
+  const params: LibraryParams = {};
+  if (view.query) params.q = view.query;
+  if (explicit.filter && (view.filter !== 'current' || view.filter !== remembered.filter)) {
+    params.show = view.filter;
+  }
+  if (explicit.sort && (view.sort !== 'title' || view.sort !== remembered.sort)) {
+    params.sort = view.sort;
+  }
+  return params;
+}
+
+/** A run of a row's text, marked where it matches the search. */
+export interface MatchPart {
+  text: string;
+  mark: boolean;
+}
+
+/**
+ * A row's text split where it matches the search, using the same terms as the
+ * catalogue and key search. "dvor" marks the "Dvoř" of "Dvořák", "k545" the
+ * "K. 545", and "cis-moll" the "C♯ minor". Each term is marked wherever it
+ * starts a word of the fold, or else where it first appears; a term the fold
+ * does not contain, such as a joined catalogue number, is marked on the span
+ * that produces it. Nothing is marked without a search.
+ */
+export function matchParts(text: string, query: string): MatchPart[] {
+  const words = searchTerms(query);
+  if (!words.length || !text) return [{ text, mark: false }];
+  const { folded, starts, ends } = foldWithOffsets(text);
+  const ranges: [number, number][] = [];
+  const unmatched: string[] = [];
+  const isSpace = (at: number) => at < 0 || at >= folded.length || folded[at] === ' ';
+  for (const word of words) {
+    // A letter alone, such as the "c" of "C major", is marked only as a word of its own.
+    const letter = word.length === 1;
+    const found: number[] = [];
+    for (let at = folded.indexOf(word); at >= 0; at = folded.indexOf(word, at + 1)) {
+      if (isSpace(at - 1) && (!letter || isSpace(at + 1))) found.push(at);
+    }
+    if (!found.length && !letter && folded.includes(word)) found.push(folded.indexOf(word));
+    if (!found.length) {
+      unmatched.push(word);
+      continue;
+    }
+    for (const at of found) ranges.push([starts[at], ends[at + word.length - 1]]);
+  }
+  if (unmatched.length) {
+    for (const span of searchTermSpans(text)) {
+      if (unmatched.includes(span.term)) ranges.push([span.start, span.end]);
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  const parts: MatchPart[] = [];
+  let shown = 0;
+  for (const [start, end] of ranges) {
+    if (end <= shown) continue;
+    const from = Math.max(start, shown);
+    if (from > shown) parts.push({ text: text.slice(shown, from), mark: false });
+    const last = parts[parts.length - 1];
+    if (last?.mark && from === shown) last.text += text.slice(from, end);
+    else parts.push({ text: text.slice(from, end), mark: true });
+    shown = end;
+  }
+  if (shown < text.length) parts.push({ text: text.slice(shown), mark: false });
+  return parts;
 }
 
 /** The search in each form a title may start with it. */
