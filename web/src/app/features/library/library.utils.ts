@@ -5,6 +5,7 @@ import {
   foldWithOffsets,
   matchesSearchTerm,
   searchIndex,
+  searchTermSpans,
   searchTerms,
 } from '../../core/search';
 import {
@@ -69,18 +70,26 @@ export function viewFromParams(params: { get(name: string): string | null }): Pa
 }
 
 /**
- * The address of a view. A filter or sort that is both the default and the
- * remembered one is left out: without it the library opens on the remembered
- * one, which is the same.
+ * The address of a view. The search is always named. A filter or sort is named
+ * only when this tab chose it or the address already carried it — a saved
+ * preference on its own stays out, so a reload or the reader's back-fallback
+ * can pick up a change made on another device. Even then it is left out when
+ * it is both the default and the one the server remembers: a bare address
+ * opens on that one.
  */
 export function paramsOfView(
   view: LibraryView,
   remembered: Pick<LibraryView, 'filter' | 'sort'>,
+  explicit: { filter: boolean; sort: boolean },
 ): LibraryParams {
   const params: LibraryParams = {};
   if (view.query) params.q = view.query;
-  if (view.filter !== 'current' || view.filter !== remembered.filter) params.show = view.filter;
-  if (view.sort !== 'title' || view.sort !== remembered.sort) params.sort = view.sort;
+  if (explicit.filter && (view.filter !== 'current' || view.filter !== remembered.filter)) {
+    params.show = view.filter;
+  }
+  if (explicit.sort && (view.sort !== 'title' || view.sort !== remembered.sort)) {
+    params.sort = view.sort;
+  }
   return params;
 }
 
@@ -91,26 +100,38 @@ export interface MatchPart {
 }
 
 /**
- * A row's text split where it matches the search, as search folds it: "dvor"
- * marks the "Dvoř" of "Dvořák", and "c#" the "C♯". Each word of the search is
- * marked wherever it starts a word, or else where it first appears; nothing is
- * marked without a search.
+ * A row's text split where it matches the search, using the same terms as the
+ * catalogue and key search. "dvor" marks the "Dvoř" of "Dvořák", "k545" the
+ * "K. 545", and "cis-moll" the "C♯ minor". Each term is marked wherever it
+ * starts a word of the fold, or else where it first appears; a term the fold
+ * does not contain, such as a joined catalogue number, is marked on the span
+ * that produces it. Nothing is marked without a search.
  */
 export function matchParts(text: string, query: string): MatchPart[] {
-  const words = fold(query).split(' ').filter(Boolean);
+  const words = searchTerms(query);
   if (!words.length || !text) return [{ text, mark: false }];
   const { folded, starts, ends } = foldWithOffsets(text);
   const ranges: [number, number][] = [];
+  const unmatched: string[] = [];
   const isSpace = (at: number) => at < 0 || at >= folded.length || folded[at] === ' ';
   for (const word of words) {
-    // A letter alone, such as the "c" of "c# minor", is marked only as a word of its own.
+    // A letter alone, such as the "c" of "C major", is marked only as a word of its own.
     const letter = word.length === 1;
     const found: number[] = [];
     for (let at = folded.indexOf(word); at >= 0; at = folded.indexOf(word, at + 1)) {
       if (isSpace(at - 1) && (!letter || isSpace(at + 1))) found.push(at);
     }
     if (!found.length && !letter && folded.includes(word)) found.push(folded.indexOf(word));
+    if (!found.length) {
+      unmatched.push(word);
+      continue;
+    }
     for (const at of found) ranges.push([starts[at], ends[at + word.length - 1]]);
+  }
+  if (unmatched.length) {
+    for (const span of searchTermSpans(text)) {
+      if (unmatched.includes(span.term)) ranges.push([span.start, span.end]);
+    }
   }
   ranges.sort((a, b) => a[0] - b[0]);
   const parts: MatchPart[] = [];

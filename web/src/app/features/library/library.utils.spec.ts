@@ -269,7 +269,8 @@ describe('matchParts', () => {
     // Letters that fold to two, and combining marks, keep their place.
     expect(marked('Straße', 'strass')).toBe('[Straß]e');
     expect(marked('Café Music', 'cafe')).toBe('[Café] Music');
-    expect(marked('Nocturne in C♯ minor', 'c# minor')).toBe('Nocturne in [C♯] [minor]');
+    expect(marked('Nocturne in C♯ minor', 'c# minor')).toBe('Nocturne in [C♯ minor]');
+    expect(marked('Nocturne in C♯ minor', 'c#')).toBe('Nocturne in [C♯] minor');
   });
 
   it('marks a word where it starts a word, else where it first appears', () => {
@@ -278,6 +279,17 @@ describe('matchParts', () => {
     // A letter alone is marked only as a word of its own.
     expect(marked('Prelude in C major', 'c')).toBe('Prelude in [C] major');
     expect(marked('Chopin', 'c')).toBe('Chopin');
+  });
+
+  it('marks catalogue numbers and keys in the same terms the search uses', () => {
+    expect(marked('Sonata in C major, K. 545', 'k545')).toBe('Sonata in C major, [K. 545]');
+    expect(marked('Sonata KV 545', 'k545')).toBe('Sonata [KV 545]');
+    expect(marked('Prelude and Fugue BWV 846', 'bwv846')).toBe('Prelude and Fugue [BWV 846]');
+    expect(marked('Prelude Op. 28 No. 4', 'op28 no4')).toBe('Prelude [Op. 28] [No. 4]');
+    expect(marked('n° 4', 'no4')).toBe('[n° 4]');
+    expect(marked('cis-Moll', 'cis-moll')).toBe('[cis-Moll]');
+    expect(marked('Nocturne in C♯ minor', 'cis-moll')).toBe('Nocturne in [C♯ minor]');
+    expect(marked('Ballade in C# minor', 'cis-moll')).toBe('Ballade in [C# minor]');
   });
 });
 
@@ -294,13 +306,29 @@ describe('the library address', () => {
     expect(read({ show: 'sets', sort: 'random', q: '' })).toEqual({});
   });
 
-  it('names a filter or sort unless it is both the default and the remembered one', () => {
-    expect(paramsOfView(view({ filter: 'current', sort: 'title' }), remembered)).toEqual({});
+  it('names a filter or sort only when this tab chose it or the address had it', () => {
+    const chosen = { filter: true, sort: true };
+    const rememberedOnly = { filter: false, sort: false };
+    expect(paramsOfView(view({ filter: 'current', sort: 'title' }), remembered, chosen)).toEqual(
+      {},
+    );
     expect(
-      paramsOfView(view({ query: 'bach', filter: 'shelved', sort: 'added' }), remembered),
+      paramsOfView(view({ query: 'bach', filter: 'shelved', sort: 'added' }), remembered, chosen),
     ).toEqual({ q: 'bach', show: 'shelved', sort: 'added' });
     expect(
-      paramsOfView(view({ filter: 'current', sort: 'title' }), { filter: 'all', sort: 'recent' }),
+      paramsOfView(
+        view({ filter: 'current', sort: 'title' }),
+        { filter: 'all', sort: 'recent' },
+        chosen,
+      ),
     ).toEqual({ show: 'current', sort: 'title' });
+    // A saved preference the address did not name, and this tab did not choose, stays out.
+    expect(
+      paramsOfView(
+        view({ query: 'bach', filter: 'all', sort: 'composer' }),
+        { filter: 'all', sort: 'composer' },
+        rememberedOnly,
+      ),
+    ).toEqual({ q: 'bach' });
   });
 });

@@ -948,15 +948,29 @@ describe('LibraryComponent address and keys', () => {
     testPiece({ id: 'prelude', title: 'Prelude Op. 28 No. 4', composer: 'Frédéric Chopin' }),
   ];
 
-  async function setup(params: Record<string, string>, remembered: object) {
+  async function setup(
+    params: Record<string, string>,
+    remembered: object,
+    extras: { session?: Session; suggestions?: PieceSummary[] } = {},
+  ) {
     const api = {
-      session: vi.fn(() => of({ authenticated: true, authMode: 'development', development: true })),
+      session: vi.fn(() =>
+        of(
+          extras.session ?? {
+            authenticated: true,
+            authMode: 'development',
+            development: true,
+          },
+        ),
+      ),
       imports: vi.fn(() => of([])),
       preferences: vi.fn(() => of(remembered)),
       savePreferences: vi.fn((preferences: unknown) => of(preferences)),
       pieceSummaries: vi.fn(() => of(pieces)),
       continuePiece: vi.fn(() => of(null)),
       piece: vi.fn((id: string) => of(pieces.find((piece) => piece.id === id)!)),
+      suggestPieces: vi.fn(() => of(extras.suggestions ?? [])),
+      logout: vi.fn(() => of(undefined)),
     };
     await TestBed.configureTestingModule({
       imports: [LibraryComponent],
@@ -1019,33 +1033,56 @@ describe('LibraryComponent address and keys', () => {
     fixture.destroy();
   });
 
-  it('opens on the remembered filter and sort without them, and keeps the view in the address', async () => {
+  it('keeps a remembered filter and sort out of the address until this tab chooses them', async () => {
     const { fixture, api, navigate, type, titles } = await setup(
       { show: 'nonsense' },
       { libraryFilter: 'all', librarySort: 'composer' },
     );
     expect(titles()).toEqual(['Nocturne in C♯ minor', 'Prelude Op. 28 No. 4', 'Humoresque']);
-    expect(navigate).toHaveBeenLastCalledWith([], {
-      queryParams: { show: 'all', sort: 'composer' },
-      replaceUrl: true,
-    });
+    // The unknown show value is dropped, and the saved filter and sort are not written in its place.
+    expect(navigate).toHaveBeenLastCalledWith([], { queryParams: {}, replaceUrl: true });
 
     await type('dvorak');
     expect(titles()).toEqual(['Humoresque']);
     expect(navigate).toHaveBeenLastCalledWith([], {
-      queryParams: { q: 'dvorak', show: 'all', sort: 'composer' },
+      queryParams: { q: 'dvorak' },
       replaceUrl: true,
     });
-    // The reader returns here even when it was opened without the library behind it.
-    expect(JSON.parse(sessionStorage.getItem('noted.libraryQuery')!)).toEqual({
-      q: 'dvorak',
-      show: 'all',
-      sort: 'composer',
-    });
+    // The reader returns to the search, and to a filter or sort only once this tab chose it.
+    expect(JSON.parse(sessionStorage.getItem('noted.libraryQuery')!)).toEqual({ q: 'dvorak' });
     const writes = addressWrites(navigate).length;
     await type('dvorak');
     expect(addressWrites(navigate).length).toBe(writes);
     expect(api.savePreferences).not.toHaveBeenCalled();
+
+    await fixture.componentInstance.chooseSort('recent');
+    fixture.detectChanges();
+    expect(navigate).toHaveBeenLastCalledWith([], {
+      queryParams: { q: 'dvorak', sort: 'recent' },
+      replaceUrl: true,
+    });
+    await fixture.componentInstance.chooseFilter('favorites');
+    fixture.detectChanges();
+    expect(navigate).toHaveBeenLastCalledWith([], {
+      queryParams: { q: 'dvorak', show: 'favorites', sort: 'recent' },
+      replaceUrl: true,
+    });
+    fixture.destroy();
+  });
+
+  it('keeps a chosen default filter in the address when saving it fails', async () => {
+    const { fixture, api, navigate } = await setup(
+      {},
+      { libraryFilter: 'all', librarySort: 'title' },
+    );
+    api.savePreferences.mockReturnValueOnce(throwError(() => new Error('offline')));
+    await fixture.componentInstance.chooseFilter('current');
+    fixture.detectChanges();
+    expect(api.savePreferences).toHaveBeenCalledWith({ libraryFilter: 'current' });
+    expect(navigate).toHaveBeenLastCalledWith([], {
+      queryParams: { show: 'current' },
+      replaceUrl: true,
+    });
     fixture.destroy();
   });
 
@@ -1151,6 +1188,56 @@ describe('LibraryComponent address and keys', () => {
     await press(rows()[0], 'Escape');
     expect(input.value).toBe('');
     expect(document.activeElement).toBe(input);
+    fixture.destroy();
+  });
+
+  it('opens the first similar match with Enter or Down when nothing matches exactly', async () => {
+    const similar = testPiece({
+      id: 'similar',
+      title: 'Italian Concerto',
+      composer: 'J. S. Bach',
+      pdf: { pageCount: 8, contentUrl: '/api/pieces/similar/pdf' } as Piece['pdf'],
+    });
+    const { fixture, api, navigate, root, input, type, press } = await setup(
+      {},
+      { libraryFilter: 'current' },
+      {
+        session: {
+          authenticated: true,
+          authMode: 'development',
+          development: true,
+          user: { id: 'u1', email: 'daniel@example.test', displayName: 'Daniel' },
+        },
+        suggestions: [similar],
+      },
+    );
+    await type('bachh');
+    expect(root.querySelectorAll('.piece-row').length).toBe(0);
+    await vi.waitFor(() => expect(root.querySelector('.suggestion')).not.toBeNull());
+    expect(api.suggestPieces).toHaveBeenCalled();
+
+    const suggestion = root.querySelector('.suggestion') as HTMLButtonElement;
+    await press(input, 'ArrowDown');
+    expect(document.activeElement).toBe(suggestion);
+    input.focus();
+    await press(input, 'Enter');
+    expect(navigate).toHaveBeenLastCalledWith(['/reader', 'similar']);
+    fixture.destroy();
+  });
+
+  it('forgets the library address when signing out', async () => {
+    const { fixture, api } = await setup({ q: 'bach' }, { libraryFilter: 'current' });
+    sessionStorage.setItem('noted.libraryQuery', JSON.stringify({ q: 'bach' }));
+    const replace = vi.fn();
+    const location = vi.spyOn(window, 'location', 'get').mockReturnValue({
+      ...window.location,
+      replace,
+    } as Location);
+    await fixture.componentInstance.logout();
+    expect(api.logout).toHaveBeenCalled();
+    expect(sessionStorage.getItem('noted.libraryQuery')).toBeNull();
+    expect(replace).toHaveBeenCalledWith('/');
+    location.mockRestore();
     fixture.destroy();
   });
 });

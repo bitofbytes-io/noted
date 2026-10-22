@@ -11,6 +11,15 @@ export function rememberLibraryParams(params: Params): void {
   }
 }
 
+/** Drops the saved library address. Signing out must not leave it for the next account. */
+export function clearLibraryParams(): void {
+  try {
+    sessionStorage.removeItem(KEY);
+  } catch {
+    // Storage can be unavailable; there is then nothing left to forget.
+  }
+}
+
 /** The library's last address in this tab; the library itself ignores anything it does not know. */
 export function rememberedLibraryParams(): Params {
   try {

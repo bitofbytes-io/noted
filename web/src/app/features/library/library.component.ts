@@ -72,7 +72,7 @@ import {
 import { fold } from '../../core/search';
 import { SuggestionsComponent } from '../suggestions/suggestions.component';
 import { ComposerFieldComponent } from '../composers/composer-field.component';
-import { rememberLibraryParams } from '../../core/library-address';
+import { clearLibraryParams, rememberLibraryParams } from '../../core/library-address';
 import { ChoiceMenuComponent } from './choice-menu.component';
 import { MatchPartsPipe } from './match-parts.pipe';
 
@@ -214,6 +214,12 @@ export class LibraryComponent implements OnDestroy {
   /** A filter or sort chosen before the remembered ones arrive wins over that one alone. */
   private filterChosen = false;
   private sortChosen = false;
+  /** Set once that choice has been stored, so a slower preferences read cannot replace it. */
+  private filterSaved = false;
+  private sortSaved = false;
+  /** The address named these on open, so they stay even though this tab did not choose them. */
+  private readonly filterFromAddress = this.addressed.filter !== undefined;
+  private readonly sortFromAddress = this.addressed.sort !== undefined;
   /**
    * The address last written, so only a change is written. Add a piece opened
    * from Prepare leaves details=new to drop, so that address counts as unwritten.
@@ -280,7 +286,10 @@ export class LibraryComponent implements OnDestroy {
     effect(() => {
       // Until then, the filter and sort shown may not be the ones the library opens on.
       if (!this.preferencesSettled()) return;
-      const params = paramsOfView(this.view(), this.remembered());
+      const params = paramsOfView(this.view(), this.remembered(), {
+        filter: this.filterFromAddress || this.filterChosen,
+        sort: this.sortFromAddress || this.sortChosen,
+      });
       untracked(() => this.writeAddress(params));
     });
     void this.loadSession();
@@ -310,19 +319,22 @@ export class LibraryComponent implements OnDestroy {
   private loadPreferences(): void {
     this.api.preferences().subscribe({
       next: (preferences) => {
-        if (
-          !this.filterChosen &&
-          LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)
-        ) {
-          this.rememberedFilter.set(preferences.libraryFilter);
-          if (!this.addressed.filter) this.filter.set(preferences.libraryFilter);
+        if (LIBRARY_FILTERS.some((option) => option.value === preferences.libraryFilter)) {
+          // A choice that has already been saved wins over a slower read of the old one.
+          if (!this.filterChosen) {
+            this.rememberedFilter.set(preferences.libraryFilter);
+            if (!this.addressed.filter) this.filter.set(preferences.libraryFilter);
+          } else if (!this.filterSaved) {
+            this.rememberedFilter.set(preferences.libraryFilter);
+          }
         }
-        if (
-          !this.sortChosen &&
-          LIBRARY_SORTS.some((option) => option.value === preferences.librarySort)
-        ) {
-          this.rememberedSort.set(preferences.librarySort);
-          if (!this.addressed.sort) this.sort.set(preferences.librarySort);
+        if (LIBRARY_SORTS.some((option) => option.value === preferences.librarySort)) {
+          if (!this.sortChosen) {
+            this.rememberedSort.set(preferences.librarySort);
+            if (!this.addressed.sort) this.sort.set(preferences.librarySort);
+          } else if (!this.sortSaved) {
+            this.rememberedSort.set(preferences.librarySort);
+          }
         }
         this.preferencesSettled.set(true);
       },
@@ -333,23 +345,26 @@ export class LibraryComponent implements OnDestroy {
 
   /** Shows the new filter at once and remembers it for this user's next visit. */
   async chooseFilter(filter: LibraryFilter): Promise<void> {
+    // Choosing the filter already shown, once the server's copy is known, changes nothing.
+    if (
+      this.preferencesSettled() &&
+      filter === this.filter() &&
+      filter === this.rememberedFilter()
+    ) {
+      return;
+    }
     this.filterChosen = true;
-    // Before the remembered filter arrives, or over the address's, choosing the one shown counts.
-    const remembered = this.preferencesSettled() && filter === this.rememberedFilter();
-    if (filter === this.filter() && remembered) return;
     this.filter.set(filter);
-    this.rememberedFilter.set(filter);
     await this.remember({ libraryFilter: filter });
   }
 
   /** Shows the new order at once and remembers it for this user's next visit. */
   async chooseSort(sort: LibrarySort): Promise<void> {
+    if (this.preferencesSettled() && sort === this.sort() && sort === this.rememberedSort()) {
+      return;
+    }
     this.sortChosen = true;
-    // Before the remembered sort arrives, or over the address's, choosing the one shown counts.
-    const remembered = this.preferencesSettled() && sort === this.rememberedSort();
-    if (sort === this.sort() && remembered) return;
     this.sort.set(sort);
-    this.rememberedSort.set(sort);
     await this.remember({ librarySort: sort });
   }
 
@@ -365,6 +380,16 @@ export class LibraryComponent implements OnDestroy {
     if (change.librarySort && change.librarySort !== this.sort()) return;
     try {
       await firstValueFrom(this.api.savePreferences(change));
+      // Only a saved choice becomes what a bare address opens on. Until then the
+      // address keeps the choice, so a failed save cannot fall back to the old one.
+      if (change.libraryFilter && change.libraryFilter === this.filter()) {
+        this.filterSaved = true;
+        this.rememberedFilter.set(change.libraryFilter);
+      }
+      if (change.librarySort && change.librarySort === this.sort()) {
+        this.sortSaved = true;
+        this.rememberedSort.set(change.librarySort);
+      }
     } catch (error) {
       this.error.set(errorMessage(error));
     }
@@ -383,7 +408,9 @@ export class LibraryComponent implements OnDestroy {
     this.signingOut.set(true);
     try {
       await firstValueFrom(this.api.logout());
-      window.location.reload();
+      clearLibraryParams();
+      // Drop the search from the address too, so the next account is not returned to it.
+      window.location.replace('/');
     } catch (error) {
       this.error.set(errorMessage(error));
       this.signingOut.set(false);
@@ -639,16 +666,25 @@ export class LibraryComponent implements OnDestroy {
     this.searchInput?.nativeElement.focus();
   }
 
-  /** Enter opens the first result, Down goes to the rows, and Escape clears the search. */
+  /**
+   * Enter opens the first result, or the first similar match when nothing
+   * matches exactly. Down moves to that same row. Escape clears the search.
+   */
   protected searchKey(event: KeyboardEvent): void {
     if (event.isComposing) return;
     if (event.key === 'Enter') {
       const first = this.listed()[0];
-      if (!this.searching() || !first) return;
+      if (this.searching() && first) {
+        event.preventDefault();
+        this.openPiece(first);
+        return;
+      }
+      const suggestion = this.suggestionButtons()[0];
+      if (!suggestion) return;
       event.preventDefault();
-      this.openPiece(first);
+      suggestion.click();
     } else if (event.key === 'ArrowDown') {
-      const row = this.rows()[0];
+      const row = this.rows()[0] ?? this.suggestionButtons()[0];
       if (!row) return;
       event.preventDefault();
       row.focus();
@@ -688,6 +724,11 @@ export class LibraryComponent implements OnDestroy {
     return [
       ...this.host.nativeElement.querySelectorAll<HTMLElement>('.results .piece-row[tabindex]'),
     ];
+  }
+
+  /** Similar matches shown when the search itself has no row to open. */
+  private suggestionButtons(): HTMLElement[] {
+    return [...this.host.nativeElement.querySelectorAll<HTMLElement>('.suggestions .suggestion')];
   }
 
   protected listeningUrlValidationError(): string {

@@ -55,7 +55,10 @@ export interface FoldedText {
 export function foldWithOffsets(text: string): FoldedText {
   const result: FoldedText = { folded: '', starts: [], ends: [] };
   let at = 0;
-  for (const letter of text) {
+  while (at < text.length) {
+    // "n°" is one catalogue word, the same replacement fold() makes.
+    const pair = text.slice(at, at + 2);
+    const letter = /^[nN][°º]$/u.test(pair) ? pair : String.fromCodePoint(text.codePointAt(at)!);
     const end = at + letter.length;
     const folded = foldLetters(letter);
     // A combining mark folds away; it belongs to the letter before it.
@@ -258,4 +261,124 @@ export function matchesSearchTerm(index: string, term: string): boolean {
 export function exactTermRank(index: string, terms: string[]): number {
   const words = new Set(index.split(' '));
   return terms.filter((term) => !words.has(term)).length;
+}
+
+/** A catalogue number or key as written, and the search term it produces. */
+export interface SearchSpan {
+  term: string;
+  /** Start and end in the original text, including the punctuation between the parts. */
+  start: number;
+  end: number;
+}
+
+interface FoldedWord {
+  word: string;
+  start: number;
+  end: number;
+  /** "S. 1" counts as a catalogue; a bare "s" in the middle of a title does not. */
+  shortAllowed: boolean;
+}
+
+/**
+ * Where the text writes a catalogue number or a key, in the same terms as
+ * searchTerms. "K. 545" and "KV 545" are k545, "BWV 846" is bwv846, and both
+ * "cis-Moll" and "C♯ minor" are csharpminor. A key without its mode is included
+ * too, so "c#" marks the "C♯" of "C♯ minor".
+ */
+export function searchTermSpans(text: string): SearchSpan[] {
+  const words = foldedWords(text);
+  const at = (i: number) => words[i];
+  const spans: SearchSpan[] = [];
+  const push = (term: string, start: number, end: number) => spans.push({ term, start, end });
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const next = at(i + 1);
+    const catalogue =
+      shortCatalogue(word.word) && !word.shortAllowed ? undefined : CATALOGUES.get(word.word);
+    const third = at(i + 2);
+    if (
+      catalogue === 'hob' &&
+      next &&
+      third &&
+      ROMAN_NUMERAL.test(next.word) &&
+      CATALOGUE_NUMBER.test(third.word)
+    ) {
+      push(catalogue + next.word + third.word, word.start, third.end);
+      i += 2;
+    } else if (catalogue && next && CATALOGUE_NUMBER.test(next.word)) {
+      push(catalogue + next.word, word.start, next.end);
+      i++;
+    } else if (next && GERMAN_KEYS.has(word.word) && GERMAN_MODES.has(next.word)) {
+      const key = GERMAN_KEYS.get(word.word)!.replaceAll(' ', '');
+      push(key, word.start, word.end);
+      push(key + GERMAN_MODES.get(next.word)!, word.start, next.end);
+      i++;
+    } else if (ENGLISH_FLAT.test(word.word)) {
+      const head = word.word[0] + 'flat';
+      push(head, word.start, word.end);
+      if (next && (next.word === 'major' || next.word === 'minor')) {
+        push(head + next.word, word.start, next.end);
+        i++;
+      }
+    } else if (
+      next &&
+      /^[a-g]$/.test(word.word) &&
+      (next.word === 'sharp' || next.word === 'flat')
+    ) {
+      const head = word.word + next.word;
+      i++;
+      const mode = at(i + 1);
+      if (mode && (mode.word === 'major' || mode.word === 'minor' || mode.word === 'm')) {
+        push(head, word.start, next.end);
+        push(head + (mode.word === 'm' ? 'minor' : mode.word), word.start, mode.end);
+        i++;
+      } else {
+        push(head, word.start, next.end);
+      }
+    } else if (
+      next &&
+      /^[a-g]$/.test(word.word) &&
+      (next.word === 'major' || next.word === 'minor')
+    ) {
+      push(word.word + next.word, word.start, next.end);
+      i++;
+    }
+  }
+  return spans;
+}
+
+/** The folded words of a text, each mapped back to where it was written. */
+function foldedWords(text: string): FoldedWord[] {
+  const { folded, starts, ends } = foldWithOffsets(text);
+  const words: FoldedWord[] = [];
+  let i = 0;
+  while (i < folded.length) {
+    while (i < folded.length && folded[i] === ' ') i++;
+    if (i >= folded.length) break;
+    const from = i;
+    while (i < folded.length && folded[i] !== ' ') i++;
+    const start = starts[from];
+    const end = ends[i - 1];
+    const word = folded.slice(from, i);
+    const shortAllowed = !text.slice(0, start).trim() || text.charAt(end) === '.';
+    const parts = GLUED_CATALOGUE.exec(word);
+    if (parts && CATALOGUES.has(parts[1]) && (!shortCatalogue(parts[1]) || shortAllowed)) {
+      const prefix = parts[1].length;
+      words.push({
+        word: parts[1],
+        start,
+        end: ends[from + prefix - 1],
+        shortAllowed,
+      });
+      words.push({
+        word: parts[2],
+        start: starts[from + prefix],
+        end,
+        shortAllowed: false,
+      });
+    } else {
+      words.push({ word, start, end, shortAllowed });
+    }
+  }
+  return words;
 }
