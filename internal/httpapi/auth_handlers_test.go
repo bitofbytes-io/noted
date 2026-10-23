@@ -38,8 +38,88 @@ func TestProductionSessionCookieSecurity(t *testing.T) {
 	if !cookie.Expires.Equal(expiresAt.Truncate(time.Second)) {
 		t.Fatalf("cookie expiry = %v, want session expiry %v", cookie.Expires, expiresAt)
 	}
-	if cookie.MaxAge <= 0 {
-		t.Fatalf("cookie MaxAge = %d, want a persistent session cookie", cookie.MaxAge)
+	wantAge := int((90 * 24 * time.Hour).Seconds())
+	if cookie.MaxAge < wantAge-2 || cookie.MaxAge > wantAge {
+		t.Fatalf("cookie MaxAge = %d, want about %d seconds", cookie.MaxAge, wantAge)
+	}
+}
+
+func TestShortLivedSessionCookieStaysPersistent(t *testing.T) {
+	handler := Handler{config: config.Config{AppEnv: "production"}}
+	recorder := httptest.NewRecorder()
+	expiresAt := time.Now().Add(500 * time.Millisecond)
+	handler.setSessionCookie(recorder, "opaque-token", expiresAt)
+
+	cookie := recorder.Result().Cookies()[0]
+	if cookie.MaxAge != 1 {
+		t.Fatalf("cookie MaxAge = %d, want 1 so the cookie is persistent", cookie.MaxAge)
+	}
+	if cookie.Expires.IsZero() {
+		t.Fatal("session cookie is missing Expires")
+	}
+}
+
+func TestSessionCookieTracksServerExpiryAndSurvivesAMissingCookie(t *testing.T) {
+	expiresAt := time.Now().Add(90 * 24 * time.Hour)
+	router := NewRouter(&fakeBackend{}, &fakeAuthenticator{sessionExpiresAt: expiresAt}, config.Config{
+		AppEnv: "production", AuthMode: "google", SessionTTL: 90 * 24 * time.Hour,
+	}, nil)
+
+	missing := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	missingResponse := httptest.NewRecorder()
+	router.ServeHTTP(missingResponse, missing)
+	if cookie := responseCookie(missingResponse, auth.SessionCookieName); cookie != nil {
+		t.Fatalf("request without a session cookie deleted it: %+v", cookie)
+	}
+
+	anonymous := httptest.NewRequest(http.MethodGet, "/api/pieces/", nil)
+	anonymousResponse := httptest.NewRecorder()
+	router.ServeHTTP(anonymousResponse, anonymous)
+	if anonymousResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status = %d, want 401", anonymousResponse.Code)
+	}
+	if cookie := responseCookie(anonymousResponse, auth.SessionCookieName); cookie != nil {
+		t.Fatalf("anonymous request deleted the session cookie: %+v", cookie)
+	}
+
+	rejected := NewRouter(&fakeBackend{}, &exportSessionAuth{err: auth.ErrNotAuthenticated}, config.Config{
+		AppEnv: "production", AuthMode: "google",
+	}, nil)
+	invalid := httptest.NewRequest(http.MethodGet, "/api/pieces/", nil)
+	invalid.AddCookie(&http.Cookie{
+		Name: auth.SessionCookieName, Value: "stale", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
+	invalidResponse := httptest.NewRecorder()
+	rejected.ServeHTTP(invalidResponse, invalid)
+	if invalidResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid session status = %d, want 401", invalidResponse.Code)
+	}
+	if cleared := responseCookie(invalidResponse, auth.SessionCookieName); cleared == nil || cleared.MaxAge >= 0 {
+		t.Fatalf("presented invalid session cookie was not cleared: %+v", cleared)
+	}
+
+	for _, path := range []string{"/api/session", "/api/pieces/"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.AddCookie(&http.Cookie{
+			Name: auth.SessionCookieName, Value: "opaque-token", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, body %s", path, response.Code, response.Body.String())
+		}
+		cookie := responseCookie(response, auth.SessionCookieName)
+		if cookie == nil || cookie.Value != "opaque-token" || !cookie.HttpOnly || !cookie.Secure ||
+			cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" {
+			t.Fatalf("%s refreshed session cookie: %+v", path, cookie)
+		}
+		wantAge := int((90 * 24 * time.Hour).Seconds())
+		if cookie.MaxAge < wantAge-2 || cookie.MaxAge > wantAge {
+			t.Fatalf("%s refreshed MaxAge = %d, want about %d", path, cookie.MaxAge, wantAge)
+		}
+		if !cookie.Expires.Equal(expiresAt.Truncate(time.Second)) {
+			t.Fatalf("%s refreshed expiry = %v, want %v", path, cookie.Expires, expiresAt)
+		}
 	}
 }
 

@@ -196,32 +196,33 @@ func (s *Service) NewSession(
 	return value, expiresAt, nil
 }
 
-func (s *Service) ResolveSession(ctx context.Context, value string) (app.User, error) {
+func (s *Service) ResolveSession(ctx context.Context, value string) (app.User, time.Time, error) {
 	if value == "" {
-		return app.User{}, ErrNotAuthenticated
+		return app.User{}, time.Time{}, ErrNotAuthenticated
 	}
 	hash := tokenHash(value)
 	now := s.now().UTC()
 	var user app.User
-	err := scanUser(s.pool.QueryRow(ctx, `
+	var expiresAt time.Time
+	err := s.pool.QueryRow(ctx, `
 		UPDATE user_sessions s SET last_seen_at=$2
 		FROM users u
 		WHERE s.token_hash=$1 AND s.expires_at>$2 AND u.id=s.user_id
-		RETURNING u.id::text,u.email,u.display_name,COALESCE(u.avatar_url,'')`,
-		hash[:], now), &user)
+		RETURNING u.id::text,u.email,u.display_name,COALESCE(u.avatar_url,''),s.expires_at`,
+		hash[:], now).Scan(&user.ID, &user.Email, &user.DisplayName, &user.AvatarURL, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.User{}, ErrNotAuthenticated
+		return app.User{}, time.Time{}, ErrNotAuthenticated
 	}
 	if err != nil {
-		return app.User{}, fmt.Errorf("resolve session: %w", err)
+		return app.User{}, time.Time{}, fmt.Errorf("resolve session: %w", err)
 	}
 	if _, allowed := s.allowedEmails[normalizeEmail(user.Email)]; !allowed {
 		if _, err := s.pool.Exec(ctx, `DELETE FROM user_sessions WHERE user_id=$1`, user.ID); err != nil {
-			return app.User{}, fmt.Errorf("revoke disallowed user sessions: %w", err)
+			return app.User{}, time.Time{}, fmt.Errorf("revoke disallowed user sessions: %w", err)
 		}
-		return app.User{}, ErrNotAuthenticated
+		return app.User{}, time.Time{}, ErrNotAuthenticated
 	}
-	return user, nil
+	return user, expiresAt, nil
 }
 
 func (s *Service) DeleteSession(ctx context.Context, value string) error {

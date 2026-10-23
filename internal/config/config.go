@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"net/url"
@@ -12,6 +13,9 @@ import (
 	"time"
 )
 
+// defaultSessionTTL is 2160h, the same default as Dined's AUTH_SESSION_TTL.
+// Shorter SESSION_TTL values, including the retired 12h setting, are raised
+// to this floor so leftover configuration cannot end sessions early.
 const defaultSessionTTL = 90 * 24 * time.Hour
 
 type Config struct {
@@ -101,6 +105,10 @@ func Load() (Config, error) {
 		duration, err := time.ParseDuration(raw)
 		if err != nil || duration <= 0 {
 			return Config{}, errors.New("SESSION_TTL must be a positive duration")
+		}
+		if duration < defaultSessionTTL {
+			slog.Warn("raising SESSION_TTL to the 90-day minimum", "configured", duration.String())
+			duration = defaultSessionTTL
 		}
 		cfg.SessionTTL = duration
 	}

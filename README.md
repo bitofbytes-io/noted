@@ -55,9 +55,15 @@ Local development defaults to `AUTH_MODE=development` and resolves
 `FRONTEND_URL`. Both browser URLs must be explicit HTTPS, non-local URLs;
 `ALLOWED_ORIGIN` contains only the frontend scheme and host.
 Client credentials support the corresponding `_FILE` variables. Browser
-sessions are opaque, database-backed, fixed at sign-in, and default to a
-90-day lifetime. Set `SESSION_TTL=12h` to roll back to the former 12-hour
-duration; a configured positive `SESSION_TTL` overrides the default.
+sessions are opaque tokens stored hashed in PostgreSQL and fixed at sign-in.
+They last 90 days, the same default as Dined's `AUTH_SESSION_TTL` (`2160h`).
+There is no JWT and no in-memory session store, so a restart does not sign
+anyone out. The cookie is persistent (`Max-Age` and `Expires`), `HttpOnly`,
+`SameSite=Lax`, host-only, and `Secure` in production. `SESSION_TTL` can make
+the lifetime longer. A shorter value, including the retired `12h` setting, is
+raised to 90 days. Signed-in responses refresh that cookie up to the
+session's remaining server expiry. A request that does not send the cookie
+does not delete it.
 
 Session IPs default to the immediate socket peer, including the deployment proxy
 when running behind one. Forwarding headers are ignored unless
