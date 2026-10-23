@@ -80,7 +80,7 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   Recently added or Fresh (least recently played first, never-played pieces
   leading). Favorites are not pinned. A piece's last play is its reader
   state's last save. Under Recently played and Fresh each row says when it was
-  last played. Recently played is the only order that uses that time. With that
+  last played. Only the Recently played sort offers the Continue row. With that
   sort and the search empty, a Continue row offers the piece with a PDF played
   most recently in the whole library, whatever the filter or its status, if
   that was within the last 14 days. It has the usual row actions (Listen,
