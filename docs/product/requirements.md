@@ -80,11 +80,14 @@ piano, and read it on a 13-inch iPad with hands-free page advancement.
   Recently added or Fresh (least recently played first, never-played pieces
   leading). Favorites are not pinned. A piece's last play is its reader
   state's last save. Under Recently played and Fresh each row says when it was
-  last played. With the search empty, a Continue row offers the piece with a
-  PDF played most recently in the whole library, whatever the filter or its
-  status, if that was within the last 14 days. It has the usual row actions
-  (Listen, status, favorite, edit), and the list below leaves that piece out so
-  it never shows twice; while searching there is no Continue row and the piece
+  last played. Only the Recently played sort offers the Continue row. With that
+  sort and the search empty, a Continue row offers the piece with a PDF played
+  most recently in the whole library, whatever the filter or its status, if
+  that was within the last 14 days. It has the usual row actions (Listen,
+  status, favorite, edit), and the list below leaves that piece out so it never
+  shows twice. Title, Composer, Recently added and Fresh keep every matching
+  piece in the chosen order, including after opening a piece and returning
+  from the reader. While searching there is no Continue row and the piece
   shows among the results. The sort is remembered per user on the server, like
   the filter.
 - BND-005: Selecting a piece with a PDF opens its reader directly.

@@ -164,11 +164,15 @@ export class LibraryComponent implements OnDestroy {
   protected readonly lastUsedText = lastUsedText;
   /**
    * The piece played most recently (in the last two weeks) from the whole
-   * library, whatever the filter, offered while not searching. Its row has the
+   * library, whatever the filter. It is offered only while Recently played is
+   * the sort and the search is empty: any other sort keeps its own order, so
+   * opening a piece and coming back cannot pull it to the top. Its row has the
    * usual actions, so it leaves the list below rather than showing twice.
    */
   private readonly offered = signal<PieceSummary | null>(null);
-  protected readonly continued = computed(() => (this.searching() ? null : this.offered()));
+  protected readonly continued = computed(() =>
+    this.searching() || this.sort() !== 'recent' ? null : this.offered(),
+  );
   protected readonly listed = computed(() => {
     const continued = this.continued();
     const pieces = this.visible();

@@ -725,10 +725,86 @@ describe('LibraryComponent sort and Continue', () => {
     fixture.destroy();
   });
 
+  it('keeps Title order after a piece was just opened, with Learning & Playing on', async () => {
+    const piece = (
+      id: string,
+      title: string,
+      composer: string,
+      lastPlayedAt: string | null,
+      status: TestPiece['status'] = 'playing',
+    ) => testPiece({ ...row(id, lastPlayedAt), title, composer, status });
+    // Waltz sorts last by title and was opened just now. Sonata and Prelude
+    // were played earlier, so a last-opened order would put Waltz first.
+    const waltz = piece('waltz', 'Waltz in A-flat major', 'Frédéric Chopin', daysAgo(0));
+    const { fixture, root, render, sortButton, listed, continued } = await setup(
+      'title',
+      [
+        piece(
+          'sonata',
+          'Sonata Quasi Una Fantasia',
+          'Ludwig van Beethoven',
+          daysAgo(2),
+          'learning',
+        ),
+        piece('allegro', 'Allegro from Six Light Keyboard Pieces', 'Johann Nepomuk Hummel', null),
+        waltz,
+        piece('prelude', 'Prelude', 'Frédéric Chopin', daysAgo(3)),
+      ],
+      waltz,
+    );
+    expect(sortButton().textContent).toContain('Sort: Title');
+    expect(root.querySelector('.filter-menu .menu-button')?.textContent).toContain(
+      'Learning & Playing',
+    );
+    expect(continued()).toBeNull();
+    expect(listed().map((row) => row.title)).toEqual([
+      'Allegro from Six Light Keyboard Pieces',
+      'Prelude',
+      'Sonata Quasi Una Fantasia',
+      'Waltz in A-flat major',
+    ]);
+
+    await fixture.componentInstance.chooseSort('composer');
+    await render();
+    expect(continued()).toBeNull();
+    expect(listed().map((row) => row.title)).toEqual([
+      'Sonata Quasi Una Fantasia',
+      'Prelude',
+      'Waltz in A-flat major',
+      'Allegro from Six Light Keyboard Pieces',
+    ]);
+
+    await fixture.componentInstance.chooseSort('fresh');
+    await render();
+    expect(continued()).toBeNull();
+    expect(listed().map((row) => row.title)).toEqual([
+      'Allegro from Six Light Keyboard Pieces',
+      'Prelude',
+      'Sonata Quasi Una Fantasia',
+      'Waltz in A-flat major',
+    ]);
+
+    await fixture.componentInstance.chooseSort('recent');
+    await render();
+    expect(sortButton().textContent).toContain('Sort: Recently played');
+    expect(continued()).toBe('Waltz in A-flat major');
+    expect(listed().map((row) => row.title)).toEqual([
+      'Sonata Quasi Una Fantasia',
+      'Prelude',
+      'Allegro from Six Light Keyboard Pieces',
+    ]);
+    fixture.destroy();
+  });
+
   it('offers Continue with the usual row actions, and lists the piece only once', async () => {
     const b = testPiece({ ...row('b', daysAgo(1)), listeningUrl: 'https://example.test/b' });
     const rows = [row('a', daysAgo(3)), b, row('c', null)];
     const { fixture, api, root, render, listed, continued } = await setup('title', rows, b);
+    // Title keeps the piece where it sorts. Continue belongs to Recently played.
+    expect(continued()).toBeNull();
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece b', 'Piece c']);
+    await fixture.componentInstance.chooseSort('recent');
+    await render();
     expect(continued()).toBe('Piece b');
     expect(root.querySelector('.continue-row .piece-note')?.textContent?.trim()).toBe(
       'Continue, played yesterday',
@@ -742,13 +818,9 @@ describe('LibraryComponent sort and Continue', () => {
       'Edit details',
     ]);
     expect(root.querySelector('.continue-row .btn-secondary')).toBeNull();
-    // The list below leaves it out, under Title and under Recently played alike.
+    // The list below leaves it out, so Recently played shows it once.
     expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece c']);
     expect(root.querySelector('.results-count p')?.textContent).toContain('3 pieces');
-    await fixture.componentInstance.chooseSort('recent');
-    await render();
-    expect(continued()).toBe('Piece b');
-    expect(listed().map((piece) => piece.title)).toEqual(['Piece a', 'Piece c']);
     expect(
       root.querySelector('section[aria-label="Continue playing"] .continue-row'),
     ).not.toBeNull();
@@ -769,14 +841,20 @@ describe('LibraryComponent sort and Continue', () => {
   it('continues a piece from outside the filter, and keeps it there when its status changes', async () => {
     // Learning & Playing lists only "a"; the shelved "s" was played yesterday.
     const shelved = testPiece({ ...row('s', daysAgo(1)), status: 'shelved' });
-    const { fixture, api, root, render, listed, continued } = await setup(
+    const { fixture, api, root, render, sortButton, listed, continued } = await setup(
       'title',
       [row('a', daysAgo(3)), shelved],
       shelved,
     );
-    expect(continued()).toBe('Piece s');
+    // Title and Learning & Playing leave the shelved piece out of the list.
+    expect(continued()).toBeNull();
     expect(listed().map((piece) => piece.title)).toEqual(['Piece a']);
     expect(root.querySelector('.results-count p')?.textContent).toContain('1 piece');
+    await fixture.componentInstance.chooseSort('recent');
+    await render();
+    expect(sortButton().textContent).toContain('Sort: Recently played');
+    expect(continued()).toBe('Piece s');
+    expect(listed().map((piece) => piece.title)).toEqual(['Piece a']);
 
     const status = () =>
       root.querySelector('.continue-row .row-status select') as HTMLSelectElement;
