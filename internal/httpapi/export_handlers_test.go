@@ -49,8 +49,11 @@ type exportSessionAuth struct {
 	err error
 }
 
-func (a *exportSessionAuth) ResolveSession(context.Context, string) (app.User, error) {
-	return app.User{ID: testUserID}, a.err
+func (a *exportSessionAuth) ResolveSession(context.Context, string) (app.User, time.Time, error) {
+	if a.err != nil {
+		return app.User{}, time.Time{}, a.err
+	}
+	return app.User{ID: testUserID}, time.Now().Add(90 * 24 * time.Hour), nil
 }
 func TestLibraryExportRequiresBrowserSession(t *testing.T) {
 	for _, name := range []string{"anonymous", "expired", "disallowed", "shortcut"} {

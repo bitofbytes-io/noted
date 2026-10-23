@@ -30,7 +30,7 @@ type Authenticator interface {
 	ConsumeLoginState(context.Context, string) (string, error)
 	AuthenticateGoogle(context.Context, auth.GoogleIdentity) (app.User, error)
 	NewSession(context.Context, string, string, string) (string, time.Time, error)
-	ResolveSession(context.Context, string) (app.User, error)
+	ResolveSession(context.Context, string) (app.User, time.Time, error)
 	DeleteSession(context.Context, string) error
 }
 
@@ -145,9 +145,13 @@ func (h *Handler) session(writer http.ResponseWriter, request *http.Request) {
 		"authMode":      h.config.AuthMode,
 		"development":   h.config.AuthMode == "development",
 	}
-	user, err := h.resolveUser(request)
+	user, expiresAt, err := h.resolveUser(request)
 	if errors.Is(err, auth.ErrNotAuthenticated) {
-		h.clearSessionCookie(writer)
+		// A missing cookie is left alone. Deleting it here would remove a
+		// cookie the browser withheld on this one request.
+		if h.config.AuthMode == "google" && presentedSessionCookie(request) {
+			h.clearSessionCookie(writer)
+		}
 		writeJSON(writer, http.StatusOK, response)
 		return
 	}
@@ -155,6 +159,7 @@ func (h *Handler) session(writer http.ResponseWriter, request *http.Request) {
 		handleError(writer, err)
 		return
 	}
+	h.refreshSessionCookie(writer, request, expiresAt)
 	response["authenticated"] = true
 	response["user"] = user
 	writeJSON(writer, http.StatusOK, response)
@@ -174,9 +179,9 @@ func (h *Handler) logout(writer http.ResponseWriter, request *http.Request) {
 
 func (h *Handler) authenticatedUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		user, err := h.resolveUser(request)
+		user, expiresAt, err := h.resolveUser(request)
 		if errors.Is(err, auth.ErrNotAuthenticated) {
-			if h.config.AuthMode == "google" {
+			if h.config.AuthMode == "google" && presentedSessionCookie(request) {
 				h.clearSessionCookie(writer)
 			}
 			writeError(writer, http.StatusUnauthorized, "sign in to continue")
@@ -186,6 +191,7 @@ func (h *Handler) authenticatedUser(next http.Handler) http.Handler {
 			handleError(writer, err)
 			return
 		}
+		h.refreshSessionCookie(writer, request, expiresAt)
 		next.ServeHTTP(
 			writer,
 			request.WithContext(context.WithValue(request.Context(), userContextKey{}, user)),
@@ -193,15 +199,35 @@ func (h *Handler) authenticatedUser(next http.Handler) http.Handler {
 	})
 }
 
-func (h *Handler) resolveUser(request *http.Request) (app.User, error) {
+func (h *Handler) resolveUser(request *http.Request) (app.User, time.Time, error) {
 	if h.config.AuthMode == "development" {
-		return h.auth.EnsureDevelopmentUser(request.Context(), h.config.DevUserEmail)
+		user, err := h.auth.EnsureDevelopmentUser(request.Context(), h.config.DevUserEmail)
+		return user, time.Time{}, err
 	}
 	cookie, err := request.Cookie(auth.SessionCookieName)
 	if err != nil {
-		return app.User{}, auth.ErrNotAuthenticated
+		return app.User{}, time.Time{}, auth.ErrNotAuthenticated
 	}
 	return h.auth.ResolveSession(request.Context(), cookie.Value)
+}
+
+func presentedSessionCookie(request *http.Request) bool {
+	_, err := request.Cookie(auth.SessionCookieName)
+	return err == nil
+}
+
+// refreshSessionCookie keeps the browser cookie aligned with the database
+// expiry. The server deadline stays fixed at sign-in; this only replaces a
+// shorter cookie the browser stored.
+func (h *Handler) refreshSessionCookie(writer http.ResponseWriter, request *http.Request, expiresAt time.Time) {
+	if expiresAt.IsZero() {
+		return
+	}
+	cookie, err := request.Cookie(auth.SessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return
+	}
+	h.setSessionCookie(writer, cookie.Value, expiresAt)
 }
 
 func currentUser(request *http.Request) app.User {
@@ -293,10 +319,16 @@ func (h *Handler) clearStateCookie(writer http.ResponseWriter) {
 }
 
 func (h *Handler) setSessionCookie(writer http.ResponseWriter, value string, expiresAt time.Time) {
+	// MaxAge 0 omits Max-Age. Clients that ignore Expires then store a session
+	// cookie, which ends when the browser session ends.
+	maxAge := int(time.Until(expiresAt).Seconds())
+	if maxAge == 0 && expiresAt.After(time.Now()) {
+		maxAge = 1
+	}
 	http.SetCookie(writer, &http.Cookie{ // #nosec G124 -- Secure is required in production; HTTP-only local development intentionally omits it.
 		Name: auth.SessionCookieName, Value: value, Path: "/", HttpOnly: true,
 		Secure: h.config.AppEnv == "production", SameSite: http.SameSiteLaxMode,
-		Expires: expiresAt, MaxAge: int(time.Until(expiresAt).Seconds()),
+		Expires: expiresAt, MaxAge: maxAge,
 	})
 }
 

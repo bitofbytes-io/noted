@@ -71,19 +71,22 @@ func TestIntegrationUserOwnership(t *testing.T) {
 	if storedHash == "" || storedHash == token {
 		t.Fatal("database did not store only the opaque session token hash")
 	}
-	resolved, err := googleAuth.ResolveSession(ctx, token)
+	resolved, expiresAt, err := googleAuth.ResolveSession(ctx, token)
 	if err != nil || resolved.ID != userA.ID {
 		t.Fatalf("resolved user = %+v, error = %v", resolved, err)
+	}
+	if remaining := time.Until(expiresAt); remaining < 59*time.Minute || remaining > time.Hour {
+		t.Fatalf("session expiry remaining = %v, want about 1h", remaining)
 	}
 	secondToken, _, err := googleAuth.NewSession(ctx, userA.ID, "integration-test-2", "192.0.2.11")
 	if err != nil {
 		t.Fatal(err)
 	}
 	authWithoutUserA := auth.NewService(pool, []string{"owner-b@example.test"}, time.Hour)
-	if _, err := authWithoutUserA.ResolveSession(ctx, token); !errors.Is(err, auth.ErrNotAuthenticated) {
+	if _, _, err := authWithoutUserA.ResolveSession(ctx, token); !errors.Is(err, auth.ErrNotAuthenticated) {
 		t.Fatalf("removed allow-list user resolved with error %v", err)
 	}
-	if _, err := googleAuth.ResolveSession(ctx, secondToken); !errors.Is(err, auth.ErrNotAuthenticated) {
+	if _, _, err := googleAuth.ResolveSession(ctx, secondToken); !errors.Is(err, auth.ErrNotAuthenticated) {
 		t.Fatalf("second session for removed allow-list user resolved with error %v", err)
 	}
 	var remainingSessions int

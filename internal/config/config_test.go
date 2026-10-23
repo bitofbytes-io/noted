@@ -20,14 +20,35 @@ func TestLoadDefaultsSessionTTLToNinetyDays(t *testing.T) {
 	}
 }
 
-func TestLoadUsesSessionTTLOverride(t *testing.T) {
+func TestLoadRaisesShortSessionTTLToNinetyDays(t *testing.T) {
 	t.Setenv("SESSION_TTL", "12h")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := 12 * time.Hour; cfg.SessionTTL != want {
+	if want := 90 * 24 * time.Hour; cfg.SessionTTL != want {
+		t.Fatalf("SessionTTL = %v, want %v", cfg.SessionTTL, want)
+	}
+}
+
+func TestLoadAllowsSessionTTLAboveNinetyDays(t *testing.T) {
+	t.Setenv("SESSION_TTL", "2160h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 90 * 24 * time.Hour; cfg.SessionTTL != want {
+		t.Fatalf("SessionTTL = %v, want %v", cfg.SessionTTL, want)
+	}
+
+	t.Setenv("SESSION_TTL", "2400h")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 2400 * time.Hour; cfg.SessionTTL != want {
 		t.Fatalf("SessionTTL = %v, want %v", cfg.SessionTTL, want)
 	}
 }

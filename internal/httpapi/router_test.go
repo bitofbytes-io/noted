@@ -182,10 +182,11 @@ type fakeAuthenticator struct {
 	authErr    error
 	sessionErr error
 
-	consumedState string
-	identity      *auth.GoogleIdentity
-	sessionUserID string
-	sessionIP     string
+	consumedState    string
+	identity         *auth.GoogleIdentity
+	sessionUserID    string
+	sessionIP        string
+	sessionExpiresAt time.Time
 }
 
 func (fake *fakeAuthenticator) EnsureDevelopmentUser(context.Context, string) (app.User, error) {
@@ -211,8 +212,12 @@ func (fake *fakeAuthenticator) NewSession(_ context.Context, userID, _, ip strin
 	fake.sessionIP = ip
 	return "token", time.Now().Add(time.Hour), fake.sessionErr
 }
-func (*fakeAuthenticator) ResolveSession(context.Context, string) (app.User, error) {
-	return app.User{ID: testUserID}, nil
+func (fake *fakeAuthenticator) ResolveSession(context.Context, string) (app.User, time.Time, error) {
+	expiresAt := fake.sessionExpiresAt
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().Add(90 * 24 * time.Hour)
+	}
+	return app.User{ID: testUserID}, expiresAt, nil
 }
 func (*fakeAuthenticator) DeleteSession(context.Context, string) error { return nil }
 
