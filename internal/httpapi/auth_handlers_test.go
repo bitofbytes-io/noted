@@ -86,7 +86,9 @@ func TestSessionCookieTracksServerExpiryAndSurvivesAMissingCookie(t *testing.T) 
 		AppEnv: "production", AuthMode: "google",
 	}, nil)
 	invalid := httptest.NewRequest(http.MethodGet, "/api/pieces/", nil)
-	invalid.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "stale"})
+	invalid.AddCookie(&http.Cookie{
+		Name: auth.SessionCookieName, Value: "stale", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
 	invalidResponse := httptest.NewRecorder()
 	rejected.ServeHTTP(invalidResponse, invalid)
 	if invalidResponse.Code != http.StatusUnauthorized {
@@ -98,7 +100,9 @@ func TestSessionCookieTracksServerExpiryAndSurvivesAMissingCookie(t *testing.T) 
 
 	for _, path := range []string{"/api/session", "/api/pieces/"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
-		request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "opaque-token"})
+		request.AddCookie(&http.Cookie{
+			Name: auth.SessionCookieName, Value: "opaque-token", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		})
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
 		if response.Code != http.StatusOK {
