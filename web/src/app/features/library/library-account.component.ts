@@ -51,8 +51,10 @@ export class LibraryAccountComponent implements OnDestroy {
     return `Set up on ${formatDay(token.createdAt)} · last used ${lastUsedText(token.lastUsedAt)}`;
   });
   private copyTimer?: number;
-  /** Ignores a status read that finishes after the dialog closed or the token changed. */
+  /** Drops a status read once the dialog opens, closes, or a shortcut write starts. */
   private accountVisit = 0;
+  /** Completed shortcut writes. A status read that started before one must not replace it. */
+  private shortcutWrites = 0;
 
   ngOnDestroy(): void {
     if (this.copyTimer) window.clearTimeout(this.copyTimer);
@@ -89,6 +91,7 @@ export class LibraryAccountComponent implements OnDestroy {
     try {
       const created = await firstValueFrom(this.api.createShortcutToken());
       this.shortcut.set({ active: true, createdAt: created.createdAt, lastUsedAt: null });
+      this.shortcutWrites++;
       // A dialog closed meanwhile never shows the token; Replace issues another.
       if (visit !== this.accountVisit) return;
       this.createdToken.set(created);
@@ -109,6 +112,7 @@ export class LibraryAccountComponent implements OnDestroy {
     try {
       await firstValueFrom(this.api.deleteShortcutToken(), { defaultValue: undefined });
       this.shortcut.set({ active: false, createdAt: null, lastUsedAt: null });
+      this.shortcutWrites++;
       if (visit === this.accountVisit) this.confirming.set(null);
     } catch (error) {
       this.shortcutError.set(errorMessage(error));
@@ -139,11 +143,14 @@ export class LibraryAccountComponent implements OnDestroy {
   }
 
   private async loadShortcut(visit: number): Promise<void> {
+    const writes = this.shortcutWrites;
     try {
       const token = await firstValueFrom(this.api.shortcutToken());
-      if (visit === this.accountVisit) this.shortcut.set(token);
+      if (visit === this.accountVisit && writes === this.shortcutWrites) this.shortcut.set(token);
     } catch (error) {
-      if (visit === this.accountVisit) this.shortcutError.set(errorMessage(error));
+      if (visit === this.accountVisit && writes === this.shortcutWrites) {
+        this.shortcutError.set(errorMessage(error));
+      }
     }
   }
 }

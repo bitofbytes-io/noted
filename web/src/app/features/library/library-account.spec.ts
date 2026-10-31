@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
 import { Session, ShortcutToken, ShortcutTokenCreated } from '../../core/models';
@@ -94,6 +94,18 @@ describe('LibraryComponent account dialog', () => {
     };
     const text = () => dialog.textContent?.replace(/\s+/g, ' ') ?? '';
     return { fixture, api, root, dialog, render, button, click, open, text };
+  }
+
+  /** Closes the account dialog and reopens it, holding the status read that reopen starts. */
+  function closeAndReopen(ctx: Awaited<ReturnType<typeof setup>>): Subject<ShortcutToken> {
+    ctx.button('Close')!.click();
+    ctx.fixture.detectChanges();
+    const reread = new Subject<ShortcutToken>();
+    ctx.api.shortcutToken.mockReturnValueOnce(reread);
+    ctx.button('Daniel', ctx.root.querySelector('.masthead')!)!.click();
+    ctx.fixture.detectChanges();
+    expect(reread.observed).toBe(true);
+    return reread;
   }
 
   it('opens from the display name, which is the masthead’s only account control', async () => {
@@ -286,5 +298,86 @@ describe('LibraryComponent account dialog', () => {
     );
     expect(text()).toContain('The token is selected. Copy it from the menu.');
     Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  it('keeps a saved shortcut when a status read from the reopened dialog finishes later', async () => {
+    const created = { token: TOKEN, createdAt: '2026-10-01T09:00:00Z' };
+    const ctx = await setup({ created: [created] });
+    await ctx.open();
+
+    const saving = new Subject<ShortcutTokenCreated>();
+    ctx.api.createShortcutToken.mockReturnValueOnce(saving);
+    ctx.button('Set up on this iPad')!.click();
+    ctx.fixture.detectChanges();
+    expect(ctx.api.createShortcutToken).toHaveBeenCalledTimes(1);
+
+    // Close and reopen while Set up is still saving. The new visit's status read
+    // can then finish after the save, still reporting that there is no token.
+    const reread = closeAndReopen(ctx);
+    saving.next(created);
+    saving.complete();
+    await ctx.render();
+    expect(ctx.dialog.querySelector('.shortcut-token')).toBeNull();
+    expect(ctx.button('Replace')).toBeDefined();
+
+    reread.next({ active: false, createdAt: null, lastUsedAt: null });
+    reread.complete();
+    await ctx.render();
+    expect(ctx.dialog.querySelector('.shortcut-token')).toBeNull();
+    expect(ctx.button('Replace')).toBeDefined();
+    expect(ctx.button('Set up on this iPad')).toBeUndefined();
+  });
+
+  it('keeps Send to Noted off when a status read from the reopened dialog finishes later', async () => {
+    const active: ShortcutToken = {
+      active: true,
+      createdAt: '2026-10-01T09:00:00Z',
+      lastUsedAt: null,
+    };
+    const ctx = await setup({ token: active });
+    await ctx.open();
+    await ctx.click('Turn off');
+
+    const removal = new Subject<undefined>();
+    ctx.api.deleteShortcutToken.mockReturnValueOnce(removal);
+    const confirmBlock = ctx.dialog.querySelector('.shortcut-confirm')!;
+    ctx.button('Turn off', confirmBlock)!.click();
+    ctx.fixture.detectChanges();
+    expect(ctx.api.deleteShortcutToken).toHaveBeenCalledTimes(1);
+
+    const reread = closeAndReopen(ctx);
+    removal.next(undefined);
+    removal.complete();
+    await ctx.render();
+    expect(ctx.button('Set up on this iPad')).toBeDefined();
+
+    // The status was read before Turn off finished, so it still reports the old token.
+    reread.next(active);
+    reread.complete();
+    await ctx.render();
+    expect(ctx.button('Set up on this iPad')).toBeDefined();
+    expect(ctx.button('Replace')).toBeUndefined();
+  });
+
+  it('keeps a saved shortcut when the status read after reopen fails', async () => {
+    const created = { token: TOKEN, createdAt: '2026-10-01T09:00:00Z' };
+    const ctx = await setup({ created: [created] });
+    await ctx.open();
+
+    const saving = new Subject<ShortcutTokenCreated>();
+    ctx.api.createShortcutToken.mockReturnValueOnce(saving);
+    ctx.button('Set up on this iPad')!.click();
+    ctx.fixture.detectChanges();
+
+    const reread = closeAndReopen(ctx);
+    saving.next(created);
+    saving.complete();
+    await ctx.render();
+
+    // The failed status was in flight before the save, so it must not cover the saved shortcut.
+    reread.error(new Error('internal server error'));
+    await ctx.render();
+    expect(ctx.text()).not.toContain('Internal server error.');
+    expect(ctx.button('Replace')).toBeDefined();
   });
 });
