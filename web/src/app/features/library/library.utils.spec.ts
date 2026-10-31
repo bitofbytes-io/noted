@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../../../../../testdata/composer-surname-vectors.json';
 import { Piece, PieceSummary } from '../../core/models';
 import { convertToParamMap } from '@angular/router';
@@ -7,7 +7,11 @@ import {
   composerSurname,
   filterAndSort,
   matchParts,
+  formatDay,
+  lastUsedText,
+  listeningUrlError,
   paramsOfView,
+  playedText,
   summaryOf,
   viewFromParams,
 } from './library.utils';
@@ -330,5 +334,46 @@ describe('the library address', () => {
         rememberedOnly,
       ),
     ).toEqual({ q: 'bach' });
+  });
+});
+
+describe('playedText', () => {
+  it('names the day the piece was last played', () => {
+    const now = new Date(2026, 9, 3, 0, 30);
+    expect(playedText(null, now)).toBe('Not played yet');
+    expect(playedText(new Date(2026, 9, 3, 0, 5).toISOString(), now)).toBe('Played today');
+    expect(playedText(new Date(2026, 9, 2, 23).toISOString(), now)).toBe('Played yesterday');
+    expect(playedText(new Date(2026, 8, 28, 12).toISOString(), now)).toBe('Played 28 Sep 2026');
+  });
+});
+
+describe('lastUsedText', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('names the day of last use', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 3, 0, 30));
+    expect(lastUsedText(null)).toBe('never');
+    expect(lastUsedText(new Date(2026, 9, 3, 0, 5).toISOString())).toBe('today');
+    expect(lastUsedText(new Date(2026, 9, 2, 23, 59).toISOString())).toBe('yesterday');
+    const older = new Date(2026, 8, 28, 12).toISOString();
+    expect(lastUsedText(older)).toBe('28 Sep 2026');
+    expect(formatDay(older)).toBe('28 Sep 2026');
+  });
+});
+
+describe('listeningUrlError', () => {
+  it('accepts empty and absolute HTTP(S) listening URLs', () => {
+    expect(listeningUrlError('')).toBe('');
+    expect(listeningUrlError('  https://www.youtube.com/watch?v=example  ')).toBe('');
+  });
+
+  it('rejects malformed and non-HTTP(S) listening URLs with a clear message', () => {
+    expect(listeningUrlError('youtube.com/watch?v=example')).toBe(
+      'listening URL must be an http or https URL',
+    );
+    expect(listeningUrlError('file:///tmp/recording.mp3')).toBe(
+      'listening URL must be an http or https URL',
+    );
   });
 });

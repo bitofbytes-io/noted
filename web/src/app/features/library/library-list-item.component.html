@@ -1,0 +1,98 @@
+<article
+  class="piece-row"
+  [class.missing-pdf]="!piece().pdf"
+  [class.continue-row]="continuing()"
+  tabindex="0"
+  (click)="open()"
+  (keydown.enter)="openFromKeyboard($event)"
+  (keydown)="rowKey($event)"
+>
+  <div class="piece-mark" aria-hidden="true">
+    <svg lucideFileText aria-hidden="true"></svg>
+    <span class="tabular">{{ piece().pdf?.pageCount || '—' }}</span>
+  </div>
+  <div class="piece-copy">
+    <h2>
+      @for (part of piece().title | matchParts: query(); track $index) {
+        @if (part.mark) {
+          <mark>{{ part.text }}</mark>
+        } @else {
+          <span>{{ part.text }}</span>
+        }
+      }
+    </h2>
+    <p>
+      @if (piece().composer) {
+        @for (part of piece().composer | matchParts: query(); track $index) {
+          @if (part.mark) {
+            <mark>{{ part.text }}</mark>
+          } @else {
+            <span>{{ part.text }}</span>
+          }
+        }
+      } @else {
+        Composer unknown
+      }
+      @if (continuing()) {
+        <span class="piece-note">
+          <strong class="continue-word">Continue</strong>, played
+          {{ lastUsedText(piece().lastPlayedAt) }}
+        </span>
+      } @else if (!piece().pdf) {
+        <span class="piece-note">No PDF yet</span>
+      } @else if (showPlayed()) {
+        <span class="piece-note">{{ playedText(piece().lastPlayedAt) }}</span>
+      }
+    </p>
+  </div>
+  <div class="row-actions">
+    @if (piece().listeningUrl) {
+      <a
+        class="listen-action"
+        [href]="piece().listeningUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        [attr.aria-label]="'Listen to ' + piece().title + ' in a new tab'"
+        title="Listen in a new tab"
+        (click)="$event.stopPropagation()"
+        (keydown)="$event.stopPropagation()"
+      >
+        <svg lucideHeadphones aria-hidden="true"></svg>
+        <span>Listen</span>
+      </a>
+    }
+    <label class="row-status" (click)="$event.stopPropagation()">
+      <span class="sr-only">Status of {{ piece().title }}</span>
+      <select
+        [value]="piece().status"
+        (change)="changeStatus($any($event.target))"
+        (keydown)="$event.stopPropagation()"
+      >
+        @for (option of pieceStatuses; track option.value) {
+          <option [value]="option.value" [selected]="option.value === piece().status">
+            {{ option.label }}
+          </option>
+        }
+      </select>
+      <svg lucideChevronDown aria-hidden="true"></svg>
+    </label>
+    <button
+      class="icon-button"
+      type="button"
+      [attr.aria-label]="piece().favorite ? 'Remove from favorites' : 'Add to favorites'"
+      [title]="piece().favorite ? 'Remove from favorites' : 'Add to favorites'"
+      (click)="toggleFavorite($event)"
+    >
+      <svg lucideHeart [class.filled-heart]="piece().favorite" aria-hidden="true"></svg>
+    </button>
+    <button
+      class="icon-button"
+      type="button"
+      aria-label="Edit details"
+      title="Edit details"
+      (click)="edit($event)"
+    >
+      <svg lucidePencil aria-hidden="true"></svg>
+    </button>
+  </div>
+</article>

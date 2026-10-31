@@ -28,31 +28,7 @@
   <section class="library-head" aria-labelledby="library-title">
     <h1 id="library-title">Library</h1>
     <a class="btn-quiet" routerLink="/composers">Browse composers</a>
-    <div class="search-row">
-      <label class="search">
-        <svg lucideSearch aria-hidden="true"></svg>
-        <span class="sr-only">Search by title, composer, other names or notes</span>
-        <input
-          #searchInput
-          type="search"
-          placeholder="Search title or composer"
-          autocomplete="off"
-          enterkeyhint="go"
-          aria-keyshortcuts="/"
-          [ngModel]="query()"
-          (ngModelChange)="query.set($event)"
-          (keydown)="searchKey($event)"
-        />
-      </label>
-      <app-choice-menu
-        class="filter-menu"
-        name="Show"
-        [showName]="false"
-        [options]="libraryFilters"
-        [value]="filter()"
-        (chosen)="chooseFilter($event)"
-      />
-    </div>
+    <app-library-toolbar (opened)="openPiece($event)" />
   </section>
 
   @if (error()) {
@@ -81,8 +57,11 @@
 
     @if (!loading() && continued(); as piece) {
       <section class="piece-list" aria-label="Continue playing">
-        <ng-container
-          *ngTemplateOutlet="pieceRow; context: { $implicit: piece, continuing: true }"
+        <app-library-list-item
+          [piece]="piece"
+          [continuing]="true"
+          (opened)="openPiece($event)"
+          (details)="openEdit($event)"
         />
       </section>
     }
@@ -138,7 +117,11 @@
     } @else {
       <div class="piece-list">
         @for (piece of listed(); track piece.id) {
-          <ng-container *ngTemplateOutlet="pieceRow; context: { $implicit: piece }" />
+          <app-library-list-item
+            [piece]="piece"
+            (opened)="openPiece($event)"
+            (details)="openEdit($event)"
+          />
         }
       </div>
     }
@@ -152,107 +135,6 @@
     />
   </section>
 </main>
-
-<!-- One library row, used by the list and by Continue, with the same actions. -->
-<ng-template #pieceRow let-piece let-continuing="continuing">
-  <article
-    class="piece-row"
-    [class.missing-pdf]="!piece.pdf"
-    [class.continue-row]="continuing"
-    tabindex="0"
-    (click)="openPiece(piece)"
-    (keydown.enter)="openPieceFromKeyboard(piece, $event)"
-    (keydown)="rowKey($event)"
-  >
-    <div class="piece-mark" aria-hidden="true">
-      <svg lucideFileText aria-hidden="true"></svg>
-      <span class="tabular">{{ piece.pdf?.pageCount || '—' }}</span>
-    </div>
-    <div class="piece-copy">
-      <h2>
-        <ng-container *ngTemplateOutlet="matched; context: { $implicit: piece.title }" />
-      </h2>
-      <p>
-        @if (piece.composer) {
-          <ng-container *ngTemplateOutlet="matched; context: { $implicit: piece.composer }" />
-        } @else {
-          Composer unknown
-        }
-        @if (continuing) {
-          <span class="piece-note">
-            <strong class="continue-word">Continue</strong>, played
-            {{ lastUsedText(piece.lastPlayedAt) }}
-          </span>
-        } @else if (!piece.pdf) {
-          <span class="piece-note">No PDF yet</span>
-        } @else if (showPlayed()) {
-          <span class="piece-note">{{ playedText(piece.lastPlayedAt) }}</span>
-        }
-      </p>
-    </div>
-    <div class="row-actions">
-      @if (piece.listeningUrl) {
-        <a
-          class="listen-action"
-          [href]="piece.listeningUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-          [attr.aria-label]="'Listen to ' + piece.title + ' in a new tab'"
-          title="Listen in a new tab"
-          (click)="$event.stopPropagation()"
-          (keydown)="$event.stopPropagation()"
-        >
-          <svg lucideHeadphones aria-hidden="true"></svg>
-          <span>Listen</span>
-        </a>
-      }
-      <label class="row-status" (click)="$event.stopPropagation()">
-        <span class="sr-only">Status of {{ piece.title }}</span>
-        <select
-          [value]="piece.status"
-          (change)="changeStatus(piece, $any($event.target))"
-          (keydown)="$event.stopPropagation()"
-        >
-          @for (option of pieceStatuses; track option.value) {
-            <option [value]="option.value" [selected]="option.value === piece.status">
-              {{ option.label }}
-            </option>
-          }
-        </select>
-        <svg lucideChevronDown aria-hidden="true"></svg>
-      </label>
-      <button
-        class="icon-button"
-        type="button"
-        [attr.aria-label]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
-        [title]="piece.favorite ? 'Remove from favorites' : 'Add to favorites'"
-        (click)="toggleFavorite(piece, $event)"
-      >
-        <svg lucideHeart [class.filled-heart]="piece.favorite" aria-hidden="true"></svg>
-      </button>
-      <button
-        class="icon-button"
-        type="button"
-        aria-label="Edit details"
-        title="Edit details"
-        (click)="openEdit(piece, $event)"
-      >
-        <svg lucidePencil aria-hidden="true"></svg>
-      </button>
-    </div>
-  </article>
-</ng-template>
-
-<!-- A row's text, with what matches the search marked. -->
-<ng-template #matched let-text>
-  @for (part of text | matchParts: query(); track $index) {
-    @if (part.mark) {
-      <mark>{{ part.text }}</mark>
-    } @else {
-      <span>{{ part.text }}</span>
-    }
-  }
-</ng-template>
 
 <dialog #editor class="editor" (cancel)="closeEditor()">
   <form (ngSubmit)="save()">
@@ -408,137 +290,4 @@
   </form>
 </dialog>
 
-<dialog #account class="account" aria-labelledby="account-name" (close)="accountClosed()">
-  @if (session()?.user; as user) {
-    <header class="account-head">
-      <div class="account-who">
-        <h2 id="account-name">{{ user.displayName }}</h2>
-        <small>{{ user.email }}</small>
-      </div>
-      <button
-        class="icon-button"
-        type="button"
-        aria-label="Close"
-        title="Close"
-        (click)="closeAccount()"
-      >
-        <svg lucideX aria-hidden="true"></svg>
-      </button>
-    </header>
-
-    <section class="account-section" aria-labelledby="shortcut-heading">
-      <h3 id="shortcut-heading">Send to Noted</h3>
-      @switch (shortcutState()) {
-        @case ('loading') {
-          <p class="account-note">Checking…</p>
-        }
-        @case ('none') {
-          <p class="account-note">
-            Share a PDF from Safari or Files straight into a new draft on this iPad.
-          </p>
-          <div class="account-actions">
-            <button
-              class="btn-secondary"
-              type="button"
-              [disabled]="shortcutBusy()"
-              (click)="createShortcut()"
-            >
-              Set up on this iPad
-            </button>
-          </div>
-        }
-        @case ('created') {
-          @if (createdToken(); as created) {
-            <ol class="shortcut-steps">
-              <li><a href="/send-to-noted.shortcut" download>Get the Shortcut</a> on this iPad.</li>
-              <li>
-                Tap Add Shortcut, then open it in Shortcuts and paste this into the first text box:
-              </li>
-            </ol>
-            <div class="shortcut-token">
-              <code #tokenText class="tabular">{{ created.token }}</code>
-              <button class="btn-secondary" type="button" (click)="copyToken()">
-                {{ copyNote() === 'Copied' ? 'Copied' : 'Copy' }}
-              </button>
-            </div>
-            @if (copyNote() && copyNote() !== 'Copied') {
-              <p class="account-note" role="status">{{ copyNote() }}</p>
-            }
-            <ol class="shortcut-steps" start="3">
-              <li>Tap Done. Share any PDF with <strong>Send to Noted</strong>.</li>
-            </ol>
-            <p class="shortcut-warning">
-              You won’t see this token again. If you lose it, come back and tap Replace.
-            </p>
-          }
-        }
-        @case ('active') {
-          <p class="shortcut-status">{{ shortcutStatus() }}</p>
-          <div class="account-actions">
-            <button
-              class="btn-quiet accent"
-              type="button"
-              [disabled]="shortcutBusy()"
-              [attr.aria-expanded]="confirming() === 'replace'"
-              (click)="confirming.set('replace')"
-            >
-              Replace
-            </button>
-            <button
-              class="btn-quiet danger"
-              type="button"
-              [disabled]="shortcutBusy()"
-              [attr.aria-expanded]="confirming() === 'off'"
-              (click)="confirming.set('off')"
-            >
-              Turn off
-            </button>
-          </div>
-          @if (confirming(); as action) {
-            <div class="shortcut-confirm" role="group" aria-label="Confirm">
-              @if (action === 'replace') {
-                <p>
-                  Replace the token? The Shortcut on your iPad stops working until you paste the new
-                  one.
-                </p>
-              } @else {
-                <p>Turn off Send to Noted? The Shortcut on your iPad stops working.</p>
-              }
-              <div class="account-actions">
-                <button
-                  class="btn-secondary"
-                  type="button"
-                  [class.danger]="action === 'off'"
-                  [disabled]="shortcutBusy()"
-                  (click)="action === 'replace' ? createShortcut() : turnOffShortcut()"
-                >
-                  {{ action === 'replace' ? 'Replace token' : 'Turn off' }}
-                </button>
-                <button class="btn-quiet" type="button" (click)="confirming.set(null)">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          }
-          <p class="shortcut-again">
-            <a href="/send-to-noted.shortcut" download>Get the Shortcut again</a>
-            <span>You’ll need your token; if you don’t have it, tap Replace.</span>
-          </p>
-        }
-      }
-      @if (shortcutError()) {
-        <p class="notice" role="alert">{{ shortcutError() }}</p>
-      }
-    </section>
-
-    @if (!session()?.development) {
-      <section class="account-section">
-        <div class="account-actions">
-          <button class="btn-quiet" type="button" (click)="logout()" [disabled]="signingOut()">
-            {{ signingOut() ? 'Signing out…' : 'Sign out' }}
-          </button>
-        </div>
-      </section>
-    }
-  }
-</dialog>
+<app-library-account [session]="session()" [signingOut]="signingOut()" (signOut)="logout()" />
