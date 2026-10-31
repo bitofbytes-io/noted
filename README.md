@@ -267,7 +267,7 @@ deployment-ref flow as the other bitofbytes-io applications. The push passes
 each image's digest as an `image-digest` push option, so the hook deploys
 exactly the images that run built.
 
-The UI image retains `nginx:1.29-alpine` and runs Nginx directly as the `nginx`
+The UI image retains Nginx 1.29, pinned to `nginx:1.29.8-alpine`, and runs Nginx directly as the `nginx`
 user, including its master process. It listens only on container port 8080;
 the image healthcheck uses `http://127.0.0.1:8080/health`. Nginx configuration
 and static assets are read-only, and PID and temporary files live under `/tmp`.
