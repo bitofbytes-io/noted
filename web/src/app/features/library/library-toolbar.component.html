@@ -1,0 +1,25 @@
+<div class="search-row">
+  <label class="search">
+    <svg lucideSearch aria-hidden="true"></svg>
+    <span class="sr-only">Search by title, composer, other names or notes</span>
+    <input
+      #searchInput
+      type="search"
+      placeholder="Search title or composer"
+      autocomplete="off"
+      enterkeyhint="go"
+      aria-keyshortcuts="/"
+      [ngModel]="query()"
+      (ngModelChange)="query.set($event)"
+      (keydown)="searchKey($event)"
+    />
+  </label>
+  <app-choice-menu
+    class="filter-menu"
+    name="Show"
+    [showName]="false"
+    [options]="libraryFilters"
+    [value]="filter()"
+    (chosen)="chooseFilter($event)"
+  />
+</div>
