@@ -578,6 +578,56 @@ describe('ReaderComponent', () => {
   });
 });
 
+describe('ReaderComponent metronome overlay', () => {
+  function readerOnPage(page: number, pages: number) {
+    const component = createReaderComponent();
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: pages }, (_, i) => ({ page: i + 1 })),
+    );
+    Reflect.get(component, 'currentPage').set(page);
+    Reflect.set(component, 'stage', {
+      nativeElement: { getBoundingClientRect: () => ({ left: 0, width: 1000 }) },
+    });
+    return component;
+  }
+
+  function tapAt(component: ReaderComponent, target: HTMLElement, clientX: number) {
+    component.onScoreTap({ target, clientX } as unknown as MouseEvent);
+  }
+
+  it('does not turn the page when the overlay is tapped', () => {
+    const component = readerOnPage(2, 5);
+    const overlay = document.createElement('app-metronome');
+    overlay.className = 'reader-metronome';
+    const button = overlay.appendChild(document.createElement('button'));
+
+    tapAt(component, button, 900);
+    tapAt(component, button, 100);
+    expect(Reflect.get(component, 'currentPage')()).toBe(2);
+  });
+
+  it('still turns pages from the score while the metronome is open', () => {
+    const component = readerOnPage(2, 5);
+    component.toggleMetronome();
+    const score = document.createElement('canvas');
+
+    tapAt(component, score, 900);
+    expect(Reflect.get(component, 'currentPage')()).toBe(3);
+    tapAt(component, score, 100);
+    expect(Reflect.get(component, 'currentPage')()).toBe(2);
+    component.ngOnDestroy();
+  });
+
+  it('opens and closes without touching the page', () => {
+    const component = readerOnPage(1, 3);
+    component.toggleMetronome();
+    expect(Reflect.get(component, 'metronomeOpen')()).toBe(true);
+    component.toggleMetronome();
+    expect(Reflect.get(component, 'metronomeOpen')()).toBe(false);
+    expect(Reflect.get(component, 'currentPage')()).toBe(1);
+  });
+});
+
 describe('pageDeltaForKey', () => {
   it('maps keyboard and pedal-style navigation keys', () => {
     expect(pageDeltaForKey('PageDown')).toBe(1);

@@ -1,0 +1,90 @@
+<section class="metronome" aria-label="Metronome" (pointerup)="releaseFocus()">
+  <div class="tempo-row">
+    <button
+      class="step-button"
+      type="button"
+      aria-label="Slower"
+      title="Slower"
+      [disabled]="bpm() <= minBpm"
+      (click)="adjustBpm(-1)"
+    >
+      <svg lucideMinus aria-hidden="true"></svg>
+    </button>
+    <div class="tempo-readout">
+      <output aria-live="off">{{ bpm() }}</output>
+      <span>BPM</span>
+    </div>
+    <button
+      class="step-button"
+      type="button"
+      aria-label="Faster"
+      title="Faster"
+      [disabled]="bpm() >= maxBpm"
+      (click)="adjustBpm(1)"
+    >
+      <svg lucidePlus aria-hidden="true"></svg>
+    </button>
+    <input
+      class="tempo-slider"
+      type="range"
+      aria-label="Tempo in beats per minute"
+      [min]="minBpm"
+      [max]="maxBpm"
+      step="1"
+      [value]="bpm()"
+      (input)="changeBpm($event)"
+    />
+  </div>
+
+  <div class="beats-row" role="group" aria-label="Beats per bar">
+    <button
+      class="step-button"
+      type="button"
+      aria-label="Fewer beats per bar"
+      title="Fewer beats per bar"
+      [disabled]="beatsPerBar() <= minBeatsPerBar"
+      (click)="adjustBeats(-1)"
+    >
+      <svg lucideMinus aria-hidden="true"></svg>
+    </button>
+    <div class="beat-dots" role="img" [attr.aria-label]="beatsPerBar() + ' beats per bar'">
+      @for (beat of beats(); track beat) {
+        <span class="beat-dot" [class.accent]="beat === 0" [class.active]="beat === activeBeat()">
+        </span>
+      }
+    </div>
+    <button
+      class="step-button"
+      type="button"
+      aria-label="More beats per bar"
+      title="More beats per bar"
+      [disabled]="beatsPerBar() >= maxBeatsPerBar"
+      (click)="adjustBeats(1)"
+    >
+      <svg lucidePlus aria-hidden="true"></svg>
+    </button>
+  </div>
+
+  <div class="action-row">
+    <button class="tap-button" type="button" title="Tap the tempo" (click)="tap()">Tap</button>
+    <button
+      class="start-button"
+      type="button"
+      [attr.aria-pressed]="running()"
+      [title]="running() ? 'Stop metronome' : 'Start metronome'"
+      (click)="toggle()"
+    >
+      @if (running()) {
+        <svg lucidePause aria-hidden="true"></svg>
+        <span>Stop</span>
+      } @else {
+        <svg lucidePlay aria-hidden="true"></svg>
+        <span>Start</span>
+      }
+    </button>
+  </div>
+
+  @if (unavailable()) {
+    <p class="metronome-error" role="alert">Sound is unavailable in this browser.</p>
+  }
+</section>

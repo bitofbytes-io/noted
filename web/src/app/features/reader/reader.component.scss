@@ -144,8 +144,47 @@
     visibility 0s linear;
 }
 
+/*
+ * Hangs from the top bar's right edge: the bottom controls wrap to a variable height on
+ * phones. It hides with the chrome, so the score's page-turn zones are free while reading.
+ */
+.reader-metronome {
+  position: fixed;
+  z-index: 19;
+  right: max(12px, env(safe-area-inset-right));
+  top: calc(76px + env(safe-area-inset-top));
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  border: 1px solid rgb(255 255 255 / 24%);
+  background: rgb(26 26 26 / 94%);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 250ms ease,
+    visibility 0s linear 250ms;
+}
+
+.reader-metronome.open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition:
+    opacity 250ms ease,
+    visibility 0s linear;
+}
+
+.metronome-toggle.active {
+  background: rgb(255 255 255 / 14%);
+}
+
+.metronome-toggle.ticking {
+  background: var(--green);
+}
+
 .controls-hidden .reader-topbar,
-.controls-hidden .reader-controls {
+.controls-hidden .reader-controls,
+.controls-hidden .reader-metronome {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -343,6 +382,7 @@
 @media (prefers-reduced-motion: reduce) {
   .reader-topbar,
   .reader-controls,
+  .reader-metronome,
   .reader-controls-bubble {
     transition: none;
     animation: none;

@@ -28,7 +28,7 @@ One job: sit at the piano, pull up the iPad, search your digitized pieces, open 
 
 ### Explicitly deferred
 
-Documented, not built: practice tracking and weekly summaries, metronome,
+Documented, not built: practice tracking and weekly summaries,
 learning/lessons, OMR/MusicXML, synthesized or in-app/reference playback,
 playback synchronization, measure selection, annotations, automated IMSLP
 fetching (bot-blocked), photo-to-piece stitching, and sharing.
