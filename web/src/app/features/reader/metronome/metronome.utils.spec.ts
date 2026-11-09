@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   addTap,
   beatIntervalSeconds,
@@ -107,6 +107,15 @@ describe('remembered metronome settings', () => {
         memoryStorage({ [key]: JSON.stringify({ bpm: 9000, beatsPerBar: 'four' }) }),
       ),
     ).toEqual({ bpm: 240, beatsPerBar: 4 });
+  });
+
+  it('survives a browser that blocks access to localStorage itself', () => {
+    vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    expect(loadMetronomeSettings('piece-1')).toEqual(defaultMetronomeSettings);
+    expect(() => saveMetronomeSettings('piece-1', { bpm: 90, beatsPerBar: 4 })).not.toThrow();
+    vi.restoreAllMocks();
   });
 
   it('survives storage that throws', () => {

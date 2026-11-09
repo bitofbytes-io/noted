@@ -56,10 +56,12 @@ const storagePrefix = 'noted.metronome.';
 /** Reads the tempo last used with a piece; anything missing or malformed falls back to defaults. */
 export function loadMetronomeSettings(
   pieceId: string,
-  storage: Pick<Storage, 'getItem'> = localStorage,
+  storage?: Pick<Storage, 'getItem'>,
 ): MetronomeSettings {
   try {
-    const saved: unknown = JSON.parse(storage.getItem(storagePrefix + pieceId) ?? 'null');
+    // Reading `localStorage` itself throws when the browser blocks storage.
+    const source = storage ?? localStorage;
+    const saved: unknown = JSON.parse(source.getItem(storagePrefix + pieceId) ?? 'null');
     if (typeof saved !== 'object' || saved === null) return { ...defaultMetronomeSettings };
     const { bpm, beatsPerBar } = saved as Record<string, unknown>;
     return {
@@ -76,10 +78,10 @@ export function loadMetronomeSettings(
 export function saveMetronomeSettings(
   pieceId: string,
   settings: MetronomeSettings,
-  storage: Pick<Storage, 'setItem'> = localStorage,
+  storage?: Pick<Storage, 'setItem'>,
 ): void {
   try {
-    storage.setItem(storagePrefix + pieceId, JSON.stringify(settings));
+    (storage ?? localStorage).setItem(storagePrefix + pieceId, JSON.stringify(settings));
   } catch {
     // Private browsing or a full quota must not interrupt practice.
   }

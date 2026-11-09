@@ -68,6 +68,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   @ViewChild('stage', { static: true }) private stage!: ElementRef<HTMLElement>;
   @ViewChild('topbar') private topbar?: ElementRef<HTMLElement>;
   @ViewChild('controls') private controls?: ElementRef<HTMLElement>;
+  @ViewChild('metronome', { read: ElementRef }) private metronome?: ElementRef<HTMLElement>;
   @ViewChildren('scoreCanvas') private canvases!: QueryList<ElementRef<HTMLCanvasElement>>;
   @ViewChildren('scrollPage') private scrollPages!: QueryList<ElementRef<HTMLElement>>;
   private readonly api = inject(ApiService);
@@ -249,8 +250,10 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.queueSave();
   }
 
-  toggleMetronome(): void {
+  toggleMetronome(event?: MouseEvent): void {
     this.metronomeOpen.update((open) => !open);
+    // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
+    if (event && event.detail > 0) (event.currentTarget as HTMLElement | null)?.blur();
   }
 
   changeSpeed(event: Event): void {
@@ -605,7 +608,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       const activeElement = document.activeElement;
       if (
         (activeElement && this.topbar?.nativeElement.contains(activeElement)) ||
-        (activeElement && this.controls?.nativeElement.contains(activeElement))
+        (activeElement && this.controls?.nativeElement.contains(activeElement)) ||
+        (activeElement && this.metronome?.nativeElement.contains(activeElement))
       ) {
         this.scheduleHide();
         return;

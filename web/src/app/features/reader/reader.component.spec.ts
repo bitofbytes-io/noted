@@ -618,6 +618,46 @@ describe('ReaderComponent metronome overlay', () => {
     component.ngOnDestroy();
   });
 
+  it('releases focus from the toggle after a pointer press but not a keyboard press', () => {
+    const component = readerOnPage(1, 3);
+    const toggle = document.createElement('button');
+    document.body.appendChild(toggle);
+
+    toggle.focus();
+    component.toggleMetronome({ detail: 1, currentTarget: toggle } as unknown as MouseEvent);
+    expect(document.activeElement).not.toBe(toggle);
+
+    toggle.focus();
+    component.toggleMetronome({ detail: 0, currentTarget: toggle } as unknown as MouseEvent);
+    expect(document.activeElement).toBe(toggle);
+    toggle.remove();
+  });
+
+  it('keeps the chrome visible while a metronome control has keyboard focus', () => {
+    vi.useFakeTimers();
+    try {
+      const component = readerOnPage(1, 3);
+      Reflect.get(component, 'loading').set(false);
+      const panel = document.createElement('div');
+      const button = panel.appendChild(document.createElement('button'));
+      document.body.appendChild(panel);
+      Reflect.set(component, 'metronome', new ElementRef(panel));
+
+      button.focus();
+      component.onChromeActivity();
+      vi.advanceTimersByTime(3100);
+      expect(Reflect.get(component, 'controlsVisible')()).toBe(true);
+
+      button.blur();
+      vi.advanceTimersByTime(3100);
+      expect(Reflect.get(component, 'controlsVisible')()).toBe(false);
+      panel.remove();
+      component.ngOnDestroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('opens and closes without touching the page', () => {
     const component = readerOnPage(1, 3);
     component.toggleMetronome();
