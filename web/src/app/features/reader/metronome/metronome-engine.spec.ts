@@ -12,7 +12,7 @@ interface ScheduledClick {
 }
 
 /** A hand-cranked audio clock and timer queue, so scheduling can be checked deterministically. */
-function fakeAudio() {
+function fakeAudio(options: { resumeFails?: boolean } = {}) {
   const clicks: ScheduledClick[] = [];
   let now = 0;
   let closed = false;
@@ -21,7 +21,8 @@ function fakeAudio() {
       return now;
     },
     destination: {},
-    resume: () => Promise.resolve(),
+    resume: () =>
+      options.resumeFails ? Promise.reject(new Error('no device')) : Promise.resolve(),
     close: () => {
       closed = true;
       return Promise.resolve();
@@ -73,6 +74,13 @@ function fakeAudio() {
     },
     get hasPendingTimer() {
       return pending !== undefined;
+    },
+    /** Stalls the page: the audio clock runs on, but the scheduler wakes only once, afterwards. */
+    stall(seconds: number) {
+      now += seconds;
+      const timer = pending;
+      pending = undefined;
+      timer?.handler();
     },
     /** Advances the audio clock in timer-sized steps, firing the scheduler each time. */
     advance(seconds: number, jitter = 0) {
@@ -206,6 +214,38 @@ describe('MetronomeEngine', () => {
     });
     expect(engine.start(120, 4)).toBe(false);
     expect(engine.running).toBe(false);
+  });
+
+  it('skips beats missed during a stall and resumes on the pulse', () => {
+    const audio = fakeAudio();
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const beats: number[] = [];
+    engine.onBeat = (beat) => beats.push(beat);
+    engine.start(120, 4);
+    const before = audio.clicks.length;
+
+    audio.stall(2);
+    audio.advance(0.2);
+
+    const resumed = audio.clicks.slice(before);
+    expect(resumed.map((click) => click.when)).toEqual([expect.closeTo(2.06, 10)]);
+    expect(beats).toEqual([0, 0]);
+    engine.stop();
+  });
+
+  it('stops and reports when the audio device refuses to start', async () => {
+    const audio = fakeAudio({ resumeFails: true });
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const failed = vi.fn();
+    engine.onFailure = failed;
+
+    expect(engine.start(120, 4)).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(engine.running).toBe(false);
+    expect(audio.closed).toBe(true);
   });
 
   it('never uses setInterval', () => {

@@ -152,6 +152,26 @@ describe('MetronomeComponent', () => {
     vi.restoreAllMocks();
   });
 
+  it('drops back to Start and says so when the audio device fails to start', async () => {
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        override resume = () => Promise.reject(new Error('no device'));
+      },
+    );
+    const fixture = await render();
+    const running: boolean[] = [];
+    fixture.componentInstance.runningChange.subscribe((value) => running.push(value));
+
+    button(fixture, 'Start').click();
+    await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
+
+    expect(running).toEqual([true, false]);
+    expect(button(fixture, 'Start').getAttribute('aria-pressed')).toBe('false');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
   it('says so when sound is unavailable', async () => {
     vi.stubGlobal('AudioContext', undefined);
     const fixture = await render();

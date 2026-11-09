@@ -58,6 +58,10 @@ export class MetronomeComponent implements OnInit, OnDestroy {
     this.bpm.set(saved.bpm);
     this.beatsPerBar.set(saved.beatsPerBar);
     this.engine.onBeat = (beat) => this.activeBeat.set(beat);
+    this.engine.onFailure = () => {
+      this.unavailable.set(true);
+      this.stopTicking();
+    };
   }
 
   ngOnDestroy(): void {

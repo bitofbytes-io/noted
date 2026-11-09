@@ -35,6 +35,8 @@ export const schedulerIntervalMs = 25;
 export const scheduleAheadSeconds = 0.12;
 const startDelaySeconds = 0.06;
 const clickSeconds = 0.05;
+/** A beat later than this when the scheduler reaches it is skipped rather than played late. */
+const maxLateSeconds = 0.05;
 const accentHz = 1320;
 const beatHz = 880;
 
@@ -68,6 +70,9 @@ export class MetronomeEngine {
   /** Called near the moment each beat sounds, with its zero-based position in the bar. */
   onBeat?: (beat: number) => void;
 
+  /** Called when the audio device fails to start after `start()` had returned true. */
+  onFailure?: () => void;
+
   constructor(
     private readonly createContext: () => MetronomeAudioContext = createBrowserAudioContext,
     private readonly timers: MetronomeTimers = browserTimers,
@@ -92,7 +97,12 @@ export class MetronomeEngine {
     this.bpm = clampBpm(bpm);
     this.beatsPerBar = clampBeatsPerBar(beatsPerBar);
     this.context = context;
-    void context.resume().catch(() => undefined);
+    void context.resume().catch(() => {
+      // The device refused to start: don't leave the controls claiming silent ticking.
+      if (this.context !== context) return;
+      this.stop();
+      this.onFailure?.();
+    });
     this.beatIndex = 0;
     this.pendingBeats = [];
     this.nextBeatTime = context.currentTime + startDelaySeconds;
@@ -123,8 +133,11 @@ export class MetronomeEngine {
     if (!context) return;
     while (this.nextBeatTime < context.currentTime + scheduleAheadSeconds) {
       const beat = this.beatIndex % this.beatsPerBar;
-      this.scheduleClick(context, this.nextBeatTime, beat === 0);
-      this.pendingBeats.push({ time: this.nextBeatTime, beat });
+      // After a stall, play on from the next pulse instead of bursting out the missed ones.
+      if (this.nextBeatTime >= context.currentTime - maxLateSeconds) {
+        this.scheduleClick(context, this.nextBeatTime, beat === 0);
+        this.pendingBeats.push({ time: this.nextBeatTime, beat });
+      }
       this.nextBeatTime += beatIntervalSeconds(this.bpm);
       this.beatIndex = (beat + 1) % this.beatsPerBar;
     }
