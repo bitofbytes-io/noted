@@ -91,6 +91,13 @@
   max-width: none;
 }
 
+/* Two pages side by side; the gap matches `spreadGap` in reader.utils.ts. */
+.page-stage.spread {
+  grid-auto-flow: column;
+  place-content: safe center;
+  gap: 8px;
+}
+
 .scroll-score {
   min-width: 100%;
   width: max-content;
@@ -229,6 +236,7 @@
 
 .icon-button,
 .play-button,
+.layout-toggle,
 .mode-control button {
   flex: 0 0 auto;
   min-width: 44px;
@@ -280,9 +288,21 @@
   background: var(--green);
 }
 
-.mode-control svg {
+.mode-control svg,
+.layout-toggle svg {
   width: 17px;
   height: 17px;
+}
+
+.layout-toggle {
+  width: 56px;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.layout-toggle:hover {
+  background: rgb(255 255 255 / 10%);
 }
 
 .compact-page,
