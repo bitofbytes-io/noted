@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   MetronomeAudioContext,
+  MetronomeAudioState,
   MetronomeEngine,
   MetronomeTimers,
   schedulerIntervalMs,
@@ -12,13 +13,18 @@ interface ScheduledClick {
 }
 
 /** A hand-cranked audio clock and timer queue, so scheduling can be checked deterministically. */
-function fakeAudio(options: { resumeFails?: boolean } = {}) {
+function fakeAudio(options: { resumeFails?: boolean; state?: MetronomeAudioState } = {}) {
   const clicks: ScheduledClick[] = [];
   let now = 0;
   let closed = false;
+  let state: MetronomeAudioState = options.state ?? 'running';
+  const stateListeners = new Set<() => void>();
   const context: MetronomeAudioContext = {
     get currentTime() {
       return now;
+    },
+    get state() {
+      return state;
     },
     destination: {},
     resume: () =>
@@ -26,6 +32,12 @@ function fakeAudio(options: { resumeFails?: boolean } = {}) {
     close: () => {
       closed = true;
       return Promise.resolve();
+    },
+    addEventListener: (type, listener) => {
+      if (type === 'statechange') stateListeners.add(listener);
+    },
+    removeEventListener: (type, listener) => {
+      if (type === 'statechange') stateListeners.delete(listener);
     },
     createOscillator: () => {
       const click: Partial<ScheduledClick> = {};
@@ -74,6 +86,11 @@ function fakeAudio(options: { resumeFails?: boolean } = {}) {
     },
     get hasPendingTimer() {
       return pending !== undefined;
+    },
+    /** Moves the device into `state` and reports it, the way a browser `statechange` does. */
+    setState(next: MetronomeAudioState) {
+      state = next;
+      for (const listener of [...stateListeners]) listener();
     },
     /** Stalls the page: the audio clock runs on, but the scheduler wakes only once, afterwards. */
     stall(seconds: number) {
@@ -231,6 +248,68 @@ describe('MetronomeEngine', () => {
     expect(resumed.map((click) => click.when)).toEqual([expect.closeTo(2.06, 10)]);
     expect(beats).toEqual([0, 0]);
     engine.stop();
+  });
+
+  it('ignores the suspended state a new context starts in', () => {
+    const audio = fakeAudio({ state: 'suspended' });
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const failed = vi.fn();
+    engine.onFailure = failed;
+
+    engine.start(120, 4);
+    audio.setState('suspended');
+
+    expect(failed).not.toHaveBeenCalled();
+    expect(engine.running).toBe(true);
+    expect(audio.hasPendingTimer).toBe(true);
+    engine.stop();
+  });
+
+  it('stops the clock when a running context is interrupted', () => {
+    const audio = fakeAudio();
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const failed = vi.fn();
+    engine.onFailure = failed;
+    engine.start(120, 4);
+    audio.advance(0.5);
+    const scheduled = audio.clicks.length;
+
+    audio.setState('interrupted');
+    audio.advance(2);
+
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(engine.running).toBe(false);
+    expect(audio.closed).toBe(true);
+    expect(audio.hasPendingTimer).toBe(false);
+    expect(audio.clicks.length).toBe(scheduled);
+  });
+
+  it('stops the clock when a running context is suspended', () => {
+    const audio = fakeAudio();
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const failed = vi.fn();
+    engine.onFailure = failed;
+    engine.start(120, 4);
+
+    audio.setState('suspended');
+
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(engine.running).toBe(false);
+    expect(audio.hasPendingTimer).toBe(false);
+  });
+
+  it('does not report a failure when stop closes the context', () => {
+    const audio = fakeAudio();
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const failed = vi.fn();
+    engine.onFailure = failed;
+    engine.start(120, 4);
+
+    engine.stop();
+    audio.setState('closed');
+
+    expect(failed).not.toHaveBeenCalled();
+    expect(engine.running).toBe(false);
   });
 
   it('stops and reports when the audio device refuses to start', async () => {

@@ -40,6 +40,9 @@ export class MetronomeComponent implements OnInit, OnDestroy {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly engine = new MetronomeEngine();
   private taps: number[] = [];
+  /** Bumped so an older pointer-release timer cannot blur a newer one. */
+  private pointerReleaseId = 0;
+  private pointerFocusRelease?: ReturnType<typeof setTimeout>;
   protected readonly minBpm = minBpm;
   protected readonly maxBpm = maxBpm;
   protected readonly minBeatsPerBar = minBeatsPerBar;
@@ -59,12 +62,16 @@ export class MetronomeComponent implements OnInit, OnDestroy {
     this.beatsPerBar.set(saved.beatsPerBar);
     this.engine.onBeat = (beat) => this.activeBeat.set(beat);
     this.engine.onFailure = () => {
-      this.unavailable.set(true);
+      // Hiding the page stops the clock on its own. An interruption while the score is visible
+      // is the device going silent under a control that still says Stop.
+      if (document.visibilityState !== 'hidden') this.unavailable.set(true);
       this.stopTicking();
     };
   }
 
   ngOnDestroy(): void {
+    this.pointerReleaseId++;
+    this.clearPointerFocusRelease();
     this.stopTicking();
   }
 
@@ -112,12 +119,20 @@ export class MetronomeComponent implements OnInit, OnDestroy {
   /**
    * Hands keyboard focus back to the page after a pointer press, so a Bluetooth page-turn pedal
    * (which sends Space, Enter or arrow keys) turns the page instead of re-pressing a button.
+   * Touch browsers may focus the control from compatibility mouse events dispatched after
+   * pointerup, so the focused element is read again once that sequence has had a turn to land.
+   * A keyboard click (detail 0) keeps focus so the control stays operable.
    */
-  releaseFocus(): void {
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && this.host.nativeElement.contains(active)) {
-      setTimeout(() => active.blur());
-    }
+  releaseFocus(event?: Event): void {
+    if (event instanceof MouseEvent && event.type === 'click' && event.detail === 0) return;
+    this.schedulePointerFocusRelease();
+  }
+
+  /** A focus move while the pointer sequence is still settling is part of that press. */
+  @HostListener('focusin')
+  onFocusIn(): void {
+    if (this.pointerFocusRelease === undefined) return;
+    this.schedulePointerFocusRelease();
   }
 
   private setBpm(value: number): void {
@@ -141,5 +156,34 @@ export class MetronomeComponent implements OnInit, OnDestroy {
       bpm: this.bpm(),
       beatsPerBar: this.beatsPerBar(),
     });
+  }
+
+  private schedulePointerFocusRelease(): void {
+    const releaseId = ++this.pointerReleaseId;
+    this.clearPointerFocusRelease();
+    // The first turn covers focus that is already on the control. The second covers mouse
+    // events queued after pointerup. A later pointer click arms this again.
+    this.pointerFocusRelease = setTimeout(() => {
+      if (releaseId !== this.pointerReleaseId) return;
+      this.blurHostedFocus();
+      // A focus move during the blur starts its own release and must keep that timer.
+      if (releaseId !== this.pointerReleaseId) return;
+      this.pointerFocusRelease = setTimeout(() => {
+        if (releaseId !== this.pointerReleaseId) return;
+        this.pointerFocusRelease = undefined;
+        this.blurHostedFocus();
+      });
+    });
+  }
+
+  private clearPointerFocusRelease(): void {
+    if (this.pointerFocusRelease === undefined) return;
+    clearTimeout(this.pointerFocusRelease);
+    this.pointerFocusRelease = undefined;
+  }
+
+  private blurHostedFocus(): void {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && this.host.nativeElement.contains(active)) active.blur();
   }
 }

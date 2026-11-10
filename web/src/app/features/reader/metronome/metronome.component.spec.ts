@@ -5,16 +5,35 @@ import { MetronomeComponent } from './metronome.component';
 class FakeAudioContext {
   static created = 0;
   static closed = 0;
+  static latest: FakeAudioContext | undefined;
   currentTime = 0;
   destination = {};
+  state: 'suspended' | 'running' | 'closed' | 'interrupted' = 'suspended';
+  private readonly stateListeners = new Set<() => void>();
   constructor() {
     FakeAudioContext.created++;
+    FakeAudioContext.latest = this;
   }
-  resume = () => Promise.resolve();
-  close = () => {
-    FakeAudioContext.closed++;
+  resume = () => {
+    this.state = 'running';
     return Promise.resolve();
   };
+  close = () => {
+    FakeAudioContext.closed++;
+    this.state = 'closed';
+    return Promise.resolve();
+  };
+  addEventListener(type: string, listener: () => void): void {
+    if (type === 'statechange') this.stateListeners.add(listener);
+  }
+  removeEventListener(type: string, listener: () => void): void {
+    if (type === 'statechange') this.stateListeners.delete(listener);
+  }
+  /** Reports a later device state the way a browser `statechange` event does. */
+  emit(state: FakeAudioContext['state']): void {
+    this.state = state;
+    for (const listener of [...this.stateListeners]) listener();
+  }
   createOscillator = () => ({
     frequency: { value: 0 },
     connect: () => undefined,
@@ -41,11 +60,16 @@ function readout(fixture: ComponentFixture<MetronomeComponent>): string {
   return fixture.nativeElement.querySelector('output').textContent.trim();
 }
 
+function later(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
 describe('MetronomeComponent', () => {
   beforeEach(() => {
     localStorage.clear();
     FakeAudioContext.created = 0;
     FakeAudioContext.closed = 0;
+    FakeAudioContext.latest = undefined;
     vi.stubGlobal('AudioContext', FakeAudioContext);
   });
 
@@ -137,8 +161,68 @@ describe('MetronomeComponent', () => {
     expect(document.activeElement).toBe(start);
 
     fixture.nativeElement.querySelector('.metronome').dispatchEvent(new Event('pointerup'));
-    await new Promise((resolve) => setTimeout(resolve));
+    await later();
     expect(document.activeElement).not.toBe(start);
+    fixture.nativeElement.remove();
+  });
+
+  it('blurs a control that touch compatibility mouse events focus after pointerup', async () => {
+    const fixture = await render();
+    document.body.appendChild(fixture.nativeElement);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    const start = button(fixture, 'Start');
+    const panel = fixture.nativeElement.querySelector('.metronome') as HTMLElement;
+    // The reader drops pedal keys while focus is inside a button or slider.
+    panel.addEventListener('pointerup', () => start.focus(), { once: true });
+
+    panel.dispatchEvent(new Event('pointerup'));
+    await later();
+
+    expect(document.activeElement).not.toBe(start);
+    await later();
+    start.focus();
+    await later();
+    await later();
+    expect(document.activeElement).toBe(start);
+    outside.remove();
+    fixture.nativeElement.remove();
+  });
+
+  it('blurs a control focused by the click that follows pointerup', async () => {
+    const fixture = await render();
+    document.body.appendChild(fixture.nativeElement);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    const start = button(fixture, 'Start');
+    const panel = fixture.nativeElement.querySelector('.metronome') as HTMLElement;
+
+    panel.dispatchEvent(new Event('pointerup'));
+    await later();
+    await later();
+    panel.addEventListener('click', () => start.focus(), { once: true });
+    panel.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    await later();
+
+    expect(document.activeElement).not.toBe(start);
+    outside.remove();
+    fixture.nativeElement.remove();
+  });
+
+  it('keeps keyboard focus when a control is activated from the keyboard', async () => {
+    const fixture = await render();
+    document.body.appendChild(fixture.nativeElement);
+    const start = button(fixture, 'Start');
+    const panel = fixture.nativeElement.querySelector('.metronome') as HTMLElement;
+    start.focus();
+
+    panel.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    await later();
+    await later();
+
+    expect(document.activeElement).toBe(start);
     fixture.nativeElement.remove();
   });
 
@@ -170,6 +254,47 @@ describe('MetronomeComponent', () => {
     expect(running).toEqual([true, false]);
     expect(button(fixture, 'Start').getAttribute('aria-pressed')).toBe('false');
     expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it('drops back to Start when a playing metronome is interrupted', async () => {
+    const fixture = await render();
+    const running: boolean[] = [];
+    fixture.componentInstance.runningChange.subscribe((value) => running.push(value));
+    button(fixture, 'Start').click();
+    await fixture.whenStable();
+    expect(button(fixture, 'Stop').getAttribute('aria-pressed')).toBe('true');
+
+    FakeAudioContext.latest?.emit('interrupted');
+    await fixture.whenStable();
+
+    expect(running).toEqual([true, false]);
+    expect(button(fixture, 'Start').getAttribute('aria-pressed')).toBe('false');
+    expect(fixture.nativeElement.querySelector('.beat-dot.active')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
+    expect(FakeAudioContext.closed).toBe(1);
+  });
+
+  it('stops when a hidden page suspends the audio without saying sound is unavailable', async () => {
+    const fixture = await render();
+    button(fixture, 'Start').click();
+    await fixture.whenStable();
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+
+    FakeAudioContext.latest?.emit('suspended');
+    await fixture.whenStable();
+
+    expect(button(fixture, 'Start').getAttribute('aria-pressed')).toBe('false');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+    expect(FakeAudioContext.closed).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it('gives the tempo slider a 44px touch target', async () => {
+    const fixture = await render();
+    const slider = fixture.nativeElement.querySelector('.tempo-slider') as HTMLElement;
+    const style = getComputedStyle(slider);
+    expect(parseFloat(style.minHeight)).toBeGreaterThanOrEqual(44);
+    expect(parseFloat(style.height)).toBeGreaterThanOrEqual(44);
   });
 
   it('says so when sound is unavailable', async () => {

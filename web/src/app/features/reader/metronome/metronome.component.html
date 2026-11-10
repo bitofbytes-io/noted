@@ -1,4 +1,9 @@
-<section class="metronome" aria-label="Metronome" (pointerup)="releaseFocus()">
+<section
+  class="metronome"
+  aria-label="Metronome"
+  (pointerup)="releaseFocus($event)"
+  (click)="releaseFocus($event)"
+>
   <div class="tempo-row">
     <button
       class="step-button"
