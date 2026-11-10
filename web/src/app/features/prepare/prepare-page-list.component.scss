@@ -1,0 +1,165 @@
+@use './prepare-shared';
+
+:host {
+  display: block;
+  border-right: 1px solid var(--line);
+  padding-right: 20px;
+}
+
+.icon-button.framed {
+  border-color: var(--ink);
+}
+
+.icon-button.framed:hover:not(:disabled) {
+  background: var(--green-soft);
+  color: var(--ink);
+}
+
+.source-range {
+  margin-bottom: 16px;
+  font-size: var(--text-meta);
+}
+
+.source-range summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.source-range .field {
+  margin: 8px 0 12px;
+}
+
+.source-range .btn-secondary {
+  width: 100%;
+}
+
+.thumbs {
+  display: grid;
+  gap: 12px;
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.thumbnail {
+  position: relative;
+  padding: 3px;
+  border: 2px solid transparent;
+  transition: border-color 150ms ease;
+}
+
+.thumbnail.active {
+  border-color: var(--green);
+}
+
+.thumbnail button {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.thumbnail button:disabled {
+  cursor: default;
+}
+
+.thumbnail.active button {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.thumbnail img {
+  width: 100%;
+  display: block;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.adjusted-marker {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.thumbnail input {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+}
+
+.placeholder {
+  height: 130px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rail-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.rail-tools .btn-secondary {
+  grid-column: 1 / -1;
+}
+
+.rail-tools .icon-button.framed {
+  width: 100%;
+}
+
+@media (max-width: 1000px) {
+  :host {
+    padding-right: 10px;
+  }
+
+  .rail-tools {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  :host {
+    border: 0;
+    padding: 0;
+  }
+
+  .thumbs {
+    display: flex;
+    gap: 8px;
+    max-height: 160px;
+    overflow-x: auto;
+  }
+
+  .thumbnail {
+    min-width: 84px;
+    max-width: 84px;
+  }
+
+  .thumbnail img {
+    height: 95px;
+    object-fit: contain;
+  }
+
+  .rail-tools {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .rail-tools .icon-button.framed {
+    width: var(--tap-min);
+  }
+}

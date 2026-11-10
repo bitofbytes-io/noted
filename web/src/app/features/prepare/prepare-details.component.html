@@ -1,0 +1,75 @@
+@let d = store.draft()!;
+<div class="details-form">
+  <h2>Details</h2>
+  <p class="lede">Title and composer are what you will search for in the library.</p>
+  <label class="field">
+    <span>Title</span>
+    <input
+      [ngModel]="d.metadata.title"
+      (ngModelChange)="store.updateMetadata('title', $event)"
+      [disabled]="store.busy()"
+      maxlength="300"
+      required
+    />
+  </label>
+  <label class="field">
+    <span>Composer</span>
+    <input
+      [ngModel]="d.metadata.composer"
+      (ngModelChange)="store.updateMetadata('composer', $event)"
+      [disabled]="store.busy()"
+      maxlength="300"
+    />
+  </label>
+  <label class="field">
+    <span>Source link</span>
+    <input
+      type="url"
+      [ngModel]="d.metadata.sourceUrl"
+      (ngModelChange)="store.updateMetadata('sourceUrl', $event)"
+      [disabled]="store.busy()"
+      maxlength="2000"
+    />
+  </label>
+  <label class="field">
+    <span>Listening URL</span>
+    <input
+      type="url"
+      [ngModel]="d.metadata.listeningUrl"
+      (ngModelChange)="store.updateMetadata('listeningUrl', $event)"
+      [disabled]="store.busy()"
+      maxlength="2000"
+    />
+  </label>
+  <label class="field">
+    <span>Edition / notes</span>
+    <textarea
+      [ngModel]="d.metadata.notes"
+      (ngModelChange)="store.updateMetadata('notes', $event)"
+      [disabled]="store.busy()"
+      maxlength="10000"
+      rows="3"
+    ></textarea>
+  </label>
+  <label class="check-field">
+    <input
+      type="checkbox"
+      [ngModel]="d.metadata.favorite"
+      (ngModelChange)="store.updateMetadata('favorite', $event)"
+      [disabled]="store.busy()"
+    />
+    <span>Add to favorites</span>
+  </label>
+  <p class="hint">
+    Check page order, edges and small notation at reading size. Original files are retained so you
+    can revisit these adjustments.
+  </p>
+</div>
+<div class="review-stack">
+  @for (p of d.manifest.pages.slice(0, 3); track p.id) {
+    <img [src]="store.thumbs()[p.id]" alt="Score page thumbnail" />
+  }
+  <button class="btn-quiet accent" (click)="store.setStep('pages')" [disabled]="store.busy()">
+    Review pages
+  </button>
+</div>

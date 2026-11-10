@@ -1,0 +1,44 @@
+<input
+  #pdf
+  hidden
+  type="file"
+  accept="application/pdf"
+  multiple
+  [disabled]="store.busy()"
+  (change)="store.transfer.upload($event)"
+/>
+<input
+  #photos
+  hidden
+  type="file"
+  accept="image/jpeg,image/png"
+  multiple
+  [disabled]="store.busy()"
+  (change)="store.transfer.upload($event)"
+/>
+<input
+  #camera
+  hidden
+  type="file"
+  accept="image/*"
+  capture="environment"
+  [disabled]="store.busy()"
+  (change)="store.transfer.upload($event)"
+/>
+<input
+  #add
+  hidden
+  type="file"
+  accept="application/pdf,image/jpeg,image/png"
+  multiple
+  [disabled]="store.busy()"
+  (change)="store.transfer.upload($event)"
+/>
+<input
+  #replace
+  hidden
+  type="file"
+  accept="application/pdf,image/jpeg,image/png"
+  [disabled]="store.busy()"
+  (change)="store.transfer.upload($event, true)"
+/>

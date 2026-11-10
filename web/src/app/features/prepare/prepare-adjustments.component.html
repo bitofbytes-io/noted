@@ -1,0 +1,114 @@
+@let edits = store.edits;
+@if (store.page; as p) {
+  <h2 class="tabular">Page {{ store.selected() + 1 }}</h2>
+  <fieldset [disabled]="store.locked">
+    <legend>Page edges</legend>
+    <button class="btn-secondary" (click)="store.edges.begin()">Adjust page edges</button>
+    <small>Keep the part you want. The page fits your selection automatically.</small>
+  </fieldset>
+  @if (store.isPhoto) {
+    <fieldset [disabled]="store.locked">
+      <legend>Lighten paper</legend>
+      <label class="range-field">
+        <span class="range-head">
+          <span>Strength</span>
+          <output class="tabular">{{ edits.paperStrength }}%</output>
+        </span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          [ngModel]="edits.paperStrength"
+          (ngModelChange)="edits.changePaperStrength(+$event)"
+          (pointerdown)="edits.startGesture()"
+          (pointerup)="edits.endGesture()"
+          (pointercancel)="edits.endGesture()"
+          (keyup)="edits.endGesture()"
+          (blur)="edits.endGesture()"
+          aria-label="Lighten paper strength"
+        />
+      </label>
+      <small>0 keeps the original paper. Compare faint pencil marks as you increase it.</small>
+    </fieldset>
+  }
+  <fieldset [disabled]="store.locked">
+    <legend>Straighten</legend>
+    <label class="slider">
+      <input
+        type="range"
+        min="-10"
+        max="10"
+        step=".1"
+        [ngModel]="p.angle || 0"
+        (ngModelChange)="edits.change('angle', +$event)"
+        (pointerdown)="edits.startGesture()"
+        (pointerup)="edits.endGesture()"
+        (pointercancel)="edits.endGesture()"
+        (keyup)="edits.endGesture()"
+        (blur)="edits.endGesture()"
+        aria-label="Straighten angle"
+      />
+      <span class="degrees">
+        <input
+          #angleInput
+          class="text-input number tabular"
+          type="number"
+          min="-10"
+          max="10"
+          step=".1"
+          [ngModel]="p.angle || 0"
+          (ngModelChange)="edits.change('angle', +$event, angleInput)"
+          (blur)="edits.endGesture()"
+          aria-label="Angle in degrees"
+        />
+        <span aria-hidden="true">°</span>
+      </span>
+    </label>
+  </fieldset>
+  <details class="margin-controls">
+    <summary>Margins (optional)</summary>
+    <p class="hint">
+      Added white space outside your selected page. All zero means no added border.
+    </p>
+    <fieldset [disabled]="store.locked">
+      @for (label of marginLabels; track label; let i = $index) {
+        <label class="field">
+          <span>{{ label }} (mm)</span>
+          <input
+            class="tabular"
+            type="number"
+            min="0"
+            max="50"
+            step="1"
+            [ngModel]="edits.marginMM(i)"
+            (ngModelChange)="edits.changeMargin(i, +$event)"
+            (blur)="edits.endGesture()"
+            [attr.aria-label]="label + ' margin in millimetres'"
+          />
+        </label>
+      }
+    </fieldset>
+  </details>
+  <div class="actions">
+    <button class="btn-secondary small" (click)="edits.rotate()" [disabled]="store.locked">
+      Rotate 90°
+    </button>
+    <button
+      class="btn-secondary small"
+      (click)="store.views.fileInputs?.open('replace')"
+      [disabled]="store.locked"
+    >
+      Replace page
+    </button>
+    <button class="btn-secondary small danger" (click)="edits.remove()" [disabled]="store.locked">
+      Remove from this copy
+    </button>
+  </div>
+  <div class="actions">
+    <button class="btn-quiet" (click)="edits.resetPage()" [disabled]="store.locked">
+      Reset page
+    </button>
+    <button class="btn-quiet" (click)="edits.undo()" [disabled]="store.locked">Undo</button>
+  </div>
+}
