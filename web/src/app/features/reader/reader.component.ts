@@ -506,6 +506,11 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
           };
         }
       } finally {
+        // Safari counts canvas backing stores against a memory budget until they are collected.
+        renderCanvases.forEach((canvas) => {
+          canvas.width = 0;
+          canvas.height = 0;
+        });
         this.pageRenderInFlight = false;
         const requestChanged =
           this.renderGeneration !== generation ||
