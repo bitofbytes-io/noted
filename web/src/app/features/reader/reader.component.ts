@@ -116,7 +116,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   );
   /** The pages page mode shows: one, or a pair that starts on an odd page and may end alone. */
   protected readonly visiblePages = computed(() => {
-    if (!this.spreading()) return [this.currentPage()];
+    if (this.mode() !== 'page' || !this.spreading()) return [this.currentPage()];
     const start = spreadStartPage(this.currentPage());
     return start < this.metrics().length ? [start, start + 1] : [start];
   });
@@ -720,7 +720,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       pieceId: this.pieceId,
       pdfChecksumSha256: this.loadedPDFChecksum,
       mode: this.mode(),
-      lastPage: this.currentPage(),
+      lastPage: this.mode() === 'page' ? this.visiblePages()[0] : this.currentPage(),
       scrollPosition: this.mode() === 'scroll' ? this.stage.nativeElement.scrollTop : 0,
       zoom: this.zoom(),
       scrollSpeed: this.speed(),

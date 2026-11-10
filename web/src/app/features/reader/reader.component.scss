@@ -94,7 +94,7 @@
 /* Two pages side by side; the gap matches `spreadGap` in reader.utils.ts. */
 .page-stage.spread {
   grid-auto-flow: column;
-  place-content: center;
+  place-content: safe center;
   gap: 8px;
 }
 

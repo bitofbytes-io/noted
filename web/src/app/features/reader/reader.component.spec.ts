@@ -742,6 +742,31 @@ describe('ReaderComponent two-page spread', () => {
     expect(visible(component)).toEqual([3, 4]);
   });
 
+  it('labels one page in scroll mode even on a wide landscape viewport', () => {
+    const component = readerIn(1366, 1024, 6, 4);
+    Reflect.get(component, 'mode').set('scroll');
+    expect(visible(component)).toEqual([4]);
+    expect(Reflect.get(component, 'pageLabel')()).toBe('4');
+  });
+
+  it('saves the left page of the spread so a narrower screen resumes there', () => {
+    const saveReaderState = vi.fn((_id: string, _state: ReaderState) => new Subject<void>());
+    const component = createReaderComponent({ saveReaderState });
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: 6 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
+    );
+    Reflect.get(component, 'viewport').set({ width: 1366, height: 1024 });
+    Reflect.get(component, 'currentPage').set(4);
+    Reflect.set(component, 'pieceId', 'piece');
+    Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
+    Reflect.get(component, 'loading').set(false);
+    (Reflect.get(component, 'saveNow') as () => void).call(component);
+
+    expect(saveReaderState.mock.calls[0][1]).toMatchObject({ mode: 'page', lastPage: 3 });
+    Reflect.get(component, 'loading').set(true);
+    component.ngOnDestroy();
+  });
+
   it('pairs from an odd page when a spread opens on an even page', () => {
     const component = readerIn(1366, 1024, 6, 4);
     expect(visible(component)).toEqual([3, 4]);
