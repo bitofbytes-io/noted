@@ -83,6 +83,23 @@
     </button>
   }
 
+  @if (!loading() && !error() && piece(); as loadedPiece) {
+    <app-metronome
+      #metronome
+      class="reader-metronome"
+      [class.open]="metronomeOpen()"
+      [pieceId]="loadedPiece.id"
+      [attr.aria-hidden]="chromeVisible() && metronomeOpen() ? null : 'true'"
+      [attr.inert]="chromeVisible() && metronomeOpen() ? null : ''"
+      (pointerdown)="$event.stopPropagation(); onChromeActivity()"
+      (pointermove)="onChromePointerMove($event)"
+      (click)="$event.stopPropagation(); onChromeActivity()"
+      (keydown)="onChromeActivity()"
+      (focusin)="onChromeActivity()"
+      (runningChange)="metronomeRunning.set($event)"
+    />
+  }
+
   <nav
     #controls
     class="reader-controls"
@@ -168,6 +185,19 @@
         <output>{{ speed() }}</output>
       </label>
     }
+
+    <button
+      class="icon-button metronome-toggle"
+      type="button"
+      aria-label="Metronome"
+      title="Metronome"
+      [class.active]="metronomeOpen()"
+      [class.ticking]="metronomeRunning()"
+      [attr.aria-pressed]="metronomeOpen()"
+      (click)="toggleMetronome($event)"
+    >
+      <svg lucideMetronome aria-hidden="true"></svg>
+    </button>
 
     <div class="zoom-control">
       <button

@@ -164,6 +164,14 @@ are not a production rollback procedure.
   page and auto-scroll modes. The wake lock is released when the reader is
   hidden, closed, or fails to load, and reacquired when the visible reader
   resumes; unsupported or denied wake locks do not interrupt reading.
+- BND-041: A metronome button in the reader controls opens a compact panel with
+  BPM (40–240), tap-tempo, start/stop, and beats per bar with an accented first
+  beat. Clicks are scheduled on the Web Audio clock, so they stay in time. The
+  panel sits above the controls, hides with them, and never covers the score's
+  tap zones; after a pointer press it hands keyboard focus back so a pedal turns
+  pages. Ticking stops when the page is hidden or the reader closes. The last
+  BPM and beats per bar are remembered per piece in this browser's local
+  storage; nothing is sent to the server.
 
 ### Quality and operations
 
@@ -179,7 +187,7 @@ are not a production rollback procedure.
 
 ## Deferred
 
-Practice tracking, weekly summaries, metronome, learning, OMR, MusicXML,
+Practice tracking, weekly summaries, learning, OMR, MusicXML,
 synthesized or in-app/reference playback, playback synchronization, annotations,
 IMSLP fetching, photo stitching, sharing, and offline mode are not part of v1.
 

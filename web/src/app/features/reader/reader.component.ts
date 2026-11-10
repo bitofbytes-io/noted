@@ -19,6 +19,7 @@ import {
   LucideChevronLeft,
   LucideChevronRight,
   LucideMaximize2,
+  LucideMetronome,
   LucideMinus,
   LucidePause,
   LucidePlay,
@@ -31,6 +32,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { rememberedLibraryParams } from '../../core/library-address';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { measureAsync } from '../../core/performance';
+import { MetronomeComponent } from './metronome/metronome.component';
 import { PageMetric, PdfDocument } from './pdf-document.service';
 import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
 import { ScreenWakeLock } from './screen-wake-lock';
@@ -46,10 +48,12 @@ interface ScrollRenderRequest {
   selector: 'app-reader',
   imports: [
     DecimalPipe,
+    MetronomeComponent,
     LucideArrowLeft,
     LucideChevronLeft,
     LucideChevronRight,
     LucideMaximize2,
+    LucideMetronome,
     LucideMinus,
     LucidePause,
     LucidePlay,
@@ -64,6 +68,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   @ViewChild('stage', { static: true }) private stage!: ElementRef<HTMLElement>;
   @ViewChild('topbar') private topbar?: ElementRef<HTMLElement>;
   @ViewChild('controls') private controls?: ElementRef<HTMLElement>;
+  @ViewChild('metronome', { read: ElementRef }) private metronome?: ElementRef<HTMLElement>;
   @ViewChildren('scoreCanvas') private canvases!: QueryList<ElementRef<HTMLCanvasElement>>;
   @ViewChildren('scrollPage') private scrollPages!: QueryList<ElementRef<HTMLElement>>;
   private readonly api = inject(ApiService);
@@ -81,6 +86,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   protected readonly zoom = signal(1);
   protected readonly speed = signal(5);
   protected readonly paused = signal(true);
+  protected readonly metronomeOpen = signal(false);
+  protected readonly metronomeRunning = signal(false);
   protected readonly controlsVisible = signal(true);
   protected readonly controlsBubbleVisible = signal(false);
   protected readonly chromeVisible = computed(
@@ -243,6 +250,12 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.queueSave();
   }
 
+  toggleMetronome(event?: MouseEvent): void {
+    this.metronomeOpen.update((open) => !open);
+    // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
+    if (event && event.detail > 0) (event.currentTarget as HTMLElement | null)?.blur();
+  }
+
   changeSpeed(event: Event): void {
     this.speed.set(Number((event.target as HTMLInputElement).value));
     this.queueSave();
@@ -304,7 +317,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     }
     if (
       (event.target as HTMLElement).closest(
-        '.reader-controls, .reader-topbar, .reader-controls-bubble',
+        '.reader-controls, .reader-topbar, .reader-controls-bubble, .reader-metronome',
       )
     )
       return;
@@ -595,7 +608,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       const activeElement = document.activeElement;
       if (
         (activeElement && this.topbar?.nativeElement.contains(activeElement)) ||
-        (activeElement && this.controls?.nativeElement.contains(activeElement))
+        (activeElement && this.controls?.nativeElement.contains(activeElement)) ||
+        (activeElement && this.metronome?.nativeElement.contains(activeElement))
       ) {
         this.scheduleHide();
         return;

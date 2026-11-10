@@ -123,6 +123,10 @@ that:
 - Low Power Mode or another wake-lock denial leaves the reader usable.
 - The actual Bluetooth pedal emits a supported key (`PageDown`, `ArrowRight`,
   Space, or Enter) and continues to control the reader.
+- The metronome (reader controls, metronome button) starts with sound on the
+  iPad after a tap, stays in time, and leaves the pedal turning pages after
+  you use its buttons. It needs no configuration: the tempo is remembered per
+  piece in the browser's local storage.
 
 ## API
 

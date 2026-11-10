@@ -31,13 +31,15 @@ they remain in git history as historical context only.
   matching every word, with catalogue numbers and keys in one form
   (BND-037); favorites are a filter.
 - The reader has page and auto-scroll modes and persists per-piece state.
+- The reader has a Web Audio metronome overlay (BPM, tap tempo, beats per bar);
+  its tempo is remembered per piece in browser local storage only.
 - Score intake now includes private preparation drafts, original PDF/JPEG/PNG
   retention, page organization/correction, phone capture, assisted IMSLP links,
   live IMSLP work search and Send to Noted shortcut intake (per-user bearer
   token, one route; each shared PDF creates a new draft; the signed template
   is served at `/send-to-noted.shortcut`).
   The tool proof was manually approved before app implementation.
-- Practice, metronome, lessons, OMR, MusicXML, playback, annotations, direct IMSLP
+- Practice, lessons, OMR, MusicXML, playback, annotations, direct IMSLP
   download automation, curved-page correction, photo stitching, sharing, and
   offline mode remain deferred.
 
