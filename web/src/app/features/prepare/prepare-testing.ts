@@ -105,7 +105,7 @@ export async function createPrepareChild<T>(
     ],
   }).compileComponents();
   const store = TestBed.inject(PrepareStore);
-  await store.load();
+  await store.ready;
   state(store);
   const fixture = TestBed.createComponent(type);
   fixture.detectChanges();

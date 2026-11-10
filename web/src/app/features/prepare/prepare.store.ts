@@ -65,8 +65,11 @@ export class PrepareStore implements OnDestroy, ImslpPanelHost {
   readonly preview = new PreparePreview(this);
   readonly thumbs = this.preview.thumbs;
 
+  /** Settles when the draft requested at construction has loaded. */
+  readonly ready: Promise<void>;
+
   constructor() {
-    void this.load();
+    this.ready = this.load();
   }
 
   get page(): PageEdit | undefined {
