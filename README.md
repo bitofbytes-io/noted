@@ -127,6 +127,10 @@ that:
   iPad after a tap, stays in time, and leaves the pedal turning pages after
   you use its buttons. It needs no configuration: the tempo is remembered per
   piece in the browser's local storage.
+- Rotating the iPad to landscape in page mode shows two pages side by side and
+  the pedal turns both at once; portrait still shows one. The layout button
+  (Auto, Single, Spread) overrides this and is remembered in the browser's local
+  storage. It needs no configuration.
 
 ## API
 

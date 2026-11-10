@@ -172,6 +172,15 @@ are not a production rollback procedure.
   pages. Ticking stops when the page is hidden or the reader closes. The last
   BPM and beats per bar are remembered per piece in this browser's local
   storage; nothing is sent to the server.
+- BND-042: Page mode can show pages N and N+1 side by side. A layout button in
+  the page-mode controls cycles Auto, Single and Spread. Auto spreads only a
+  landscape viewport at least 900 CSS pixels wide, so portrait is unchanged;
+  Single never does; Spread always does. Spreads pair pages (1, 2), (3, 4), …,
+  so an odd page count ends with a single page. Taps, swipes, Arrow keys,
+  PageUp, PageDown, Space, Enter and the pedal turn two pages at a time, and the
+  counter shows both (for example “3–4 / 9”). Scroll mode is unaffected. The
+  choice is remembered per device in local storage, not per piece; nothing is
+  sent to the server.
 
 ### Quality and operations
 

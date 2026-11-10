@@ -31,6 +31,8 @@ they remain in git history as historical context only.
   matching every word, with catalogue numbers and keys in one form
   (BND-037); favorites are a filter.
 - The reader has page and auto-scroll modes and persists per-piece state.
+- Page mode shows a two-page spread on wide landscape viewports (auto, single
+  or spread, remembered per device in browser local storage; BND-042).
 - The reader has a Web Audio metronome overlay (BPM, tap tempo, beats per bar);
   its tempo is remembered per piece in browser local storage only.
 - Score intake now includes private preparation drafts, original PDF/JPEG/PNG

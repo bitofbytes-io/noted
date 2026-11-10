@@ -16,6 +16,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, PRIMARY_OUTLET, Router } from '@angular/router';
 import {
   LucideArrowLeft,
+  LucideBookOpen,
   LucideChevronLeft,
   LucideChevronRight,
   LucideMaximize2,
@@ -34,8 +35,26 @@ import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { measureAsync } from '../../core/performance';
 import { MetronomeComponent } from './metronome/metronome.component';
 import { PageMetric, PdfDocument } from './pdf-document.service';
-import { ReaderPointerMove, pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
+import {
+  ReaderPointerMove,
+  SpreadPreference,
+  loadSpreadPreference,
+  nextSpreadPreference,
+  pageDeltaForKey,
+  saveSpreadPreference,
+  spreadActive,
+  spreadGap,
+  spreadLabels,
+  spreadStartPage,
+  trackFinePointerMovement,
+} from './reader.utils';
 import { ScreenWakeLock } from './screen-wake-lock';
+
+interface PageBox {
+  width: number;
+  height: number;
+  key: number;
+}
 
 interface ScrollRenderRequest {
   width: number;
@@ -50,6 +69,7 @@ interface ScrollRenderRequest {
     DecimalPipe,
     MetronomeComponent,
     LucideArrowLeft,
+    LucideBookOpen,
     LucideChevronLeft,
     LucideChevronRight,
     LucideMaximize2,
@@ -83,6 +103,27 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   protected readonly error = signal('');
   protected readonly mode = signal<ReaderMode>('page');
   protected readonly currentPage = signal(1);
+  protected readonly spreadLabels = spreadLabels;
+  protected readonly spreadPreference = signal<SpreadPreference>(loadSpreadPreference());
+  private readonly viewport = signal({ width: 0, height: 0 });
+  protected readonly spreading = computed(() =>
+    spreadActive(
+      this.spreadPreference(),
+      this.viewport().width,
+      this.viewport().height,
+      this.metrics().length,
+    ),
+  );
+  /** The pages page mode shows: one, or a pair that starts on an odd page and may end alone. */
+  protected readonly visiblePages = computed(() => {
+    if (!this.spreading()) return [this.currentPage()];
+    const start = spreadStartPage(this.currentPage());
+    return start < this.metrics().length ? [start, start + 1] : [start];
+  });
+  protected readonly pageLabel = computed(() => {
+    const pages = this.visiblePages();
+    return pages.length > 1 ? `${pages[0]}–${pages[1]}` : String(pages[0]);
+  });
   protected readonly zoom = signal(1);
   protected readonly speed = signal(5);
   protected readonly paused = signal(true);
@@ -105,7 +146,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private pointerStart?: { x: number; y: number };
   private pointerMovementBaseline?: ReaderPointerMove;
   private swiped = false;
-  private renderedPage?: { pageNumber: number; key: number };
+  private renderedPage?: { pageNumber: number; span: number; key: number };
   private renderedWidths = new Map<number, number>();
   private pageRenderInFlight = false;
   private pageRenderPending = false;
@@ -124,6 +165,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.canvases.changes.subscribe(() => this.scheduleRender());
     this.scrollPages.changes.subscribe(() => this.scheduleRender());
     this.resizeObserver = new ResizeObserver(() => {
+      const stage = this.stage.nativeElement;
+      this.viewport.set({ width: stage.clientWidth, height: stage.clientHeight });
       this.renderGeneration++;
       this.scrollRenderRequests.clear();
       this.renderedPage = undefined;
@@ -230,12 +273,26 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   turnPage(delta: number): void {
     if (this.mode() !== 'page') return;
-    const next = clamp(this.currentPage() + delta, 1, this.metrics().length);
-    if (next === this.currentPage()) return;
+    const start = this.visiblePages()[0];
+    const last = this.metrics().length;
+    // A spread turns two pages at a time; a trailing single page still counts as one spread.
+    const next = this.spreading()
+      ? spreadStartPage(clamp(start + delta * 2, 1, last))
+      : clamp(start + delta, 1, last);
+    if (next === start) return;
     this.currentPage.set(next);
     this.clearVisiblePage();
     this.scheduleRender();
     this.queueSave();
+  }
+
+  cycleSpread(event?: MouseEvent): void {
+    const next = nextSpreadPreference(this.spreadPreference());
+    this.spreadPreference.set(next);
+    saveSpreadPreference(next);
+    this.scheduleRender();
+    // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
+    if (event && event.detail > 0) (event.currentTarget as HTMLElement | null)?.blur();
   }
 
   changeZoom(delta: number): void {
@@ -402,51 +459,59 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         this.pageRenderPending = true;
         return;
       }
-      const canvas = this.canvases.first.nativeElement;
-      const stage = this.stage.nativeElement;
-      const width = Math.max(240, (stage.clientWidth - 24) * this.zoom());
-      const height = Math.max(240, (stage.clientHeight - 24) * this.zoom());
-      const key = Math.round(Math.min(width, height));
-      const pageNumber = this.currentPage();
+      const pageNumbers = this.visiblePages();
+      const targets = this.canvases.toArray().map((canvas) => canvas.nativeElement);
+      // The canvases follow the pages after change detection, which schedules another render.
+      if (targets.length !== pageNumbers.length) return;
+      const box = this.pageBox(pageNumbers.length);
       const generation = this.renderGeneration;
-      if (this.renderedPage?.pageNumber === pageNumber && this.renderedPage.key === key) return;
-      const renderCanvas = document.createElement('canvas');
+      if (
+        this.renderedPage?.pageNumber === pageNumbers[0] &&
+        this.renderedPage.span === pageNumbers.length &&
+        this.renderedPage.key === box.key
+      )
+        return;
+      const renderCanvases = pageNumbers.map(() => document.createElement('canvas'));
       this.pageRenderInFlight = true;
       this.pageRenderPending = false;
       this.clearVisiblePage();
       try {
-        await this.pdf.renderPage(renderCanvas, pageNumber, width, height);
-        const currentWidth = Math.max(240, (stage.clientWidth - 24) * this.zoom());
-        const currentHeight = Math.max(240, (stage.clientHeight - 24) * this.zoom());
-        const currentKey = Math.round(Math.min(currentWidth, currentHeight));
+        await Promise.all(
+          pageNumbers.map((pageNumber, index) =>
+            this.pdf.renderPage(renderCanvases[index], pageNumber, box.width, box.height),
+          ),
+        );
         if (
           this.renderGeneration === generation &&
           this.mode() === 'page' &&
-          this.currentPage() === pageNumber &&
-          currentKey === key &&
-          this.canvases.first?.nativeElement === canvas
+          this.pageBox(this.visiblePages().length).key === box.key &&
+          this.visiblePages().join() === pageNumbers.join() &&
+          this.canvases.length === targets.length &&
+          this.canvases.toArray().every((canvas, index) => canvas.nativeElement === targets[index])
         ) {
-          canvas.width = renderCanvas.width;
-          canvas.height = renderCanvas.height;
-          canvas.style.width = renderCanvas.style.width;
-          canvas.style.height = renderCanvas.style.height;
-          const context = canvas.getContext('2d');
-          if (!context) throw new Error('Canvas rendering is unavailable.');
-          context.drawImage(renderCanvas, 0, 0);
-          this.renderedPage = { pageNumber, key };
+          targets.forEach((canvas, index) => {
+            const renderCanvas = renderCanvases[index];
+            canvas.width = renderCanvas.width;
+            canvas.height = renderCanvas.height;
+            canvas.style.width = renderCanvas.style.width;
+            canvas.style.height = renderCanvas.style.height;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Canvas rendering is unavailable.');
+            context.drawImage(renderCanvas, 0, 0);
+          });
+          this.renderedPage = {
+            pageNumber: pageNumbers[0],
+            span: pageNumbers.length,
+            key: box.key,
+          };
         }
       } finally {
         this.pageRenderInFlight = false;
         const requestChanged =
           this.renderGeneration !== generation ||
           this.mode() !== 'page' ||
-          this.currentPage() !== pageNumber ||
-          Math.round(
-            Math.min(
-              Math.max(240, (stage.clientWidth - 24) * this.zoom()),
-              Math.max(240, (stage.clientHeight - 24) * this.zoom()),
-            ),
-          ) !== key;
+          this.visiblePages().join() !== pageNumbers.join() ||
+          this.pageBox(this.visiblePages().length).key !== box.key;
         if (this.pageRenderPending || requestChanged) {
           this.pageRenderPending = false;
           this.scheduleRender();
@@ -542,12 +607,25 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     await Promise.all(pending);
   }
 
+  /** The size each of `count` side-by-side pages may take, and the key identifying it. */
+  private pageBox(count: number): PageBox {
+    const stage = this.stage.nativeElement;
+    const width = Math.max(
+      240,
+      ((stage.clientWidth - 24 - spreadGap * (count - 1)) / count) * this.zoom(),
+    );
+    const height = Math.max(240, (stage.clientHeight - 24) * this.zoom());
+    return { width, height, key: Math.round(Math.min(width, height)) };
+  }
+
   private clearVisiblePage(): void {
     this.renderedPage = undefined;
-    const canvas = this.mode() === 'page' ? this.canvases?.first?.nativeElement : undefined;
-    if (!canvas || (!canvas.width && !canvas.height)) return;
-    canvas.width = 0;
-    canvas.height = 0;
+    if (this.mode() !== 'page') return;
+    this.canvases?.forEach(({ nativeElement: canvas }) => {
+      if (!canvas.width && !canvas.height) return;
+      canvas.width = 0;
+      canvas.height = 0;
+    });
   }
 
   private updateCurrentPage(): void {

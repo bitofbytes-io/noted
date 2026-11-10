@@ -14,7 +14,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
 import { Piece, ReaderState } from '../../core/models';
 import { ReaderComponent } from './reader.component';
-import { pageDeltaForKey, trackFinePointerMovement } from './reader.utils';
+import {
+  loadSpreadPreference,
+  nextSpreadPreference,
+  pageDeltaForKey,
+  saveSpreadPreference,
+  spreadActive,
+  spreadStartPage,
+  trackFinePointerMovement,
+} from './reader.utils';
 
 function createReaderComponent(
   api: object = {},
@@ -144,7 +152,7 @@ describe('ReaderComponent', () => {
     await renderVisible();
 
     expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2, 1]);
-    expect(Reflect.get(component, 'renderedPage')).toEqual({ pageNumber: 1, key: 1000 });
+    expect(Reflect.get(component, 'renderedPage')).toEqual({ pageNumber: 1, span: 1, key: 1000 });
     component.ngOnDestroy();
   });
 
@@ -665,6 +673,202 @@ describe('ReaderComponent metronome overlay', () => {
     component.toggleMetronome();
     expect(Reflect.get(component, 'metronomeOpen')()).toBe(false);
     expect(Reflect.get(component, 'currentPage')()).toBe(1);
+  });
+});
+
+describe('ReaderComponent two-page spread', () => {
+  afterEach(() => localStorage.clear());
+
+  /** A reader of `pages` pages, shown in a viewport of the given size. */
+  function readerIn(width: number, height: number, pages: number, page = 1) {
+    const component = createReaderComponent();
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: pages }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
+    );
+    Reflect.get(component, 'viewport').set({ width, height });
+    Reflect.get(component, 'currentPage').set(page);
+    Reflect.get(component, 'loading').set(false);
+    return component;
+  }
+
+  const visible = (component: ReaderComponent): number[] =>
+    Reflect.get(component, 'visiblePages')();
+
+  it('shows two pages in landscape and one in portrait', () => {
+    expect(visible(readerIn(1366, 1024, 6))).toEqual([1, 2]);
+    expect(visible(readerIn(1024, 1366, 6))).toEqual([1]);
+  });
+
+  it('keeps one page on a landscape viewport that is too narrow', () => {
+    expect(visible(readerIn(844, 390, 6))).toEqual([1]);
+  });
+
+  it('turns a spread by two pages with the arrow, page and pedal keys', () => {
+    const component = readerIn(1366, 1024, 6);
+    const press = (key: string) => {
+      const event = new KeyboardEvent('keydown', { key, cancelable: true });
+      component.onKeydown(event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+
+    press('ArrowRight');
+    expect(visible(component)).toEqual([3, 4]);
+    press('PageDown');
+    expect(visible(component)).toEqual([5, 6]);
+    press('ArrowLeft');
+    expect(visible(component)).toEqual([3, 4]);
+    press('PageUp');
+    expect(visible(component)).toEqual([1, 2]);
+  });
+
+  it('stops at the first and last spread', () => {
+    const component = readerIn(1366, 1024, 4);
+    component.turnPage(-1);
+    expect(visible(component)).toEqual([1, 2]);
+    component.turnPage(1);
+    component.turnPage(1);
+    expect(visible(component)).toEqual([3, 4]);
+  });
+
+  it('ends an odd page count with a single page', () => {
+    const component = readerIn(1366, 1024, 5, 3);
+    expect(visible(component)).toEqual([3, 4]);
+    component.turnPage(1);
+    expect(visible(component)).toEqual([5]);
+    expect(Reflect.get(component, 'pageLabel')()).toBe('5');
+    component.turnPage(1);
+    expect(visible(component)).toEqual([5]);
+    component.turnPage(-1);
+    expect(visible(component)).toEqual([3, 4]);
+  });
+
+  it('pairs from an odd page when a spread opens on an even page', () => {
+    const component = readerIn(1366, 1024, 6, 4);
+    expect(visible(component)).toEqual([3, 4]);
+    expect(Reflect.get(component, 'pageLabel')()).toBe('3–4');
+  });
+
+  it('turns one page at a time when the spread is switched off', () => {
+    const component = readerIn(1366, 1024, 6);
+    Reflect.get(component, 'spreadPreference').set('single');
+    component.turnPage(1);
+    expect(visible(component)).toEqual([2]);
+  });
+
+  it('forces a spread in portrait and a single page in landscape', () => {
+    const component = readerIn(1024, 1366, 6);
+    Reflect.get(component, 'spreadPreference').set('spread');
+    expect(visible(component)).toEqual([1, 2]);
+    Reflect.get(component, 'viewport').set({ width: 1366, height: 1024 });
+    Reflect.get(component, 'spreadPreference').set('single');
+    expect(visible(component)).toEqual([1]);
+  });
+
+  it('never spreads a one-page score', () => {
+    expect(visible(readerIn(1366, 1024, 1))).toEqual([1]);
+  });
+
+  it('remembers the layout choice on this device', () => {
+    const component = readerIn(1366, 1024, 6);
+    component.cycleSpread();
+    expect(Reflect.get(component, 'spreadPreference')()).toBe('single');
+    expect(loadSpreadPreference()).toBe('single');
+    component.cycleSpread();
+    component.cycleSpread();
+    expect(loadSpreadPreference()).toBe('auto');
+    component.ngOnDestroy();
+  });
+
+  it('renders both pages of a spread, left to right, into their own canvases', async () => {
+    const component = readerIn(1366, 1024, 6);
+    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 1024 } });
+    const left = document.createElement('canvas');
+    const right = document.createElement('canvas');
+    spyOnCanvasPublishing(left);
+    spyOnCanvasPublishing(right);
+    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+    canvases.reset([new ElementRef(left), new ElementRef(right)]);
+    Reflect.set(component, 'canvases', canvases);
+    const renderPage = vi
+      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
+      .mockResolvedValue(undefined);
+    const renderVisible = Reflect.get(component, 'renderVisible').bind(
+      component,
+    ) as () => Promise<void>;
+
+    await renderVisible();
+
+    expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2]);
+    // Each page gets half the stage, less the padding and the gap between them.
+    expect(renderPage.mock.calls.map((call) => call[2])).toEqual([667, 667]);
+    expect(Reflect.get(component, 'renderedPage')).toEqual({ pageNumber: 1, span: 2, key: 667 });
+
+    component.turnPage(1);
+    await renderVisible();
+    expect(renderPage.mock.calls.slice(2).map((call) => call[1])).toEqual([3, 4]);
+    component.ngOnDestroy();
+  });
+
+  it('waits for the canvases to match the pages before rendering', async () => {
+    const component = readerIn(1366, 1024, 6);
+    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 1024 } });
+    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+    canvases.reset([new ElementRef(document.createElement('canvas'))]);
+    Reflect.set(component, 'canvases', canvases);
+    const renderPage = vi
+      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
+      .mockResolvedValue(undefined);
+
+    await (Reflect.get(component, 'renderVisible').bind(component) as () => Promise<void>)();
+
+    expect(renderPage).not.toHaveBeenCalled();
+    component.ngOnDestroy();
+  });
+});
+
+describe('spread helpers', () => {
+  it('spreads only in landscape wide enough, unless the choice forces it', () => {
+    expect(spreadActive('auto', 1366, 1024, 4)).toBe(true);
+    expect(spreadActive('auto', 1024, 1366, 4)).toBe(false);
+    expect(spreadActive('auto', 899, 500, 4)).toBe(false);
+    expect(spreadActive('single', 1366, 1024, 4)).toBe(false);
+    expect(spreadActive('spread', 1024, 1366, 4)).toBe(true);
+    expect(spreadActive('spread', 1366, 1024, 1)).toBe(false);
+  });
+
+  it('starts every spread on an odd page', () => {
+    expect([1, 2, 3, 4, 5].map(spreadStartPage)).toEqual([1, 1, 3, 3, 5]);
+  });
+
+  it('cycles auto, single, spread', () => {
+    expect(nextSpreadPreference('auto')).toBe('single');
+    expect(nextSpreadPreference('single')).toBe('spread');
+    expect(nextSpreadPreference('spread')).toBe('auto');
+  });
+
+  it('falls back to auto for a missing, unknown or unreadable choice', () => {
+    expect(loadSpreadPreference({ getItem: () => null })).toBe('auto');
+    expect(loadSpreadPreference({ getItem: () => 'wide' })).toBe('auto');
+    expect(
+      loadSpreadPreference({
+        getItem: () => {
+          throw new Error('blocked');
+        },
+      }),
+    ).toBe('auto');
+  });
+
+  it('round-trips the choice and ignores storage that refuses writes', () => {
+    const store = new Map<string, string>();
+    saveSpreadPreference('spread', { setItem: (key, value) => void store.set(key, value) });
+    expect(loadSpreadPreference({ getItem: (key) => store.get(key) ?? null })).toBe('spread');
+    expect(() =>
+      saveSpreadPreference('single', {
+        setItem: () => {
+          throw new Error('quota');
+        },
+      }),
+    ).not.toThrow();
   });
 });
 
