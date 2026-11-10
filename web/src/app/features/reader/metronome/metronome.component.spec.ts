@@ -236,6 +236,32 @@ describe('MetronomeComponent', () => {
     vi.restoreAllMocks();
   });
 
+  it('stays on Start and says so when the audio context is already interrupted', async () => {
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        constructor() {
+          super();
+          this.state = 'interrupted';
+        }
+        override resume = () => Promise.resolve();
+      },
+    );
+    const fixture = await render();
+    const running: boolean[] = [];
+    fixture.componentInstance.runningChange.subscribe((value) => running.push(value));
+
+    button(fixture, 'Start').click();
+    await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
+
+    expect(running).toEqual([]);
+    expect(button(fixture, 'Start').getAttribute('aria-pressed')).toBe('false');
+    expect(fixture.nativeElement.querySelector('.beat-dot.active')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
+    expect(FakeAudioContext.closed).toBe(1);
+  });
+
   it('drops back to Start and says so when the audio device fails to start', async () => {
     vi.stubGlobal(
       'AudioContext',

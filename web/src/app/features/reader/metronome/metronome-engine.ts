@@ -129,7 +129,9 @@ export class MetronomeEngine {
     this.pendingBeats = [];
     this.nextBeatTime = context.currentTime + startDelaySeconds;
     this.tick();
-    return true;
+    // A context that is already interrupted stops inside that first refill.
+    // Reporting success would let the controls claim they are playing with no clock.
+    return this.running;
   }
 
   stop(): void {

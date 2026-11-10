@@ -250,6 +250,22 @@ describe('MetronomeEngine', () => {
     engine.stop();
   });
 
+  it('reports failure when the audio context is already interrupted', async () => {
+    const audio = fakeAudio({ state: 'interrupted' });
+    const engine = new MetronomeEngine(() => audio.context, audio.timers);
+    const failed = vi.fn();
+    engine.onFailure = failed;
+
+    expect(engine.start(120, 4)).toBe(false);
+    await Promise.resolve();
+
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(engine.running).toBe(false);
+    expect(audio.closed).toBe(true);
+    expect(audio.hasPendingTimer).toBe(false);
+    expect(audio.clicks).toEqual([]);
+  });
+
   it('ignores the suspended state a new context starts in', () => {
     const audio = fakeAudio({ state: 'suspended' });
     const engine = new MetronomeEngine(() => audio.context, audio.timers);
