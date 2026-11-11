@@ -158,6 +158,49 @@ describe('PrepareComponent', () => {
       expect([...store.selectedIDs()]).toEqual(['a']);
       expect(store.error()).toBe('');
     });
+
+    it('prunes checked pages the undone manifest no longer holds', () => {
+      showPages('a', 'b');
+      store.edits.remember();
+      store.draft.update((d) => ({
+        ...d!,
+        manifest: { version: 1, pages: pages('a', 'b', 'c') },
+      }));
+      store.selectedIDs.set(new Set(['a', 'c']));
+      store.selected.set(2);
+
+      store.edits.undo();
+
+      expect(store.draft()!.manifest.pages.map((page) => page.id)).toEqual(['a', 'b']);
+      expect([...store.selectedIDs()]).toEqual(['a']);
+      expect(store.selected()).toBe(1);
+    });
+
+    it('keeps every checked page when the undone manifest still holds them', () => {
+      showPages('a', 'b');
+      store.selectedIDs.set(new Set(['a', 'b']));
+      store.edits.rotate();
+
+      store.edits.undo();
+
+      expect([...store.selectedIDs()]).toEqual(['a', 'b']);
+    });
+
+    it.each([
+      ['another operation is running', () => store.busy.set(true)],
+      ['the edge editor is open', () => store.edges.handles.set('crop')],
+    ])('does not undo while %s', (_, lock) => {
+      showPages('a', 'b');
+      store.selectedIDs.set(new Set(['a']));
+      store.edits.remember();
+      store.draft.update((d) => ({ ...d!, manifest: { version: 1, pages: pages('a') } }));
+      lock();
+
+      store.edits.undo();
+
+      expect(store.draft()!.manifest.pages.map((page) => page.id)).toEqual(['a']);
+      expect([...store.selectedIDs()]).toEqual(['a']);
+    });
   });
 
   it('flushes a debounced edit before the route is left', async () => {
