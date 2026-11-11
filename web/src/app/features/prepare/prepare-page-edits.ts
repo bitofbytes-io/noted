@@ -98,12 +98,16 @@ export class PageEdits {
 
   undo() {
     const store = this.store;
-    if (store.busy()) return;
+    if (this.locked) return;
     this.endGesture();
     const m = this.history.pop();
     if (m) {
       store.draft.update((d) => (d ? { ...d, manifest: m } : null));
       store.selected.set(Math.min(store.selected(), m.pages.length - 1));
+      // The restored manifest may no longer hold every checked page.
+      const restored = new Set(m.pages.map((page) => page.id));
+      const checked = [...store.selectedIDs()].filter((id) => restored.has(id));
+      if (checked.length !== store.selectedIDs().size) store.selectedIDs.set(new Set(checked));
       store.preview.reconcileKeys();
       store.mark();
       void store.preview.render();
