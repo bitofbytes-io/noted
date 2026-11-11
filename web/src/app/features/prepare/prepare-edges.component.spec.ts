@@ -66,6 +66,58 @@ describe('PrepareEdgesComponent', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('ignores a preview render that finishes after its edit session was closed', async () => {
+    store.draft.set({
+      ...structuredClone(draft),
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: 'pdf', page: 0 }] },
+    });
+    store.step.set('pages');
+    store.preview.url.set('data:image/png;base64,');
+    const renders: (() => void)[] = [];
+    vi.spyOn(store.preview, 'render').mockImplementation(
+      () => new Promise<void>((resolve) => renders.push(resolve)),
+    );
+    fixture.detectChanges();
+    store.views.surface!.nativeElement.scrollIntoView = vi.fn();
+
+    const first = store.edges.begin();
+    store.edges.cancel();
+    const second = store.edges.begin();
+    // cancel() also redraws the preview, so the second session's render is the last one.
+    const [firstRender, , secondRender] = renders;
+
+    firstRender();
+    await first;
+    expect(store.edges.ready()).toBe(false);
+    expect(store.edges.handles()).not.toBeNull();
+
+    secondRender();
+    await second;
+    expect(store.edges.ready()).toBe(true);
+  });
+
+  it('does not ready a session that was closed before its render finished', async () => {
+    store.draft.set({
+      ...structuredClone(draft),
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: 'pdf', page: 0 }] },
+    });
+    store.step.set('pages');
+    store.preview.url.set('data:image/png;base64,');
+    const renders: (() => void)[] = [];
+    vi.spyOn(store.preview, 'render').mockImplementation(
+      () => new Promise<void>((resolve) => renders.push(resolve)),
+    );
+    fixture.detectChanges();
+    store.views.surface!.nativeElement.scrollIntoView = vi.fn();
+
+    const opening = store.edges.begin();
+    store.edges.cancel();
+    renders[0]();
+    await opening;
+
+    expect(store.edges.ready()).toBe(false);
+  });
+
   it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'cancel', 'apply', 'destroy'])(
     'confines a corner drag to its pointer and removes handlers after %s',
     async (ending) => {

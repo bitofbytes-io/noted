@@ -86,6 +86,80 @@ describe('PrepareComponent', () => {
     );
   });
 
+  describe('page selection and the source range', () => {
+    const book = { id: 'book', mime: 'application/pdf', pageCount: 10 } as ImportAsset;
+    const pages = (...ids: string[]): PageEdit[] =>
+      ids.map((id, page) => ({ id, sourceId: book.id, page }));
+    const showPages = (...ids: string[]) =>
+      store.draft.set({
+        ...structuredClone(draft),
+        sources: [book],
+        manifest: { version: 1, pages: pages(...ids) },
+      });
+
+    it('drops a removed page from the checked pages and keeps the others checked', () => {
+      showPages('a', 'b', 'c');
+      store.selectedIDs.set(new Set(['a', 'b']));
+      store.selected.set(1);
+
+      store.edits.remove();
+
+      expect(store.draft()!.manifest.pages.map((page) => page.id)).toEqual(['a', 'c']);
+      expect([...store.selectedIDs()]).toEqual(['a']);
+    });
+
+    it('leaves the checked pages alone when an unchecked page is removed', () => {
+      showPages('a', 'b');
+      store.selectedIDs.set(new Set(['a']));
+      store.selected.set(1);
+
+      store.edits.remove();
+
+      expect([...store.selectedIDs()]).toEqual(['a']);
+    });
+
+    it('clears the checked pages when a range replaces them with new pages', () => {
+      showPages('a', 'b');
+      store.selectedIDs.set(new Set(['a', 'b']));
+      store.rangeSourceId = book.id;
+      store.rangeText = '2-3';
+
+      store.edits.useRange();
+
+      expect(store.draft()!.manifest.pages.map((page) => page.page)).toEqual([1, 2]);
+      expect(store.selectedIDs().size).toBe(0);
+    });
+
+    it('keeps the checked pages when the range is invalid', () => {
+      showPages('a', 'b');
+      store.selectedIDs.set(new Set(['a']));
+      store.rangeSourceId = book.id;
+      store.rangeText = '9-11';
+
+      store.edits.useRange();
+
+      expect(store.error()).toContain('valid source range');
+      expect([...store.selectedIDs()]).toEqual(['a']);
+    });
+
+    it.each([
+      ['another operation is running', () => store.busy.set(true)],
+      ['the edge editor is open', () => store.edges.handles.set('crop')],
+    ])('does not replace the pages while %s', (_, lock) => {
+      showPages('a', 'b');
+      store.selectedIDs.set(new Set(['a']));
+      store.rangeSourceId = book.id;
+      store.rangeText = '3-4';
+      lock();
+
+      store.edits.useRange();
+
+      expect(store.draft()!.manifest.pages.map((page) => page.id)).toEqual(['a', 'b']);
+      expect([...store.selectedIDs()]).toEqual(['a']);
+      expect(store.error()).toBe('');
+    });
+  });
+
   it('flushes a debounced edit before the route is left', async () => {
     vi.useFakeTimers();
     try {

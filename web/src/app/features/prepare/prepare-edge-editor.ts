@@ -12,6 +12,8 @@ export class EdgeEditor {
   readonly ready = signal(false);
   readonly resetRequired = signal(false);
   private compareBefore = false;
+  /** Identifies the open session, so a preview render that outlives it cannot ready a later one. */
+  private session = 0;
 
   constructor(private readonly store: PrepareStore) {}
 
@@ -19,6 +21,7 @@ export class EdgeEditor {
     const store = this.store,
       page = store.page;
     if (store.busy() || !page) return;
+    const session = ++this.session;
     document.getSelection()?.removeAllRanges();
     store.edits.endGesture();
     this.compareBefore = store.preview.compare();
@@ -39,6 +42,7 @@ export class EdgeEditor {
     this.handles.set(store.isPhoto ? 'corners' : 'crop');
     store.preview.compare.set(true);
     await store.preview.render();
+    if (store.destroyed || session !== this.session) return;
     this.ready.set(true);
     store.views.surface?.nativeElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
@@ -84,6 +88,7 @@ export class EdgeEditor {
 
   /** Ends the session without touching the page. */
   close(): void {
+    ++this.session;
     this.handles.set(null);
     this.pending.set([]);
   }

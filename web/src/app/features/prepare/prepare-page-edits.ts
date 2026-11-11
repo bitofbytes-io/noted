@@ -162,7 +162,12 @@ export class PageEdits {
       d = store.draft();
     if (!d || !store.page || store.busy()) return;
     this.remember();
-    d.manifest.pages.splice(store.selected(), 1);
+    const [removed] = d.manifest.pages.splice(store.selected(), 1);
+    if (store.selectedIDs().has(removed.id)) {
+      const ids = new Set(store.selectedIDs());
+      ids.delete(removed.id);
+      store.selectedIDs.set(ids);
+    }
     store.selected.set(Math.max(0, Math.min(store.selected(), d.manifest.pages.length - 1)));
     this.changed();
   }
@@ -190,7 +195,7 @@ export class PageEdits {
   useRange() {
     const store = this.store,
       d = store.draft();
-    if (!d || store.busy()) return;
+    if (!d || this.locked) return;
     const source = d.sources.find((a) => a.id === store.rangeSourceId);
     if (!source) return;
     try {
@@ -217,6 +222,8 @@ export class PageEdits {
         pages: pages.map((page) => ({ id: crypto.randomUUID(), sourceId: source.id, page })),
       };
       store.selected.set(0);
+      // The replaced pages have new IDs, so no page stays checked.
+      store.selectedIDs.set(new Set());
       this.changed();
       void store.renderThumbnails();
     } catch (e) {
