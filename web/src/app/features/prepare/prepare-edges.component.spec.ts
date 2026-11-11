@@ -2,17 +2,19 @@ import { ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { moveEdgeCorner } from './prepare-edges.component';
 import { PrepareComponent } from './prepare.component';
+import { PrepareStore } from './prepare.store';
 import { createPrepareFixture, draft } from './prepare-testing';
 
 describe('PrepareEdgesComponent', () => {
   let fixture: ComponentFixture<PrepareComponent>;
+  let store: PrepareStore;
   let openWindow: ReturnType<typeof vi.spyOn>;
 
   // Specs share one jsdom document, and jsdom ignores addRange while any range is selected,
   // so start and end with no selection whatever ran before.
   beforeEach(async () => {
     document.getSelection()?.removeAllRanges();
-    ({ fixture, openWindow } = await createPrepareFixture());
+    ({ fixture, store, openWindow } = await createPrepareFixture());
   });
 
   afterEach(() => {
@@ -21,23 +23,23 @@ describe('PrepareEdgesComponent', () => {
   });
 
   async function openEdgeEditor() {
-    const component = fixture.componentInstance;
+    const component = store;
     component.draft.set({
       ...structuredClone(draft),
       manifest: { version: 1, pages: [{ id: 'page', sourceId: 'pdf', page: 0 }] },
     });
     component.step.set('pages');
-    component.preview.set('data:image/png;base64,');
-    vi.spyOn(component, 'renderPreview').mockResolvedValue();
+    component.preview.url.set('data:image/png;base64,');
+    vi.spyOn(component.preview, 'render').mockResolvedValue();
     fixture.detectChanges();
-    const surface = component.surface!.nativeElement;
+    const surface = component.views.surface!.nativeElement;
     surface.scrollIntoView = vi.fn();
     const selection = document.getSelection()!;
     const range = document.createRange();
     range.selectNodeContents(fixture.nativeElement.querySelector('h1'));
     selection.addRange(range);
     expect(selection.isCollapsed).toBe(false);
-    await component.beginEdges();
+    await component.edges.begin();
     fixture.detectChanges();
     return { component, surface, selection };
   }
@@ -54,7 +56,7 @@ describe('PrepareEdgesComponent', () => {
       expect(event.defaultPrevented).toBe(true);
     }
 
-    component.cancelEdges();
+    component.edges.cancel();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('main').classList.contains('editing-edges')).toBe(
       false,
@@ -62,6 +64,58 @@ describe('PrepareEdgesComponent', () => {
     const event = new Event('contextmenu', { bubbles: true, cancelable: true });
     surface.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('ignores a preview render that finishes after its edit session was closed', async () => {
+    store.draft.set({
+      ...structuredClone(draft),
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: 'pdf', page: 0 }] },
+    });
+    store.step.set('pages');
+    store.preview.url.set('data:image/png;base64,');
+    const renders: (() => void)[] = [];
+    vi.spyOn(store.preview, 'render').mockImplementation(
+      () => new Promise<void>((resolve) => renders.push(resolve)),
+    );
+    fixture.detectChanges();
+    store.views.surface!.nativeElement.scrollIntoView = vi.fn();
+
+    const first = store.edges.begin();
+    store.edges.cancel();
+    const second = store.edges.begin();
+    // cancel() also redraws the preview, so the second session's render is the last one.
+    const [firstRender, , secondRender] = renders;
+
+    firstRender();
+    await first;
+    expect(store.edges.ready()).toBe(false);
+    expect(store.edges.handles()).not.toBeNull();
+
+    secondRender();
+    await second;
+    expect(store.edges.ready()).toBe(true);
+  });
+
+  it('does not ready a session that was closed before its render finished', async () => {
+    store.draft.set({
+      ...structuredClone(draft),
+      manifest: { version: 1, pages: [{ id: 'page', sourceId: 'pdf', page: 0 }] },
+    });
+    store.step.set('pages');
+    store.preview.url.set('data:image/png;base64,');
+    const renders: (() => void)[] = [];
+    vi.spyOn(store.preview, 'render').mockImplementation(
+      () => new Promise<void>((resolve) => renders.push(resolve)),
+    );
+    fixture.detectChanges();
+    store.views.surface!.nativeElement.scrollIntoView = vi.fn();
+
+    const opening = store.edges.begin();
+    store.edges.cancel();
+    renders[0]();
+    await opening;
+
+    expect(store.edges.ready()).toBe(false);
   });
 
   it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'cancel', 'apply', 'destroy'])(
@@ -100,19 +154,19 @@ describe('PrepareEdgesComponent', () => {
       expect(selection.isCollapsed).toBe(true);
       pointer('pointermove', 2);
       pointer('pointerup', 2);
-      expect(component.edgePoints[0]).toEqual([0, 0]);
+      expect(component.edges.pending()[0]).toEqual([0, 0]);
       expect(pointer('pointermove').defaultPrevented).toBe(true);
-      expect(component.edgePoints[0]).toEqual([0.2, 0.2]);
+      expect(component.edges.pending()[0]).toEqual([0.2, 0.2]);
 
-      if (ending === 'cancel') component.cancelEdges();
+      if (ending === 'cancel') component.edges.cancel();
       else if (ending === 'apply') {
-        vi.spyOn(component, 'changed').mockImplementation(() => {});
-        component.applyEdges();
+        vi.spyOn(component.edits, 'changed').mockImplementation(() => {});
+        component.edges.apply();
       } else if (ending === 'destroy') fixture.destroy();
       else pointer(ending);
-      const edges = structuredClone(component.edgePoints);
+      const edges = structuredClone(component.edges.pending());
       expect(pointer('pointermove', 1, 30).defaultPrevented).toBe(false);
-      expect(component.edgePoints).toEqual(edges);
+      expect(component.edges.pending()).toEqual(edges);
       expect(corner.releasePointerCapture).toHaveBeenCalledWith(1);
     },
   );

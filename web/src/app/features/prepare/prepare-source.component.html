@@ -1,0 +1,79 @@
+@let d = store.draft()!;
+@if (store.sourceMode() !== 'all') {
+  <button
+    class="btn-quiet accent back-to-sources"
+    [disabled]="store.busy()"
+    (click)="store.chooseSource('all')"
+  >
+    Choose a different source
+  </button>
+}
+<section
+  class="source-options"
+  [class.focused]="store.sourceMode() !== 'all'"
+  aria-label="Choose a source"
+>
+  <article [hidden]="store.sourceMode() !== 'all' && store.sourceMode() !== 'pdf'">
+    <h2>Upload a PDF</h2>
+    <p>
+      A scanner export or a score you have already downloaded. Good PDFs are kept exactly as they
+      are.
+    </p>
+    <div class="actions">
+      <button
+        class="btn-secondary"
+        (click)="store.views.fileInputs?.open('pdf')"
+        [disabled]="store.locked"
+      >
+        Choose PDF
+      </button>
+    </div>
+  </article>
+  <article [hidden]="store.sourceMode() !== 'all' && store.sourceMode() !== 'photos'">
+    <h2>From your books</h2>
+    <p>
+      Take one photo per page, or choose photos already on your phone. Originals stay available for
+      re-editing.
+    </p>
+    <div class="actions">
+      <button
+        class="btn-secondary"
+        (click)="store.views.fileInputs?.open('camera')"
+        [disabled]="store.locked"
+      >
+        Take a photo
+      </button>
+      <button
+        class="btn-secondary"
+        (click)="store.views.fileInputs?.open('photos')"
+        [disabled]="store.locked"
+      >
+        Choose photos
+      </button>
+    </div>
+    <small>JPEG or PNG, up to 20 megapixels. Export HEIC photos as JPEG first.</small>
+  </article>
+  @if (store.sourceMode() === 'all') {
+    <article class="imslp-entry">
+      <h2>Find a score on IMSLP</h2>
+      <p>Explore classical works, then choose and download an edition on IMSLP.</p>
+      <button class="btn-secondary" type="button" (click)="store.chooseSource('imslp')">
+        Find a score on IMSLP
+      </button>
+    </article>
+  }
+  @if (store.sourceMode() === 'imslp') {
+    <article class="imslp" appPrepareImslp (addPdf)="store.views.fileInputs?.open('pdf')"></article>
+  }
+</section>
+<div class="source-foot">
+  @if (!d.sources.length && !d.pieceId) {
+    <button class="btn-quiet" (click)="store.detailsWithoutPDF()" [disabled]="store.busy()">
+      Add details without a PDF
+    </button>
+  }
+  <p class="limits">
+    Files up to {{ d.maxFileBytes / 1048576 }} MiB, drafts up to 200 MiB and
+    {{ maxPreparedPages }} prepared pages.
+  </p>
+</div>

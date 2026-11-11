@@ -1,0 +1,122 @@
+@use './prepare-shared';
+
+:host {
+  display: block;
+}
+
+// Safari can select surrounding content during a long press on a corner.
+:host(.editing-edges) .page-surface,
+:host(.editing-edges) .page-surface * {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+.preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--ink);
+}
+
+.segmented button {
+  min-height: var(--tap-min);
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--ink);
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.segmented button.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ink-muted);
+  font-size: var(--text-meta);
+}
+
+.zoom span {
+  min-width: 44px;
+  text-align: center;
+}
+
+.preview-scroll {
+  min-height: 300px;
+  max-height: 76vh;
+  overflow: auto;
+  padding: 18px;
+  background: #eee9dd;
+  text-align: center;
+  scrollbar-gutter: stable;
+}
+
+.page-surface {
+  display: inline-block;
+  position: relative;
+  max-width: none;
+  vertical-align: top;
+  background: white;
+}
+
+.page-surface img {
+  display: block;
+  width: 100%;
+  user-select: none;
+}
+
+.edge-actions {
+  text-align: left;
+  padding: 12px 0;
+}
+
+.edge-actions .btn-secondary {
+  margin-top: 8px;
+}
+
+.empty {
+  padding: 80px 16px;
+  color: var(--ink-muted);
+}
+
+.empty h2 {
+  margin-bottom: 16px;
+  color: var(--ink);
+}
+
+@media (max-width: 1000px) {
+  .preview-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .preview-scroll {
+    max-height: 70vh;
+    padding: 22px 16px;
+  }
+}

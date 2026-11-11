@@ -1,0 +1,118 @@
+@let d = store.draft()!;
+@let edges = store.edges;
+<div class="preview-toolbar">
+  <div class="segmented" role="group" aria-label="Preview version">
+    <button
+      type="button"
+      [disabled]="store.locked"
+      [class.active]="store.preview.compare()"
+      [attr.aria-pressed]="store.preview.compare()"
+      (click)="store.preview.setCompare(true)"
+    >
+      Original
+    </button>
+    <button
+      type="button"
+      [disabled]="store.locked"
+      [class.active]="!store.preview.compare()"
+      [attr.aria-pressed]="!store.preview.compare()"
+      (click)="store.preview.setCompare(false)"
+    >
+      Adjusted
+    </button>
+  </div>
+  <div class="zoom">
+    <button
+      class="icon-button"
+      type="button"
+      (click)="store.zoom.set(Math.max(0.5, store.zoom() - 0.25))"
+      [disabled]="store.locked"
+      aria-label="Zoom out"
+      title="Zoom out"
+    >
+      <svg lucideMinus aria-hidden="true"></svg>
+    </button>
+    <span class="tabular">{{ (store.zoom() * 100).toFixed(0) }}%</span>
+    <button
+      class="icon-button"
+      type="button"
+      (click)="store.zoom.set(Math.min(2, store.zoom() + 0.25))"
+      [disabled]="store.locked"
+      aria-label="Zoom in"
+      title="Zoom in"
+    >
+      <svg lucidePlus aria-hidden="true"></svg>
+    </button>
+  </div>
+</div>
+<div class="preview-scroll">
+  @if (store.preview.url()) {
+    <div
+      #surface
+      class="page-surface"
+      (contextmenu)="store.editingEdges ? $event.preventDefault() : undefined"
+      (dragstart)="store.editingEdges ? $event.preventDefault() : undefined"
+      [style.width]="
+        store.editingEdges
+          ? 'min(' +
+            store.zoom() * 100 +
+            '%, ' +
+            store.preview.edgeAspect() * store.zoom() * 50 +
+            'vh)'
+          : store.zoom() * 100 + '%'
+      "
+    >
+      <img
+        #previewImage
+        [src]="store.preview.url()"
+        alt="Current score page preview"
+        draggable="false"
+      />
+      @if (edges.handles(); as mode) {
+        <app-prepare-edges
+          [(points)]="edges.pending"
+          [mode]="mode"
+          [image]="previewImage"
+          [busy]="store.busy()"
+          [ready]="edges.ready()"
+          [resetRequired]="edges.resetRequired()"
+        />
+      }
+    </div>
+  } @else if (d.manifest.pages.length) {
+    <div class="empty" role="status">Loading page preview…</div>
+  } @else {
+    <div class="empty">
+      <h2>Add your first page</h2>
+      <button
+        class="btn-secondary"
+        (click)="store.views.fileInputs?.open('add')"
+        [disabled]="store.locked"
+      >
+        Choose PDF or photos
+      </button>
+    </div>
+  }
+</div>
+@if (edges.handles()) {
+  <section class="edge-actions" aria-label="Page edge editor">
+    <p class="hint">
+      Drag the green corners around the page you want to keep. Shaded areas will be removed. Arrow
+      keys move a focused corner. Hold Shift while dragging to keep a rectangle.
+    </p>
+    @if (edges.resetRequired()) {
+      <p class="hint">
+        This page combines earlier crop and perspective edits. Start again from the original to
+        replace those edges; Cancel keeps every current adjustment.
+      </p>
+      <button class="btn-secondary" (click)="edges.resetPending()">
+        Start edges from original
+      </button>
+    } @else {
+      <p class="hint">
+        Apply fits the selected region to a new page and replaces earlier crop, scale and position
+        settings.
+      </p>
+    }
+  </section>
+}

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 // Heavy score processing runs here; terminate the worker to cancel at any point.
 //
-// This is a classic worker (see ProcessingWorkerClient in prepare.component.ts):
+// This is a classic worker (see ProcessingWorkerClient in prepare-processing.ts):
 // pdf-lib and OpenCV are the UMD and Emscripten builds the app copies to /intake,
 // loaded with importScripts, which module workers do not support. Only their types
 // are imported here, so the Angular build bundles no library code into the worker.
@@ -11,83 +11,21 @@ import type * as PDFJSModule from 'pdfjs-dist';
 import type { ImportAsset, PageEdit } from '../../core/models';
 import {
   Edges,
-  MAX_PHOTO_PIXELS,
   MeasuredPage,
-  PHOTO_WORK_EDGE,
-  PHOTO_WORK_PIXELS,
-  StaffSuggestion,
   alignToReference,
-  analyzeStaff,
   cleanupStrength,
-  fittedQuadSize,
   inkOutsidePage,
   isPlain,
-  jpegOrientation,
-  lightenPixels,
   needsGeometry,
-  orientationMatrix,
   pageLayout,
-  photoWorkSize,
 } from './processing-algorithms';
-
-// The subset of OpenCV.js this worker calls; `cv` is the global its script defines.
-interface Mat {
-  rows: number;
-  data: Uint8Array<ArrayBuffer>;
-  data32S: Int32Array;
-  delete(): void;
-}
-interface OpenCV {
-  Mat: { new (): Mat; ones(rows: number, cols: number, type: number): Mat };
-  Size: new (width: number, height: number) => unknown;
-  Scalar: new (...values: number[]) => unknown;
-  CV_8U: number;
-  CV_32FC2: number;
-  COLOR_RGBA2GRAY: number;
-  BORDER_REPLICATE: number;
-  BORDER_CONSTANT: number;
-  INTER_CUBIC: number;
-  matFromImageData(image: ImageData): Mat;
-  matFromArray(rows: number, cols: number, type: number, values: number[]): Mat;
-  cvtColor(src: Mat, dst: Mat, code: number): void;
-  Canny(src: Mat, dst: Mat, low: number, high: number): void;
-  HoughLinesP(
-    src: Mat,
-    lines: Mat,
-    rho: number,
-    theta: number,
-    threshold: number,
-    minLength: number,
-    maxGap: number,
-  ): void;
-  dilate(src: Mat, dst: Mat, kernel: Mat): void;
-  GaussianBlur(
-    src: Mat,
-    dst: Mat,
-    size: unknown,
-    sigmaX: number,
-    sigmaY: number,
-    border: number,
-  ): void;
-  resize(src: Mat, dst: Mat, size: unknown, fx: number, fy: number, interpolation: number): void;
-  getPerspectiveTransform(src: Mat, dst: Mat): Mat;
-  warpPerspective(
-    src: Mat,
-    dst: Mat,
-    matrix: Mat,
-    size: unknown,
-    interpolation: number,
-    border: number,
-    value: unknown,
-  ): void;
-  onRuntimeInitialized?: () => void;
-}
+import { analyze, openCV } from './processing-opencv';
+import { photoPDF, previewRaster } from './processing-photo';
 
 declare const self: DedicatedWorkerGlobalScope;
-// The globals the two scripts define. Referring to them by name, rather than through
-// `self`, also stops the minifier from giving a bundled function the name `cv`,
-// which importScripts would then overwrite.
-declare const cv: OpenCV;
+// The global pdf-lib's script defines. Referring to it by name, rather than through
+// `self`, also stops the minifier from giving a bundled function its name, which
+// importScripts would then overwrite.
 declare const PDFLib: typeof PDFLibModule;
 
 interface PreparedPage {
@@ -121,259 +59,6 @@ type ProcessingRequest = { requestId?: string } & (
 );
 
 self.importScripts('/intake/pdf-lib.min.js');
-
-let cvReady: Promise<void> | undefined;
-function openCV(): Promise<void> {
-  if (!cvReady)
-    cvReady = new Promise((resolve, reject) => {
-      try {
-        self.importScripts('/intake/opencv.js');
-        if (cv.Mat) resolve();
-        else cv.onRuntimeInitialized = () => resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-  return cvReady;
-}
-
-function analyze(image: ImageData): StaffSuggestion {
-  const src = cv.matFromImageData(image),
-    gray = new cv.Mat(),
-    edges = new cv.Mat(),
-    lines = new cv.Mat();
-  try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.Canny(gray, edges, 60, 160);
-    cv.HoughLinesP(edges, lines, 1, Math.PI / 3600, 80, image.width * 0.3, 12);
-    const angles: number[] = [];
-    for (let i = 0; i < lines.rows; i++) {
-      const [x1, y1, x2, y2] = lines.data32S.slice(i * 4, i * 4 + 4);
-      angles.push((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI);
-    }
-    return analyzeStaff(angles, gray.data, image.width, image.height);
-  } finally {
-    [src, gray, edges, lines].forEach((m) => m.delete());
-  }
-}
-
-async function jpegPDF(bytes: ArrayBuffer, orientation: number): Promise<PDFDocument> {
-  const doc = await PDFLib.PDFDocument.create(),
-    img = await doc.embedJpg(bytes),
-    w = img.width,
-    h = img.height;
-  if (w * h > MAX_PHOTO_PIXELS) throw Error('Photo exceeds 20 megapixels.');
-  const swapped = orientation >= 5,
-    dw = swapped ? h : w,
-    dh = swapped ? w : h,
-    s = 600 / dw;
-  const [a, b, c, d, e, f] = orientationMatrix(orientation, w, h).map((n) => n * s);
-  const page = doc.addPage([dw * s, dh * s]);
-  page.pushOperators(
-    PDFLib.pushGraphicsState(),
-    PDFLib.concatTransformationMatrix(a, b, c, d, e, f),
-  );
-  page.drawImage(img, { x: 0, y: 0, width: w, height: h });
-  page.pushOperators(PDFLib.popGraphicsState());
-  await doc.flush();
-  return doc;
-}
-
-async function lightenPaper(canvas: OffscreenCanvas, strength: number): Promise<void> {
-  await openCV();
-  const width = canvas.width,
-    height = canvas.height,
-    ratio = Math.min(1, 720 / width, 960 / height);
-  const smallCanvas = new OffscreenCanvas(
-    Math.max(1, Math.round(width * ratio)),
-    Math.max(1, Math.round(height * ratio)),
-  );
-  smallCanvas.getContext('2d')!.drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
-  const src = cv.matFromImageData(
-    smallCanvas.getContext('2d')!.getImageData(0, 0, smallCanvas.width, smallCanvas.height),
-  );
-  const dilated = new cv.Mat(),
-    blurred = new cv.Mat(),
-    background = new cv.Mat(),
-    kernel = cv.Mat.ones(31, 31, cv.CV_8U);
-  try {
-    // Estimate only broad paper illumination. Never threshold or erase marks.
-    cv.dilate(src, dilated, kernel);
-    cv.GaussianBlur(dilated, blurred, new cv.Size(0, 0), 9, 9, cv.BORDER_REPLICATE);
-    cv.resize(blurred, background, new cv.Size(width, height), 0, 0, cv.INTER_CUBIC);
-    const context = canvas.getContext('2d')!,
-      pixels = context.getImageData(0, 0, width, height);
-    lightenPixels(pixels.data, background.data, strength);
-    context.putImageData(pixels, 0, 0);
-  } finally {
-    [src, dilated, blurred, background, kernel].forEach((m) => m.delete());
-    smallCanvas.width = smallCanvas.height = 1;
-  }
-}
-
-interface CorrectedPhoto {
-  canvas: OffscreenCanvas;
-  width: number;
-  height: number;
-  encodeJPEG: boolean;
-}
-
-async function correctPhoto(
-  bitmap: ImageBitmap,
-  edit: PageEdit,
-  maxPixels = PHOTO_WORK_PIXELS,
-  maxEdge = PHOTO_WORK_EDGE,
-): Promise<CorrectedPhoto> {
-  const strength = cleanupStrength(edit);
-  let [width, height] = photoWorkSize(bitmap.width, bitmap.height, maxPixels, maxEdge);
-  const canvas = new OffscreenCanvas(width, height),
-    context = canvas.getContext('2d')!;
-  try {
-    if (strength || edit.fitEdges) {
-      context.fillStyle = 'white';
-      context.fillRect(0, 0, width, height);
-    }
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(bitmap, 0, 0, width, height);
-  } finally {
-    bitmap.close();
-  }
-  if (strength) await lightenPaper(canvas, strength);
-  if (edit.corners?.length) {
-    await openCV();
-    let src: Mat | null = cv.matFromImageData(context.getImageData(0, 0, width, height));
-    const dst = new cv.Mat();
-    let targetWidth = width,
-      targetHeight = height;
-    if (edit.fitEdges)
-      [targetWidth, targetHeight] = fittedQuadSize(edit.corners, width, height, maxPixels, maxEdge);
-    const a = cv.matFromArray(
-        4,
-        1,
-        cv.CV_32FC2,
-        edit.corners.flatMap(([x, y]) => [x * (width - 1), y * (height - 1)]),
-      ),
-      b = cv.matFromArray(4, 1, cv.CV_32FC2, [
-        0,
-        0,
-        targetWidth - 1,
-        0,
-        targetWidth - 1,
-        targetHeight - 1,
-        0,
-        targetHeight - 1,
-      ]),
-      matrix = cv.getPerspectiveTransform(a, b);
-    try {
-      cv.warpPerspective(
-        src,
-        dst,
-        matrix,
-        new cv.Size(targetWidth, targetHeight),
-        cv.INTER_CUBIC,
-        cv.BORDER_CONSTANT,
-        new cv.Scalar(255, 255, 255, 255),
-      );
-      src.delete();
-      src = null;
-      // Copy synchronously from the live wasm view, without a second RGBA clone.
-      const pixels = new Uint8ClampedArray(
-        dst.data.buffer,
-        dst.data.byteOffset,
-        dst.data.byteLength,
-      );
-      canvas.width = canvas.height = 1;
-      canvas.width = width = targetWidth;
-      canvas.height = height = targetHeight;
-      context.putImageData(new ImageData(pixels, width, height), 0, 0);
-    } finally {
-      [src, dst, a, b, matrix].forEach((m) => m?.delete());
-    }
-  }
-  return {
-    canvas,
-    width,
-    height,
-    encodeJPEG: strength > 0 || Boolean(edit.fitEdges && edit.corners?.length),
-  };
-}
-
-async function photoPDF(bytes: ArrayBuffer, edit: PageEdit): Promise<PDFDocument> {
-  const orientation = jpegOrientation(bytes),
-    strength = cleanupStrength(edit);
-  if (orientation && !edit.corners?.length && !strength) return jpegPDF(bytes, orientation);
-  const bitmap = await createImageBitmap(new Blob([bytes]));
-  if (bitmap.width * bitmap.height > MAX_PHOTO_PIXELS) {
-    bitmap.close();
-    throw Error('Photo exceeds 20 megapixels.');
-  }
-  const corrected = await correctPhoto(bitmap, edit),
-    { canvas, width, height } = corrected;
-  const blob = await canvas.convertToBlob({
-    type: corrected.encodeJPEG ? 'image/jpeg' : 'image/png',
-    quality: 0.96,
-  });
-  canvas.width = canvas.height = 1;
-  const doc = await PDFLib.PDFDocument.create(),
-    img = corrected.encodeJPEG
-      ? await doc.embedJpg(await blob.arrayBuffer())
-      : await doc.embedPng(await blob.arrayBuffer());
-  const w = 600,
-    h = (600 * height) / width;
-  doc.addPage([w, h]).drawImage(img, { x: 0, y: 0, width: w, height: h });
-  await doc.flush();
-  return doc;
-}
-
-async function previewRaster(
-  raster: Blob,
-  edit: PageEdit,
-  maxEdge = 1050,
-): Promise<{ blob: Blob; width: number; height: number }> {
-  const bitmap = await createImageBitmap(raster),
-    corrected = await correctPhoto(bitmap, edit, maxEdge * maxEdge, maxEdge);
-  const source = corrected.canvas,
-    mediaWidth = 600,
-    mediaHeight = (600 * corrected.height) / corrected.width;
-  try {
-    const edges = edit.crop || [0, 0, 1, 1],
-      width = (edges[2] - edges[0]) * mediaWidth,
-      height = (edges[3] - edges[1]) * mediaHeight;
-    if (width <= 0 || height <= 0) throw Error('Page edges are invalid.');
-    const layout = pageLayout(width, height, edit),
-      ratio = maxEdge / Math.max(layout.outputWidth, layout.outputHeight);
-    const output = new OffscreenCanvas(
-        Math.max(1, Math.round(layout.outputWidth * ratio)),
-        Math.max(1, Math.round(layout.outputHeight * ratio)),
-      ),
-      context = output.getContext('2d')!;
-    context.fillStyle = 'white';
-    context.fillRect(0, 0, output.width, output.height);
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = 'high';
-    context.translate(layout.center[0] * ratio, (layout.outputHeight - layout.center[1]) * ratio);
-    context.rotate((-layout.angle * Math.PI) / 180);
-    context.scale(layout.scale, layout.scale);
-    context.drawImage(
-      source,
-      edges[0] * source.width,
-      edges[1] * source.height,
-      (edges[2] - edges[0]) * source.width,
-      (edges[3] - edges[1]) * source.height,
-      (-width * ratio) / 2,
-      (-height * ratio) / 2,
-      width * ratio,
-      height * ratio,
-    );
-    const blob = await output.convertToBlob({ type: 'image/jpeg', quality: 0.92 }),
-      result = { blob, width: output.width, height: output.height };
-    output.width = output.height = 1;
-    return result;
-  } finally {
-    source.width = source.height = 1;
-  }
-}
 
 /** PDF.js is the app's copy under /pdfjs, loaded at run time rather than bundled. */
 const PDFJS_URL = '/pdfjs/pdf.min.mjs';

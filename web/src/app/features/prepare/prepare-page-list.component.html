@@ -1,0 +1,82 @@
+@let d = store.draft()!;
+<details class="source-range">
+  <summary>Choose source pages</summary>
+  <label class="field">
+    <span>Source</span>
+    <select [(ngModel)]="store.rangeSourceId" [disabled]="store.locked">
+      @for (a of d.sources; track a.id) {
+        <option [value]="a.id">{{ a.filename }} ({{ a.pageCount }} pages)</option>
+      }
+    </select>
+  </label>
+  <label class="field">
+    <span>Page numbers</span>
+    <input [(ngModel)]="store.rangeText" [disabled]="store.locked" placeholder="1-4, 7" />
+  </label>
+  <button class="btn-secondary small" (click)="store.edits.useRange()" [disabled]="store.locked">
+    Use this range only
+  </button>
+</details>
+<div #thumbRail class="thumbs" (scroll)="thumbnailRailScrolled($event)">
+  @for (p of d.manifest.pages; track p.id; let i = $index) {
+    <div class="thumbnail" [class.active]="store.selected() === i" [attr.data-thumbnail-id]="p.id">
+      <button
+        type="button"
+        [disabled]="store.locked"
+        (click)="store.edits.choose(i)"
+        [attr.aria-label]="'Preview page ' + (i + 1) + (hasPageAdjustments(p) ? ', adjusted' : '')"
+      >
+        @if (store.thumbs()[p.id]) {
+          <img [src]="store.thumbs()[p.id]" alt="" />
+        } @else {
+          <span class="placeholder">PDF</span>
+        }
+        <span class="tabular">Page {{ i + 1 }}</span>
+        @if (hasPageAdjustments(p)) {
+          <span class="adjusted-marker">Adjusted</span>
+        }
+      </button>
+      <input
+        type="checkbox"
+        [checked]="store.selectedIDs().has(p.id)"
+        (change)="store.edits.toggle(p.id)"
+        [disabled]="store.locked"
+        [attr.aria-label]="'Select page ' + (i + 1)"
+      />
+    </div>
+  }
+</div>
+<div class="rail-tools">
+  <button
+    class="icon-button framed"
+    (click)="store.edits.move(-1)"
+    [disabled]="store.locked || store.selected() <= 0"
+    aria-label="Move page earlier"
+    title="Move page earlier"
+  >
+    <svg lucideChevronUp aria-hidden="true"></svg>
+  </button>
+  <button
+    class="icon-button framed"
+    (click)="store.edits.move(1)"
+    [disabled]="store.locked || store.selected() >= d.manifest.pages.length - 1"
+    aria-label="Move page later"
+    title="Move page later"
+  >
+    <svg lucideChevronDown aria-hidden="true"></svg>
+  </button>
+  <button
+    class="btn-secondary small"
+    (click)="store.views.fileInputs?.open('add')"
+    [disabled]="store.locked"
+  >
+    Add pages
+  </button>
+  <button
+    class="btn-secondary small"
+    (click)="store.edits.keepSelected()"
+    [disabled]="store.locked || !store.selectedIDs().size"
+  >
+    Keep selected only
+  </button>
+</div>

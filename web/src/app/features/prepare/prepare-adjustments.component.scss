@@ -1,0 +1,155 @@
+@use './prepare-shared';
+
+:host {
+  display: block;
+  border-left: 1px solid var(--line);
+  padding-left: 24px;
+}
+
+h2 {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 16px 0 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+fieldset:disabled {
+  opacity: 0.6;
+}
+
+legend {
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+fieldset .btn-secondary {
+  width: 100%;
+  margin-top: 10px;
+}
+
+fieldset small {
+  margin-top: 10px;
+}
+
+.range-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: var(--text-meta);
+}
+
+.range-head {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 500;
+}
+
+.range-head output {
+  color: var(--ink-muted);
+}
+
+input[type='range'] {
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+}
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.slider input[type='range'] {
+  flex: 1;
+  min-width: 60px;
+}
+
+.degrees {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-muted);
+}
+
+.number {
+  width: 68px;
+  min-height: var(--tap-min);
+  padding: 6px 8px;
+  text-align: right;
+}
+
+.margin-controls {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.margin-controls summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.margin-controls .hint {
+  margin-top: 0;
+}
+
+.margin-controls fieldset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 8px 0 4px;
+  border: 0;
+}
+
+.margin-controls .field {
+  margin: 0;
+}
+
+.actions {
+  margin-top: 16px;
+}
+
+.actions .btn-quiet {
+  margin-left: -10px;
+}
+
+@media (max-width: 1000px) {
+  :host {
+    grid-column: 2;
+    border: 0;
+    padding: 12px 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+  }
+
+  h2,
+  .actions,
+  .margin-controls {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  :host {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .slider {
+    flex-wrap: wrap;
+  }
+}

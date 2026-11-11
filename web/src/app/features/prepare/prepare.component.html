@@ -1,50 +1,51 @@
+@let d = store.draft();
 <main
   class="prepare"
-  [class.wide]="step() === 'pages' && !completed()"
-  [class.editing-edges]="editingEdges"
+  [class.wide]="store.step() === 'pages' && !store.completed()"
+  [class.editing-edges]="store.editingEdges"
 >
   <header class="masthead">
     <a
       href="/"
       class="wordmark"
-      [attr.aria-disabled]="busy() || editingEdges"
-      (click)="$event.preventDefault(); close()"
+      [attr.aria-disabled]="store.locked"
+      (click)="$event.preventDefault(); store.close()"
       >Noted</a
     >
-    <button class="btn-secondary" (click)="close()" [disabled]="busy() || editingEdges">
-      {{ completed() ? 'Back to library' : 'Save draft & close' }}
+    <button class="btn-secondary" (click)="store.close()" [disabled]="store.locked">
+      {{ store.completed() ? 'Back to library' : 'Save draft & close' }}
     </button>
   </header>
   <div class="heading">
     <div class="heading-copy">
       <h1>
         {{
-          completed()
+          store.completed()
             ? 'Saved to your binder'
-            : step() === 'source'
+            : store.step() === 'source'
               ? 'Add a score'
-              : step() === 'pages'
+              : store.step() === 'pages'
                 ? 'Prepare pages'
                 : 'Ready for your binder'
         }}
       </h1>
       <p class="subline">
-        <span>{{ completed()?.title || draft()?.metadata?.title || 'A new piece' }}</span>
+        <span>{{ store.completed()?.title || d?.metadata?.title || 'A new piece' }}</span>
         <span class="tabular"
-          >{{ draft()?.manifest?.pages?.length || 0 }}
-          {{ draft()?.manifest?.pages?.length === 1 ? 'page' : 'pages' }}</span
+          >{{ d?.manifest?.pages?.length || 0 }}
+          {{ d?.manifest?.pages?.length === 1 ? 'page' : 'pages' }}</span
         >
       </p>
     </div>
-    @if (!completed()) {
+    @if (!store.completed()) {
       <nav class="steps" aria-label="Preparation steps">
         @for (s of steps; track s.id; let i = $index) {
           <button
             type="button"
-            [class.active]="step() === s.id"
-            [attr.aria-current]="step() === s.id ? 'step' : null"
-            [disabled]="busy() || editingEdges"
-            (click)="setStep(s.id)"
+            [class.active]="store.step() === s.id"
+            [attr.aria-current]="store.step() === s.id ? 'step' : null"
+            [disabled]="store.locked"
+            (click)="store.setStep(s.id)"
           >
             <span class="step-number tabular">{{ i + 1 }}</span>
             <span>{{ s.label }}</span>
@@ -53,30 +54,30 @@
       </nav>
     }
   </div>
-  @if (error()) {
+  @if (store.error()) {
     <div role="alert" class="notice">
-      <span>{{ error() }}</span>
+      <span>{{ store.error() }}</span>
       <span class="notice-actions">
-        <button class="btn-quiet" (click)="error.set('')">Dismiss</button>
-        @if (!completed()) {
-          <button class="btn-quiet" [disabled]="busy() || editingEdges" (click)="load()">
+        <button class="btn-quiet" (click)="store.error.set('')">Dismiss</button>
+        @if (!store.completed()) {
+          <button class="btn-quiet" [disabled]="store.locked" (click)="store.load()">
             Reload draft
           </button>
         }
       </span>
     </div>
   }
-  @if (progress()) {
+  @if (store.progress()) {
     <div role="status" class="notice progress">
-      <span>{{ progress() }}</span>
-      @if (cancellable()) {
+      <span>{{ store.progress() }}</span>
+      @if (store.cancellable()) {
         <span class="notice-actions">
-          <button class="btn-quiet" (click)="cancel()">Cancel processing</button>
+          <button class="btn-quiet" (click)="store.transfer.cancel()">Cancel processing</button>
         </span>
       }
     </div>
   }
-  @if (completed(); as piece) {
+  @if (store.completed(); as piece) {
     <section class="completion" aria-labelledby="completion-title">
       <h2 id="completion-title" #completionHeading tabindex="-1">Your score is saved</h2>
       @if (piece.duplicateOf; as duplicate) {
@@ -90,599 +91,62 @@
         <a class="btn-primary" [routerLink]="['/reader', piece.id]">Open saved score</a>
       }
     </section>
-  } @else if (draft(); as d) {
-    <input
-      #pdfInput
-      hidden
-      type="file"
-      accept="application/pdf"
-      multiple
-      [disabled]="busy()"
-      (change)="upload($event)"
-    />
-    <input
-      #photoInput
-      hidden
-      type="file"
-      accept="image/jpeg,image/png"
-      multiple
-      [disabled]="busy()"
-      (change)="upload($event)"
-    />
-    <input
-      #cameraInput
-      hidden
-      type="file"
-      accept="image/*"
-      capture="environment"
-      [disabled]="busy()"
-      (change)="upload($event)"
-    />
-    <input
-      #addInput
-      hidden
-      type="file"
-      accept="application/pdf,image/jpeg,image/png"
-      multiple
-      [disabled]="busy()"
-      (change)="upload($event)"
-    />
-    <input
-      #replaceInput
-      hidden
-      type="file"
-      accept="application/pdf,image/jpeg,image/png"
-      [disabled]="busy()"
-      (change)="upload($event, true)"
-    />
-    @if (step() === 'source') {
-      @if (sourceMode() !== 'all') {
-        <button
-          class="btn-quiet accent back-to-sources"
-          [disabled]="busy()"
-          (click)="chooseSource('all')"
-        >
-          Choose a different source
-        </button>
-      }
-      <section
-        class="source-options"
-        [class.focused]="sourceMode() !== 'all'"
-        aria-label="Choose a source"
-      >
-        <article [hidden]="sourceMode() !== 'all' && sourceMode() !== 'pdf'">
-          <h2>Upload a PDF</h2>
-          <p>
-            A scanner export or a score you have already downloaded. Good PDFs are kept exactly as
-            they are.
-          </p>
-          <div class="actions">
-            <button
-              class="btn-secondary"
-              (click)="pdfInput.click()"
-              [disabled]="busy() || editingEdges"
-            >
-              Choose PDF
-            </button>
-          </div>
-        </article>
-        <article [hidden]="sourceMode() !== 'all' && sourceMode() !== 'photos'">
-          <h2>From your books</h2>
-          <p>
-            Take one photo per page, or choose photos already on your phone. Originals stay
-            available for re-editing.
-          </p>
-          <div class="actions">
-            <button
-              class="btn-secondary"
-              (click)="cameraInput.click()"
-              [disabled]="busy() || editingEdges"
-            >
-              Take a photo
-            </button>
-            <button
-              class="btn-secondary"
-              (click)="photoInput.click()"
-              [disabled]="busy() || editingEdges"
-            >
-              Choose photos
-            </button>
-          </div>
-          <small>JPEG or PNG, up to 20 megapixels. Export HEIC photos as JPEG first.</small>
-        </article>
-        @if (sourceMode() === 'all') {
-          <article class="imslp-entry">
-            <h2>Find a score on IMSLP</h2>
-            <p>Explore classical works, then choose and download an edition on IMSLP.</p>
-            <button class="btn-secondary" type="button" (click)="chooseSource('imslp')">
-              Find a score on IMSLP
-            </button>
-          </article>
-        }
-        @if (sourceMode() === 'imslp') {
-          <article class="imslp" appPrepareImslp (addPdf)="pdfInput.click()"></article>
-        }
-      </section>
-      <div class="source-foot">
-        @if (!d.sources.length && !d.pieceId) {
-          <button class="btn-quiet" (click)="detailsWithoutPDF()" [disabled]="busy()">
-            Add details without a PDF
-          </button>
-        }
-        <p class="limits">
-          Files up to {{ d.maxFileBytes / 1048576 }} MiB, drafts up to 200 MiB and
-          {{ maxPreparedPages }} prepared pages.
-        </p>
-      </div>
+  } @else if (d) {
+    <app-prepare-file-inputs />
+    @if (store.step() === 'source') {
+      <app-prepare-source />
     }
-    @if (step() === 'pages') {
+    @if (store.step() === 'pages') {
       <section class="workspace">
-        <aside class="page-rail" aria-label="Score pages">
-          <details class="source-range">
-            <summary>Choose source pages</summary>
-            <label class="field">
-              <span>Source</span>
-              <select [(ngModel)]="rangeSourceId" [disabled]="busy() || editingEdges">
-                @for (a of d.sources; track a.id) {
-                  <option [value]="a.id">{{ a.filename }} ({{ a.pageCount }} pages)</option>
-                }
-              </select>
-            </label>
-            <label class="field">
-              <span>Page numbers</span>
-              <input
-                [(ngModel)]="rangeText"
-                [disabled]="busy() || editingEdges"
-                placeholder="1-4, 7"
-              />
-            </label>
-            <button
-              class="btn-secondary small"
-              (click)="useRange()"
-              [disabled]="busy() || editingEdges"
-            >
-              Use this range only
-            </button>
-          </details>
-          <div #thumbRail class="thumbs" (scroll)="thumbnailRailScrolled($event)">
-            @for (p of d.manifest.pages; track p.id; let i = $index) {
-              <div
-                class="thumbnail"
-                [class.active]="selected() === i"
-                [attr.data-thumbnail-id]="p.id"
-              >
-                <button
-                  type="button"
-                  [disabled]="busy() || editingEdges"
-                  (click)="choose(i)"
-                  [attr.aria-label]="
-                    'Preview page ' + (i + 1) + (hasPageAdjustments(p) ? ', adjusted' : '')
-                  "
-                >
-                  @if (thumbs()[p.id]) {
-                    <img [src]="thumbs()[p.id]" alt="" />
-                  } @else {
-                    <span class="placeholder">PDF</span>
-                  }
-                  <span class="tabular">Page {{ i + 1 }}</span>
-                  @if (hasPageAdjustments(p)) {
-                    <span class="adjusted-marker">Adjusted</span>
-                  }
-                </button>
-                <input
-                  type="checkbox"
-                  [checked]="selectedIDs().has(p.id)"
-                  (change)="toggle(p.id)"
-                  [disabled]="busy() || editingEdges"
-                  [attr.aria-label]="'Select page ' + (i + 1)"
-                />
-              </div>
-            }
-          </div>
-          <div class="rail-tools">
-            <button
-              class="icon-button framed"
-              (click)="move(-1)"
-              [disabled]="busy() || editingEdges || selected() <= 0"
-              aria-label="Move page earlier"
-              title="Move page earlier"
-            >
-              <svg lucideChevronUp aria-hidden="true"></svg>
-            </button>
-            <button
-              class="icon-button framed"
-              (click)="move(1)"
-              [disabled]="busy() || editingEdges || selected() >= d.manifest.pages.length - 1"
-              aria-label="Move page later"
-              title="Move page later"
-            >
-              <svg lucideChevronDown aria-hidden="true"></svg>
-            </button>
-            <button
-              class="btn-secondary small"
-              (click)="addInput.click()"
-              [disabled]="busy() || editingEdges"
-            >
-              Add pages
-            </button>
-            <button
-              class="btn-secondary small"
-              (click)="keepSelected()"
-              [disabled]="busy() || editingEdges || !selectedIDs().size"
-            >
-              Keep selected only
-            </button>
-          </div>
-        </aside>
-        <div class="preview-column">
-          <div class="preview-toolbar">
-            <div class="segmented" role="group" aria-label="Preview version">
-              <button
-                type="button"
-                [disabled]="busy() || editingEdges"
-                [class.active]="compare()"
-                [attr.aria-pressed]="compare()"
-                (click)="setCompare(true)"
-              >
-                Original
-              </button>
-              <button
-                type="button"
-                [disabled]="busy() || editingEdges"
-                [class.active]="!compare()"
-                [attr.aria-pressed]="!compare()"
-                (click)="setCompare(false)"
-              >
-                Adjusted
-              </button>
-            </div>
-            <div class="zoom">
-              <button
-                class="icon-button"
-                type="button"
-                (click)="zoom.set(Math.max(0.5, zoom() - 0.25))"
-                [disabled]="busy() || editingEdges"
-                aria-label="Zoom out"
-                title="Zoom out"
-              >
-                <svg lucideMinus aria-hidden="true"></svg>
-              </button>
-              <span class="tabular">{{ (zoom() * 100).toFixed(0) }}%</span>
-              <button
-                class="icon-button"
-                type="button"
-                (click)="zoom.set(Math.min(2, zoom() + 0.25))"
-                [disabled]="busy() || editingEdges"
-                aria-label="Zoom in"
-                title="Zoom in"
-              >
-                <svg lucidePlus aria-hidden="true"></svg>
-              </button>
-            </div>
-          </div>
-          <div class="preview-scroll">
-            @if (preview()) {
-              <div
-                #surface
-                class="page-surface"
-                (contextmenu)="editingEdges ? $event.preventDefault() : undefined"
-                (dragstart)="editingEdges ? $event.preventDefault() : undefined"
-                [style.width]="
-                  editingEdges
-                    ? 'min(' + zoom() * 100 + '%, ' + edgeAspect() * zoom() * 50 + 'vh)'
-                    : zoom() * 100 + '%'
-                "
-              >
-                <img
-                  #previewImage
-                  [src]="preview()"
-                  alt="Current score page preview"
-                  draggable="false"
-                />
-                @if (handles(); as mode) {
-                  <app-prepare-edges
-                    [(points)]="pendingEdges"
-                    [mode]="mode"
-                    [image]="previewImage"
-                    [busy]="busy()"
-                    [ready]="edgeReady()"
-                    [resetRequired]="edgeResetRequired()"
-                  />
-                }
-              </div>
-            } @else if (d.manifest.pages.length) {
-              <div class="empty" role="status">Loading page preview…</div>
-            } @else {
-              <div class="empty">
-                <h2>Add your first page</h2>
-                <button
-                  class="btn-secondary"
-                  (click)="addInput.click()"
-                  [disabled]="busy() || editingEdges"
-                >
-                  Choose PDF or photos
-                </button>
-              </div>
-            }
-          </div>
-          @if (handles()) {
-            <section class="edge-actions" aria-label="Page edge editor">
-              <p class="hint">
-                Drag the green corners around the page you want to keep. Shaded areas will be
-                removed. Arrow keys move a focused corner. Hold Shift while dragging to keep a
-                rectangle.
-              </p>
-              @if (edgeResetRequired()) {
-                <p class="hint">
-                  This page combines earlier crop and perspective edits. Start again from the
-                  original to replace those edges; Cancel keeps every current adjustment.
-                </p>
-                <button class="btn-secondary" (click)="resetPendingEdges()">
-                  Start edges from original
-                </button>
-              } @else {
-                <p class="hint">
-                  Apply fits the selected region to a new page and replaces earlier crop, scale and
-                  position settings.
-                </p>
-              }
-            </section>
-          }
-        </div>
-        <aside class="adjustments" aria-label="Page adjustments">
-          @if (page; as p) {
-            <h2 class="tabular">Page {{ selected() + 1 }}</h2>
-            <fieldset [disabled]="busy() || editingEdges">
-              <legend>Page edges</legend>
-              <button class="btn-secondary" (click)="beginEdges()">Adjust page edges</button>
-              <small>Keep the part you want. The page fits your selection automatically.</small>
-            </fieldset>
-            @if (isPhoto) {
-              <fieldset [disabled]="busy() || editingEdges">
-                <legend>Lighten paper</legend>
-                <label class="range-field">
-                  <span class="range-head">
-                    <span>Strength</span>
-                    <output class="tabular">{{ paperStrength }}%</output>
-                  </span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    [ngModel]="paperStrength"
-                    (ngModelChange)="changePaperStrength(+$event)"
-                    (pointerdown)="startGesture()"
-                    (pointerup)="endGesture()"
-                    (pointercancel)="endGesture()"
-                    (keyup)="endGesture()"
-                    (blur)="endGesture()"
-                    aria-label="Lighten paper strength"
-                  />
-                </label>
-                <small
-                  >0 keeps the original paper. Compare faint pencil marks as you increase it.</small
-                >
-              </fieldset>
-            }
-            <fieldset [disabled]="busy() || editingEdges">
-              <legend>Straighten</legend>
-              <label class="slider">
-                <input
-                  type="range"
-                  min="-10"
-                  max="10"
-                  step=".1"
-                  [ngModel]="p.angle || 0"
-                  (ngModelChange)="change('angle', +$event)"
-                  (pointerdown)="startGesture()"
-                  (pointerup)="endGesture()"
-                  (pointercancel)="endGesture()"
-                  (keyup)="endGesture()"
-                  (blur)="endGesture()"
-                  aria-label="Straighten angle"
-                />
-                <span class="degrees">
-                  <input
-                    #angleInput
-                    class="text-input number tabular"
-                    type="number"
-                    min="-10"
-                    max="10"
-                    step=".1"
-                    [ngModel]="p.angle || 0"
-                    (ngModelChange)="change('angle', +$event, angleInput)"
-                    (blur)="endGesture()"
-                    aria-label="Angle in degrees"
-                  />
-                  <span aria-hidden="true">°</span>
-                </span>
-              </label>
-            </fieldset>
-            <details class="margin-controls">
-              <summary>Margins (optional)</summary>
-              <p class="hint">
-                Added white space outside your selected page. All zero means no added border.
-              </p>
-              <fieldset [disabled]="busy() || editingEdges">
-                @for (label of marginLabels; track label; let i = $index) {
-                  <label class="field">
-                    <span>{{ label }} (mm)</span>
-                    <input
-                      class="tabular"
-                      type="number"
-                      min="0"
-                      max="50"
-                      step="1"
-                      [ngModel]="marginMM(i)"
-                      (ngModelChange)="changeMargin(i, +$event)"
-                      (blur)="endGesture()"
-                      [attr.aria-label]="label + ' margin in millimetres'"
-                    />
-                  </label>
-                }
-              </fieldset>
-            </details>
-            <div class="actions">
-              <button
-                class="btn-secondary small"
-                (click)="rotate()"
-                [disabled]="busy() || editingEdges"
-              >
-                Rotate 90°
-              </button>
-              <button
-                class="btn-secondary small"
-                (click)="replaceInput.click()"
-                [disabled]="busy() || editingEdges"
-              >
-                Replace page
-              </button>
-              <button
-                class="btn-secondary small danger"
-                (click)="remove()"
-                [disabled]="busy() || editingEdges"
-              >
-                Remove from this copy
-              </button>
-            </div>
-            <div class="actions">
-              <button class="btn-quiet" (click)="resetPage()" [disabled]="busy() || editingEdges">
-                Reset page
-              </button>
-              <button class="btn-quiet" (click)="undo()" [disabled]="busy() || editingEdges">
-                Undo
-              </button>
-            </div>
-          }
-        </aside>
+        <aside appPreparePageList></aside>
+        <div appPreparePreview></div>
+        <aside appPrepareAdjustments></aside>
       </section>
     }
-    @if (step() === 'details') {
-      <section class="details">
-        <div class="details-form">
-          <h2>Details</h2>
-          <p class="lede">Title and composer are what you will search for in the library.</p>
-          <label class="field">
-            <span>Title</span>
-            <input
-              [ngModel]="d.metadata.title"
-              (ngModelChange)="updateMetadata('title', $event)"
-              [disabled]="busy()"
-              maxlength="300"
-              required
-            />
-          </label>
-          <label class="field">
-            <span>Composer</span>
-            <input
-              [ngModel]="d.metadata.composer"
-              (ngModelChange)="updateMetadata('composer', $event)"
-              [disabled]="busy()"
-              maxlength="300"
-            />
-          </label>
-          <label class="field">
-            <span>Source link</span>
-            <input
-              type="url"
-              [ngModel]="d.metadata.sourceUrl"
-              (ngModelChange)="updateMetadata('sourceUrl', $event)"
-              [disabled]="busy()"
-              maxlength="2000"
-            />
-          </label>
-          <label class="field">
-            <span>Listening URL</span>
-            <input
-              type="url"
-              [ngModel]="d.metadata.listeningUrl"
-              (ngModelChange)="updateMetadata('listeningUrl', $event)"
-              [disabled]="busy()"
-              maxlength="2000"
-            />
-          </label>
-          <label class="field">
-            <span>Edition / notes</span>
-            <textarea
-              [ngModel]="d.metadata.notes"
-              (ngModelChange)="updateMetadata('notes', $event)"
-              [disabled]="busy()"
-              maxlength="10000"
-              rows="3"
-            ></textarea>
-          </label>
-          <label class="check-field">
-            <input
-              type="checkbox"
-              [ngModel]="d.metadata.favorite"
-              (ngModelChange)="updateMetadata('favorite', $event)"
-              [disabled]="busy()"
-            />
-            <span>Add to favorites</span>
-          </label>
-          <p class="hint">
-            Check page order, edges and small notation at reading size. Original files are retained
-            so you can revisit these adjustments.
-          </p>
-        </div>
-        <div class="review-stack">
-          @for (p of d.manifest.pages.slice(0, 3); track p.id) {
-            <img [src]="thumbs()[p.id]" alt="Score page thumbnail" />
-          }
-          <button class="btn-quiet accent" (click)="setStep('pages')" [disabled]="busy()">
-            Review pages
-          </button>
-        </div>
-      </section>
+    @if (store.step() === 'details') {
+      <section appPrepareDetails></section>
     }
     <footer class="prepare-footer">
-      <span>{{ saved() || 'Originals kept for re-editing' }}</span>
+      <span>{{ store.saved() || 'Originals kept for re-editing' }}</span>
       <div>
-        @if (editingEdges) {
-          <button class="btn-secondary" (click)="cancelEdges()">Cancel</button>
+        @if (store.editingEdges) {
+          <button class="btn-secondary" (click)="store.edges.cancel()">Cancel</button>
           <button
             class="btn-primary"
-            (click)="applyEdges()"
-            [disabled]="!edgeReady() || edgeResetRequired()"
+            (click)="store.edges.apply()"
+            [disabled]="!store.edges.ready() || store.edges.resetRequired()"
           >
             Apply edges
           </button>
         } @else {
-          <button class="btn-quiet danger" (click)="discard()" [disabled]="busy() || editingEdges">
+          <button class="btn-quiet danger" (click)="store.discard()" [disabled]="store.locked">
             Discard draft
           </button>
-          @if (step() === 'pages') {
-            <button
-              class="btn-secondary"
-              (click)="backFromPages()"
-              [disabled]="busy() || editingEdges"
-            >
+          @if (store.step() === 'pages') {
+            <button class="btn-secondary" (click)="store.backFromPages()" [disabled]="store.locked">
               Back
             </button>
           }
-          @if (step() === 'details') {
+          @if (store.step() === 'details') {
             <button
               class="btn-secondary"
-              (click)="setStep('pages')"
-              [disabled]="busy() || editingEdges"
+              (click)="store.setStep('pages')"
+              [disabled]="store.locked"
             >
               Back
             </button>
             <button
               class="btn-primary"
-              (click)="save()"
-              [disabled]="
-                busy() || editingEdges || !d.manifest.pages.length || !d.metadata.title.trim()
-              "
+              (click)="store.transfer.save()"
+              [disabled]="store.locked || !d.manifest.pages.length || !d.metadata.title.trim()"
             >
               Save & open
             </button>
           } @else {
             <button
               class="btn-primary"
-              (click)="continue()"
-              [disabled]="busy() || editingEdges || !d.manifest.pages.length"
+              (click)="store.continue()"
+              [disabled]="store.locked || !d.manifest.pages.length"
             >
               Continue
             </button>

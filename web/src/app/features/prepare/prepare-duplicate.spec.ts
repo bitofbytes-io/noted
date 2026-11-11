@@ -9,8 +9,7 @@ import { createPrepareFixture, draft } from './prepare-testing';
 
 describe('Prepare duplicate completion', () => {
   it('keeps both saved navigation actions and prevents further draft writes', async () => {
-    const { fixture, api, openWindow } = await createPrepareFixture();
-    const component = fixture.componentInstance;
+    const { fixture, store: component, api, openWindow } = await createPrepareFixture();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     const source = {
       id: 'pdf',
@@ -28,7 +27,7 @@ describe('Prepare duplicate completion', () => {
       manifest: { version: 1, pages: [{ id: 'page', sourceId: source.id, page: 0 }] },
     });
     component.step.set('details');
-    const client = Reflect.get(component, 'workerClient') as ProcessingWorkerClient;
+    const client = Reflect.get(component.preview, 'workerClient') as ProcessingWorkerClient;
     vi.spyOn(client, 'run').mockResolvedValue({ bytes: new ArrayBuffer(10) });
     api.finalizeImport.mockReturnValueOnce(
       of({
@@ -37,7 +36,7 @@ describe('Prepare duplicate completion', () => {
         duplicateOf: { id: 'existing-piece', title: '<img src=x onerror=alert(1)>' },
       }),
     );
-    await component.save();
+    await component.transfer.save();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -56,7 +55,7 @@ describe('Prepare duplicate completion', () => {
     expect(component.draft()?.finalized).toBe(true);
     expect(component.draft()?.pieceId).toBe('saved-copy');
 
-    await component.save();
+    await component.transfer.save();
     await component.discard();
     component.updateMetadata('title', 'Too late');
     component.mark();
@@ -72,8 +71,7 @@ describe('Prepare duplicate completion', () => {
   });
 
   it('keeps a stale-tab discard conflict recoverable without claiming completion', async () => {
-    const { fixture, api, openWindow } = await createPrepareFixture();
-    const component = fixture.componentInstance;
+    const { fixture, store: component, api, openWindow } = await createPrepareFixture();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     api.deleteImport.mockReturnValueOnce(
@@ -109,12 +107,12 @@ describe('Prepare duplicate completion', () => {
   });
 
   it('opens an already finalized draft without running finalization again', async () => {
-    const { fixture, api, openWindow } = await createPrepareFixture();
+    const { fixture, store, api, openWindow } = await createPrepareFixture();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     api.importDraft.mockReturnValueOnce(
       of({ ...structuredClone(draft), finalized: true, pieceId: 'saved-copy' }),
     );
-    await fixture.componentInstance.load();
+    await store.load();
     expect(navigate).toHaveBeenCalledWith(['/reader', 'saved-copy']);
     expect(api.finalizeImport).not.toHaveBeenCalled();
     expect(api.deleteImport).not.toHaveBeenCalled();
