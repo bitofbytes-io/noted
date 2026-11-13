@@ -1,7 +1,7 @@
 // OpenCV.js as the processing worker uses it. The library itself is the Emscripten
 // build the app copies to /intake and loads with importScripts, so only its types
 // are declared here and the Angular build bundles none of it.
-import { StaffSuggestion, analyzeStaff } from './processing-algorithms';
+import { StaffSuggestion, analyzeImage } from './staff-detection';
 
 // The subset of OpenCV.js this worker calls; `cv` is the global its script defines.
 export interface Mat {
@@ -11,10 +11,15 @@ export interface Mat {
   delete(): void;
 }
 export interface OpenCV {
-  Mat: { new (): Mat; ones(rows: number, cols: number, type: number): Mat };
+  Mat: {
+    new (): Mat;
+    new (rows: number, cols: number, type: number): Mat;
+    ones(rows: number, cols: number, type: number): Mat;
+  };
   Size: new (width: number, height: number) => unknown;
   Scalar: new (...values: number[]) => unknown;
   CV_8U: number;
+  CV_8UC1: number;
   CV_32FC2: number;
   COLOR_RGBA2GRAY: number;
   BORDER_REPLICATE: number;
@@ -81,23 +86,27 @@ export function openCV(): Promise<void> {
   return cvReady;
 }
 
-/** Reads the staff angle and bounds of a page image; call after `openCV` resolves. */
-export function analyze(image: ImageData): StaffSuggestion {
-  const src = cv.matFromImageData(image),
-    gray = new cv.Mat(),
+/** The angle, in degrees, of each long line Hough finds on a grey page. */
+function lineAngles(grayPixels: Uint8Array, width: number, height: number): number[] {
+  const gray = new cv.Mat(height, width, cv.CV_8UC1),
     edges = new cv.Mat(),
     lines = new cv.Mat();
   try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    gray.data.set(grayPixels);
     cv.Canny(gray, edges, 60, 160);
-    cv.HoughLinesP(edges, lines, 1, Math.PI / 3600, 80, image.width * 0.3, 12);
+    cv.HoughLinesP(edges, lines, 1, Math.PI / 3600, 80, width * 0.3, 12);
     const angles: number[] = [];
     for (let i = 0; i < lines.rows; i++) {
       const [x1, y1, x2, y2] = lines.data32S.slice(i * 4, i * 4 + 4);
       angles.push((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI);
     }
-    return analyzeStaff(angles, gray.data, image.width, image.height);
+    return angles;
   } finally {
-    [src, gray, edges, lines].forEach((m) => m.delete());
+    [gray, edges, lines].forEach((m) => m.delete());
   }
+}
+
+/** Reads the staff angle and bounds of a page image; call after `openCV` resolves. */
+export function analyze(image: ImageData): StaffSuggestion {
+  return analyzeImage(image, lineAngles);
 }
