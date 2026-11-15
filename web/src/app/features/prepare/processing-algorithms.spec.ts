@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { PageEdit } from '../../core/models';
 import {
   alignToReference,
-  analyzeStaff,
   cleanupStrength,
   fittedQuadSize,
   inkOutsidePage,
@@ -256,48 +255,6 @@ describe('processing algorithms', () => {
       expect(inkOutsidePage(render(3, 0), 4, 4, 100, 100, [0, 0, 0.5, 1], identity, 50, 100)).toBe(
         false,
       );
-    });
-  });
-
-  describe('analyzeStaff', () => {
-    const width = 100,
-      height = 60;
-    /** A white page with dark full-width rows between top and bottom. */
-    const staffPage = (top: number, bottom: number) => {
-      const gray = new Uint8Array(width * height).fill(255);
-      for (let y = top; y <= bottom; y += 4) gray.fill(0, y * width + 10, y * width + 90);
-      return gray;
-    };
-
-    it('needs enough near-level lines that agree on one angle', () => {
-      const gray = staffPage(20, 40);
-      expect(analyzeStaff([0, 0.1, 45, -30], gray, width, height)).toMatchObject({
-        confident: false,
-        reason: 'No consistent staff lines found. Adjust this page manually.',
-      });
-      const mixed = [...Array(6).fill(0), ...Array(6).fill(2)];
-      expect(analyzeStaff(mixed, gray, width, height)).toMatchObject({
-        confident: false,
-        reason: 'The page has mixed angles. Adjust it manually.',
-      });
-    });
-
-    it('takes the median angle and the dense staff rows as bounds', () => {
-      const angles = [0.1, 0, 0.2, 0, 0.1, 0, 0.1, 0.2, 0.1, 0, 15];
-      expect(analyzeStaff(angles, staffPage(20, 40), width, height)).toEqual({
-        confident: true,
-        angle: 0.1,
-        bounds: [0.1, 20 / 60, 0.89, 40 / 60],
-      });
-    });
-
-    it('reports unclear boundaries on a blank page', () => {
-      expect(
-        analyzeStaff(Array(10).fill(0), new Uint8Array(width * height).fill(255), width, height),
-      ).toMatchObject({
-        confident: false,
-        reason: 'Staff boundaries were unclear. Adjust this page manually.',
-      });
     });
   });
 

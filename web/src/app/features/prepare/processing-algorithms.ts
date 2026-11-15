@@ -8,13 +8,6 @@ export type Point = [number, number];
 /** A page edge rectangle as [left, top, right, bottom] fractions of the page. */
 export type Edges = number[];
 
-export interface StaffSuggestion {
-  confident: boolean;
-  angle?: number;
-  bounds?: number[];
-  reason?: string;
-}
-
 export interface PageLayout {
   scale: number;
   angle: number;
@@ -258,62 +251,6 @@ export function inkOutsidePage(
         return true;
     }
   return false;
-}
-
-/**
- * Suggests a straighten angle and staff bounds from near-horizontal line angles
- * (degrees, from a Hough transform) and the grey page they were found on.
- */
-export function analyzeStaff(
-  angles: number[],
-  gray: ArrayLike<number>,
-  width: number,
-  height: number,
-): StaffSuggestion {
-  const candidates = angles.filter((angle) => Math.abs(angle) <= 10);
-  if (candidates.length < 10)
-    return {
-      confident: false,
-      reason: 'No consistent staff lines found. Adjust this page manually.',
-    };
-  candidates.sort((a, b) => a - b);
-  const angle = candidates[Math.floor(candidates.length / 2)],
-    agree = candidates.filter((other) => Math.abs(other - angle) < 0.3);
-  if (agree.length < candidates.length * 0.8)
-    return { confident: false, reason: 'The page has mixed angles. Adjust it manually.' };
-  // Hough determines the angle, but can omit an outer staff line. Measure all
-  // dense staff rows in deskewed coordinates, excluding sparse title/footer text.
-  const radians = (angle * Math.PI) / 180,
-    cos = Math.cos(radians),
-    sin = Math.sin(radians),
-    rows = new Uint32Array(height + width * 2);
-  const row = (x: number, y: number) => Math.round(y * cos - x * sin) + width;
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) if (gray[y * width + x] < 200) rows[row(x, y)]++;
-  let left = width,
-    top = height,
-    right = 0,
-    bottom = 0;
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      if (gray[y * width + x] >= 200) continue;
-      const n = row(x, y);
-      if (rows[n - 1] + rows[n] + rows[n + 1] < width * 0.25) continue;
-      left = Math.min(left, x);
-      right = Math.max(right, x);
-      top = Math.min(top, y);
-      bottom = Math.max(bottom, y);
-    }
-  if (right <= left || bottom <= top)
-    return {
-      confident: false,
-      reason: 'Staff boundaries were unclear. Adjust this page manually.',
-    };
-  return {
-    confident: true,
-    angle,
-    bounds: [left / width, top / height, right / width, bottom / height],
-  };
 }
 
 export interface MeasuredPage {
