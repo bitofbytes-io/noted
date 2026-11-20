@@ -51,7 +51,8 @@
   } @else if (mode() === 'page') {
     <section
       class="page-stage"
-      [class.spread]="visiblePages().length > 1"
+      [class.spread]="visiblePages().length > 1 && !halfShown()"
+      [class.half-turn]="halfShown()"
       [attr.aria-label]="visiblePages().length > 1 ? 'PDF pages' : 'PDF page'"
     >
       @for (page of visiblePages(); track $index) {
@@ -148,7 +149,7 @@
         type="button"
         aria-label="Previous page"
         title="Previous page"
-        [disabled]="visiblePages()[0] <= 1"
+        [disabled]="!canTurnBack()"
         (click)="turnPage(-1)"
       >
         <svg lucideChevronLeft aria-hidden="true"></svg>
@@ -159,7 +160,7 @@
         type="button"
         aria-label="Next page"
         title="Next page"
-        [disabled]="visiblePages()[visiblePages().length - 1] >= metrics().length"
+        [disabled]="!canTurnForward()"
         (click)="turnPage(1)"
       >
         <svg lucideChevronRight aria-hidden="true"></svg>
@@ -167,8 +168,8 @@
       <button
         class="layout-toggle"
         type="button"
-        [attr.aria-label]="'Page layout: ' + spreadPreference() + '. Change layout'"
-        [title]="'Page layout: ' + spreadPreference()"
+        [attr.aria-label]="'Page layout: ' + spreadLabels[spreadPreference()] + '. Change layout'"
+        [title]="'Page layout: ' + spreadLabels[spreadPreference()]"
         (click)="cycleSpread($event)"
       >
         <svg lucideBookOpen aria-hidden="true"></svg>

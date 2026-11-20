@@ -38,6 +38,9 @@ import { PageMetric, PdfDocument } from './pdf-document.service';
 import {
   ReaderPointerMove,
   SpreadPreference,
+  halfTurnFromPosition,
+  halfTurnPosition,
+  lastHalfTurnPosition,
   loadSpreadPreference,
   nextSpreadPreference,
   pageDeltaForKey,
@@ -114,8 +117,30 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       this.metrics().length,
     ),
   );
-  /** The pages page mode shows: one, or a pair that starts on an odd page and may end alone. */
+  /** Whether page mode turns half a page at a time; a one-page score has nothing to turn into. */
+  protected readonly halfTurning = computed(
+    () => this.mode() === 'page' && this.spreadPreference() === 'half' && this.metrics().length > 1,
+  );
+  /** Between half turns: the top of the next page shows over the bottom of the current one. */
+  protected readonly halfTurned = signal(false);
+  protected readonly halfShown = computed(() => this.halfTurning() && this.halfTurned());
+  private readonly halfPosition = computed(() =>
+    halfTurnPosition(this.currentPage(), this.halfShown()),
+  );
+  protected readonly canTurnBack = computed(() =>
+    this.halfTurning() ? this.halfPosition() > 0 : this.visiblePages()[0] > 1,
+  );
+  protected readonly canTurnForward = computed(() =>
+    this.halfTurning()
+      ? this.halfPosition() < lastHalfTurnPosition(this.metrics().length)
+      : this.visiblePages()[this.visiblePages().length - 1] < this.metrics().length,
+  );
+  /**
+   * The pages page mode shows: one, or a pair that starts on an odd page and may end alone. In a
+   * half turn the pair is the current page and the next, drawn in the same place.
+   */
   protected readonly visiblePages = computed(() => {
+    if (this.halfShown()) return [this.currentPage(), this.currentPage() + 1];
     if (this.mode() !== 'page' || !this.spreading()) return [this.currentPage()];
     const start = spreadStartPage(this.currentPage());
     return start < this.metrics().length ? [start, start + 1] : [start];
@@ -146,7 +171,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private pointerStart?: { x: number; y: number };
   private pointerMovementBaseline?: ReaderPointerMove;
   private swiped = false;
-  private renderedPage?: { pageNumber: number; span: number; key: number };
+  private renderedPage?: { pageNumber: number; span: number; columns: number; key: number };
   private renderedWidths = new Map<number, number>();
   private pageRenderInFlight = false;
   private pageRenderPending = false;
@@ -221,6 +246,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         const metrics = await this.pdf.load(piece.pdf.contentUrl);
         this.metrics.set(metrics);
         this.currentPage.set(clamp(Math.round(state.lastPage), 1, metrics.length));
+        this.halfTurned.set(false);
         this.loading.set(false);
         setTimeout(() => {
           if (this.mode() === 'scroll') {
@@ -259,6 +285,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     if (mode === this.mode()) return;
     if (this.mode() === 'scroll') this.updateCurrentPage();
     this.mode.set(mode);
+    this.halfTurned.set(false);
     this.renderGeneration++;
     this.scrollRenderRequests.clear();
     this.renderedPage = undefined;
@@ -273,6 +300,10 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   turnPage(delta: number): void {
     if (this.mode() !== 'page') return;
+    if (this.halfTurning()) {
+      this.turnHalfPage(delta);
+      return;
+    }
     const start = this.visiblePages()[0];
     const last = this.metrics().length;
     // A spread turns two pages at a time; a trailing single page still counts as one spread.
@@ -286,9 +317,23 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.queueSave();
   }
 
+  /** Moves one half page: whole page, then the next page's top over this one's bottom, and so on. */
+  private turnHalfPage(delta: number): void {
+    const position = this.halfPosition();
+    const next = clamp(position + delta, 0, lastHalfTurnPosition(this.metrics().length));
+    if (next === position) return;
+    const { page, turned } = halfTurnFromPosition(next);
+    this.currentPage.set(page);
+    this.halfTurned.set(turned);
+    this.clearVisiblePage();
+    this.scheduleRender();
+    this.queueSave();
+  }
+
   cycleSpread(event?: MouseEvent): void {
     const next = nextSpreadPreference(this.spreadPreference());
     this.spreadPreference.set(next);
+    this.halfTurned.set(false);
     saveSpreadPreference(next);
     this.scheduleRender();
     // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
@@ -463,11 +508,14 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       const targets = this.canvases.toArray().map((canvas) => canvas.nativeElement);
       // The canvases follow the pages after change detection, which schedules another render.
       if (targets.length !== pageNumbers.length) return;
-      const box = this.pageBox(pageNumbers.length);
+      // A half turn and a spread show the same page numbers, but size them for different columns.
+      const columns = this.pageColumns();
+      const box = this.pageBox(columns);
       const generation = this.renderGeneration;
       if (
         this.renderedPage?.pageNumber === pageNumbers[0] &&
         this.renderedPage.span === pageNumbers.length &&
+        this.renderedPage.columns === columns &&
         this.renderedPage.key === box.key
       )
         return;
@@ -484,7 +532,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         if (
           this.renderGeneration === generation &&
           this.mode() === 'page' &&
-          this.pageBox(this.visiblePages().length).key === box.key &&
+          this.pageColumns() === columns &&
+          this.pageBox(columns).key === box.key &&
           this.visiblePages().join() === pageNumbers.join() &&
           this.canvases.length === targets.length &&
           this.canvases.toArray().every((canvas, index) => canvas.nativeElement === targets[index])
@@ -502,6 +551,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
           this.renderedPage = {
             pageNumber: pageNumbers[0],
             span: pageNumbers.length,
+            columns,
             key: box.key,
           };
         }
@@ -516,7 +566,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
           this.renderGeneration !== generation ||
           this.mode() !== 'page' ||
           this.visiblePages().join() !== pageNumbers.join() ||
-          this.pageBox(this.visiblePages().length).key !== box.key;
+          this.pageColumns() !== columns ||
+          this.pageBox(columns).key !== box.key;
         if (this.pageRenderPending || requestChanged) {
           this.pageRenderPending = false;
           this.scheduleRender();
@@ -610,6 +661,11 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       );
     });
     await Promise.all(pending);
+  }
+
+  /** How many pages sit side by side; the two halves of a half turn share one page's place. */
+  private pageColumns(): number {
+    return this.halfShown() ? 1 : this.visiblePages().length;
   }
 
   /** The size each of `count` side-by-side pages may take, and the key identifying it. */
