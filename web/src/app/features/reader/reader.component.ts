@@ -171,7 +171,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   private pointerStart?: { x: number; y: number };
   private pointerMovementBaseline?: ReaderPointerMove;
   private swiped = false;
-  private renderedPage?: { pageNumber: number; span: number; key: number };
+  private renderedPage?: { pageNumber: number; span: number; columns: number; key: number };
   private renderedWidths = new Map<number, number>();
   private pageRenderInFlight = false;
   private pageRenderPending = false;
@@ -508,11 +508,14 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
       const targets = this.canvases.toArray().map((canvas) => canvas.nativeElement);
       // The canvases follow the pages after change detection, which schedules another render.
       if (targets.length !== pageNumbers.length) return;
-      const box = this.pageBox(this.pageColumns());
+      // A half turn and a spread show the same page numbers, but size them for different columns.
+      const columns = this.pageColumns();
+      const box = this.pageBox(columns);
       const generation = this.renderGeneration;
       if (
         this.renderedPage?.pageNumber === pageNumbers[0] &&
         this.renderedPage.span === pageNumbers.length &&
+        this.renderedPage.columns === columns &&
         this.renderedPage.key === box.key
       )
         return;
@@ -529,7 +532,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         if (
           this.renderGeneration === generation &&
           this.mode() === 'page' &&
-          this.pageBox(this.pageColumns()).key === box.key &&
+          this.pageColumns() === columns &&
+          this.pageBox(columns).key === box.key &&
           this.visiblePages().join() === pageNumbers.join() &&
           this.canvases.length === targets.length &&
           this.canvases.toArray().every((canvas, index) => canvas.nativeElement === targets[index])
@@ -547,6 +551,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
           this.renderedPage = {
             pageNumber: pageNumbers[0],
             span: pageNumbers.length,
+            columns,
             key: box.key,
           };
         }
@@ -561,7 +566,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
           this.renderGeneration !== generation ||
           this.mode() !== 'page' ||
           this.visiblePages().join() !== pageNumbers.join() ||
-          this.pageBox(this.pageColumns()).key !== box.key;
+          this.pageColumns() !== columns ||
+          this.pageBox(columns).key !== box.key;
         if (this.pageRenderPending || requestChanged) {
           this.pageRenderPending = false;
           this.scheduleRender();

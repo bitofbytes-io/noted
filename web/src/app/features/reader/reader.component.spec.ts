@@ -155,7 +155,12 @@ describe('ReaderComponent', () => {
     await renderVisible();
 
     expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2, 1]);
-    expect(Reflect.get(component, 'renderedPage')).toEqual({ pageNumber: 1, span: 1, key: 1000 });
+    expect(Reflect.get(component, 'renderedPage')).toEqual({
+      pageNumber: 1,
+      span: 1,
+      columns: 1,
+      key: 1000,
+    });
     component.ngOnDestroy();
   });
 
@@ -830,7 +835,12 @@ describe('ReaderComponent two-page spread', () => {
     expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2]);
     // Each page gets half the stage, less the padding and the gap between them.
     expect(renderPage.mock.calls.map((call) => call[2])).toEqual([667, 667]);
-    expect(Reflect.get(component, 'renderedPage')).toEqual({ pageNumber: 1, span: 2, key: 667 });
+    expect(Reflect.get(component, 'renderedPage')).toEqual({
+      pageNumber: 1,
+      span: 2,
+      columns: 2,
+      key: 667,
+    });
 
     component.turnPage(1);
     await renderVisible();
@@ -943,26 +953,61 @@ describe('ReaderComponent half-page turns', () => {
   });
 
   it('saves the earlier page so a reload resumes on a whole page', () => {
-    const component = halfReader(3);
-    component.turnPage(1);
-    component.turnPage(1);
-    component.turnPage(1);
+    const saveReaderState = vi.fn((_id: string, _state: ReaderState) => new Subject<void>());
+    const component = createReaderComponent({ saveReaderState });
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
+    );
+    Reflect.get(component, 'spreadPreference').set('half');
+    Reflect.set(component, 'pieceId', 'piece');
+    Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
+    Reflect.get(component, 'loading').set(false);
+    for (let i = 0; i < 3; i++) component.turnPage(1);
+    expect(state(component)).toEqual([2, true]);
     expect(visible(component)).toEqual([2, 3]);
-    expect(Reflect.get(component, 'visiblePages')()[0]).toBe(2);
+    (Reflect.get(component, 'saveNow') as () => void).call(component);
+
+    expect(saveReaderState.mock.calls[0][1]).toMatchObject({ mode: 'page', lastPage: 2 });
+    Reflect.get(component, 'loading').set(true);
+    component.ngOnDestroy();
   });
 
-  it('leaves the half step when the layout or mode changes', () => {
+  it('leaves the half step when the layout changes', () => {
     const component = halfReader(3);
     component.turnPage(1);
     component.cycleSpread();
     expect(Reflect.get(component, 'spreadPreference')()).toBe('auto');
     expect(turned(component)).toBe(false);
-    Reflect.get(component, 'spreadPreference').set('half');
-    component.turnPage(1);
-    expect(turned(component)).toBe(true);
-    Reflect.get(component, 'mode').set('scroll');
-    expect(turned(component)).toBe(false);
+    expect(Reflect.get(component, 'halfTurned')()).toBe(false);
     component.ngOnDestroy();
+  });
+
+  it('leaves the half step when the mode changes, in both directions', async () => {
+    vi.useFakeTimers();
+    try {
+      const component = halfReader(3);
+      Reflect.set(component, 'stage', {
+        nativeElement: {
+          clientWidth: 1366,
+          clientHeight: 1024,
+          scrollTo: () => undefined,
+          getBoundingClientRect: () => ({ top: 0 }),
+        },
+      });
+      Reflect.set(component, 'scrollPages', new QueryList<ElementRef<HTMLElement>>());
+      component.turnPage(1);
+      expect(Reflect.get(component, 'halfTurned')()).toBe(true);
+      component.setMode('scroll');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(Reflect.get(component, 'halfTurned')()).toBe(false);
+      component.setMode('page');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(Reflect.get(component, 'halfTurned')()).toBe(false);
+      expect(visible(component)).toEqual([1]);
+      component.ngOnDestroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not affect single, spread or one-page layouts', () => {
@@ -1010,6 +1055,46 @@ describe('ReaderComponent half-page turns', () => {
     expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2]);
     // Both halves use the full stage width rather than sharing it like a spread.
     expect(renderPage.mock.calls.map((call) => call[2])).toEqual([1342, 1342]);
+    component.ngOnDestroy();
+  });
+});
+
+describe('ReaderComponent half turn to spread render cache', () => {
+  afterEach(() => localStorage.clear());
+
+  it('redraws pages 1–2 for the spread after drawing them for a half turn', async () => {
+    const component = createReaderComponent();
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: 4 }, (_, i) => ({ page: i + 1, ratio: 1.4 })),
+    );
+    // Landscape and short enough that one column and two columns share a box key.
+    Reflect.get(component, 'viewport').set({ width: 1366, height: 600 });
+    Reflect.get(component, 'spreadPreference').set('half');
+    Reflect.get(component, 'loading').set(false);
+    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 600 } });
+    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+    const pair = [document.createElement('canvas'), document.createElement('canvas')];
+    pair.forEach(spyOnCanvasPublishing);
+    canvases.reset(pair.map((canvas) => new ElementRef(canvas)));
+    Reflect.set(component, 'canvases', canvases);
+    const renderPage = vi
+      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
+      .mockResolvedValue(undefined);
+    const renderVisible = Reflect.get(component, 'renderVisible').bind(
+      component,
+    ) as () => Promise<void>;
+
+    component.turnPage(1);
+    await renderVisible();
+    expect(renderPage).toHaveBeenCalledTimes(2);
+    expect(Reflect.get(component, 'renderedPage')).toMatchObject({ pageNumber: 1, columns: 1 });
+
+    // Cycling Half turn -> Auto shows the same pages 1–2, now as a spread.
+    component.cycleSpread();
+    expect(Reflect.get(component, 'visiblePages')()).toEqual([1, 2]);
+    await renderVisible();
+    expect(renderPage).toHaveBeenCalledTimes(4);
+    expect(Reflect.get(component, 'renderedPage')).toMatchObject({ pageNumber: 1, columns: 2 });
     component.ngOnDestroy();
   });
 });
