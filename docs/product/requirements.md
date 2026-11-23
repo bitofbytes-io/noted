@@ -181,6 +181,16 @@ are not a production rollback procedure.
   counter shows both (for example “3–4 / 9”). Scroll mode is unaffected. The
   choice is remembered per device in local storage, not per piece; nothing is
   sent to the server.
+- BND-043: The layout button gains a fourth choice, Half turn, a single-page
+  layout that never spreads. Each forward input (tap, swipe, Arrow keys, PageUp,
+  PageDown, Space, Enter, pedal) advances half a page: the first shows the top
+  half of page N+1 over the bottom half of page N, and the second completes to
+  page N+1. Backward turns retrace the same steps, and the first and last page
+  stop as usual. The counter shows both pages between turns (for example
+  “2–3 / 9”); the saved reader position is the earlier page, so reopening shows
+  a whole page. Spread, Single, Auto and scroll mode are unaffected. The choice
+  shares BND-042's per-device local-storage setting; nothing is sent to the
+  server.
 
 ### Quality and operations
 

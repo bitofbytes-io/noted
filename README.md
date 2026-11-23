@@ -129,8 +129,11 @@ that:
   piece in the browser's local storage.
 - Rotating the iPad to landscape in page mode shows two pages side by side and
   the pedal turns both at once; portrait still shows one. The layout button
-  (Auto, Single, Spread) overrides this and is remembered in the browser's local
-  storage. It needs no configuration.
+  (Auto, Single, Spread, Half turn) overrides this and is remembered in the
+  browser's local storage. It needs no configuration.
+- With the layout set to Half turn, each pedal press advances half a page: the
+  top of the next page appears over the bottom of the current one, and the next
+  press completes the turn. Backward presses retrace those steps.
 
 ## API
 

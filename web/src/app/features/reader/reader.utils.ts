@@ -4,14 +4,16 @@ export function pageDeltaForKey(key: string): number {
   return 0;
 }
 
-export type SpreadPreference = 'auto' | 'single' | 'spread';
+/** `half` is a single-page layout that turns half a page at a time (BND-043). */
+export type SpreadPreference = 'auto' | 'single' | 'spread' | 'half';
 
-export const spreadPreferences: readonly SpreadPreference[] = ['auto', 'single', 'spread'];
+export const spreadPreferences: readonly SpreadPreference[] = ['auto', 'single', 'spread', 'half'];
 
 export const spreadLabels: Record<SpreadPreference, string> = {
   auto: 'Auto',
   single: 'Single',
   spread: 'Spread',
+  half: 'Half turn',
 };
 
 /** Auto mode shows two pages only on a landscape viewport at least this wide, in CSS pixels. */
@@ -31,13 +33,42 @@ export function spreadActive(
   height: number,
   pageCount: number,
 ): boolean {
-  if (pageCount < 2 || preference === 'single') return false;
+  if (pageCount < 2 || preference === 'single' || preference === 'half') return false;
   return preference === 'spread' || (width > height && width >= spreadMinWidth);
 }
 
 /** Spreads pair pages (1, 2), (3, 4), …, so the left page of a spread is always odd. */
 export function spreadStartPage(page: number): number {
   return page - ((page - 1) % 2);
+}
+
+/**
+ * Half turns step through 2 * (pages - 1) + 1 positions: position 2k shows page k + 1 whole and
+ * position 2k + 1 shows the top of page k + 2 over the bottom of page k + 1.
+ */
+export function halfTurnPosition(page: number, turned: boolean): number {
+  return 2 * (page - 1) + (turned ? 1 : 0);
+}
+
+/** The page and half-turn state at a half-turn position. */
+export function halfTurnFromPosition(position: number): { page: number; turned: boolean } {
+  return { page: Math.floor(position / 2) + 1, turned: position % 2 === 1 };
+}
+
+/** The last half-turn position: the final page shown whole. */
+export function lastHalfTurnPosition(pageCount: number): number {
+  return Math.max(0, 2 * (pageCount - 1));
+}
+
+/**
+ * The vertical shift that centers a half turn's two halves in the stage. Both pages are centered
+ * on one middle line, so the later page's top half ends and the earlier page's bottom half begins
+ * there; the pair spans from `later / 2` above it to `earlier / 2` below it, which is
+ * `(earlier - later) / 4` off center when the pages differ in height.
+ */
+export function halfTurnShift(pages: readonly Pick<HTMLElement, 'style'>[]): number {
+  const [earlier, later] = pages.map((page) => Number.parseFloat(page.style.height) || 0);
+  return later === undefined ? 0 : (later - earlier) / 4;
 }
 
 const spreadStorageKey = 'noted.reader.spread';
