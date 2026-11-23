@@ -9,7 +9,7 @@ import {
   Router,
   convertToParamMap,
 } from '@angular/router';
-import { of, Subject, throwError } from 'rxjs';
+import { NEVER, of, Subject, throwError } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiService } from '../../core/api.service';
 import { Piece, ReaderState } from '../../core/models';
@@ -27,11 +27,11 @@ import {
   trackFinePointerMovement,
 } from './reader.utils';
 
-function createReaderComponent(
-  api: object = {},
+function configureReaderTestBed(
+  api: object,
   router: object = { navigate: vi.fn() },
   location: object = { back: vi.fn() },
-): ReaderComponent {
+): void {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -44,7 +44,57 @@ function createReaderComponent(
       { provide: Location, useValue: location },
     ],
   });
-  return TestBed.runInInjectionContext(() => new ReaderComponent());
+}
+
+// Readers built outside the TestBed's component lifecycle. They are destroyed after each test so
+// no render frame or save timer outlives it.
+const constructedReaders: ReaderComponent[] = [];
+
+afterEach(() => {
+  for (const reader of constructedReaders.splice(0)) {
+    if (Reflect.get(reader, 'destroyed')) continue;
+    // Teardown must not save reader state, which would call the test's API stub again.
+    Reflect.get(reader, 'loading').set(true);
+    reader.ngOnDestroy();
+  }
+  vi.unstubAllGlobals();
+});
+
+function createReaderComponent(
+  api: object = {},
+  router: object = { navigate: vi.fn() },
+  location: object = { back: vi.fn() },
+): ReaderComponent {
+  configureReaderTestBed(api, router, location);
+  const reader = TestBed.runInInjectionContext(() => new ReaderComponent());
+  constructedReaders.push(reader);
+  return reader;
+}
+
+/**
+ * Mounts the reader through the TestBed, so its real template and styles are in the document and
+ * the TestBed destroys it. Page rendering is stubbed out; the canvases stay empty.
+ */
+function mountReader(api: object = { piece: () => NEVER, readerState: () => NEVER }) {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe(): void {}
+      disconnect(): void {}
+    },
+  );
+  configureReaderTestBed(api);
+  const fixture = TestBed.createComponent(ReaderComponent);
+  Reflect.set(fixture.componentInstance, 'scheduleRender', () => undefined);
+  return fixture;
+}
+
+/** The canvases the reader shows, with the CSS the browser would clip and place them by. */
+function shownCanvases(root: HTMLElement) {
+  return Array.from(root.querySelectorAll('canvas')).map((canvas) => {
+    const style = getComputedStyle(canvas);
+    return { page: canvas.dataset['page'], clipPath: style.clipPath, gridArea: style.gridArea };
+  });
 }
 
 function spyOnCanvasPublishing(canvas: HTMLCanvasElement) {
@@ -921,6 +971,36 @@ describe('ReaderComponent half-page turns', () => {
     expect(visible(component)).toEqual([3]);
   });
 
+  it('clips the earlier page to its bottom half and the later to its top half, in one place', () => {
+    const fixture = mountReader();
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
+    );
+    Reflect.get(component, 'spreadPreference').set('half');
+    Reflect.get(component, 'loading').set(false);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    // Between turns the page shows whole.
+    expect(shownCanvases(root)).toEqual([{ page: '1', clipPath: '', gridArea: '' }]);
+
+    component.turnPage(1);
+    fixture.detectChanges();
+    expect(root.querySelector('.page-stage')?.classList.contains('half-turn')).toBe(true);
+    expect(shownCanvases(root)).toEqual([
+      // The earlier page keeps its bottom half; the later page's top half takes the rest.
+      { page: '1', clipPath: 'inset(50% 0 0 0)', gridArea: '1/1' },
+      { page: '2', clipPath: 'inset(0 0 50% 0)', gridArea: '1/1' },
+    ]);
+
+    component.turnPage(1);
+    fixture.detectChanges();
+    expect(root.querySelector('.page-stage')?.classList.contains('half-turn')).toBe(false);
+    expect(shownCanvases(root)).toEqual([{ page: '2', clipPath: '', gridArea: '' }]);
+  });
+
   it('retraces the same half steps backward', () => {
     const component = halfReader(3, 2);
     component.turnPage(-1);
@@ -974,20 +1054,24 @@ describe('ReaderComponent half-page turns', () => {
 
     // Reopening the score from that saved state shows page 2 whole, not the half turn.
     const checksum = 'a'.repeat(64);
-    const reopened = createReaderComponent({
+    const fixture = mountReader({
       piece: () => of({ pdf: { checksumSha256: checksum, contentUrl: '/pdf' } }),
       readerState: () => of({ ...saved, pdfChecksumSha256: checksum }),
       saveReaderState: () => of({}),
     });
-    Reflect.set(reopened, 'pieceId', 'piece');
+    const reopened = fixture.componentInstance;
     Reflect.get(reopened, 'spreadPreference').set('half');
     vi.spyOn(Reflect.get(reopened, 'pdf'), 'load').mockResolvedValue(
       Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
     );
-    await (Reflect.get(reopened, 'load') as () => Promise<void>).call(reopened);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(Reflect.get(reopened, 'loading')()).toBe(false));
+    fixture.detectChanges();
     expect(state(reopened)).toEqual([2, false]);
     expect(visible(reopened)).toEqual([2]);
-    reopened.ngOnDestroy();
+    expect(shownCanvases(fixture.nativeElement)).toEqual([
+      { page: '2', clipPath: '', gridArea: '' },
+    ]);
   });
 
   it('leaves the half step when the layout changes', () => {
