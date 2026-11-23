@@ -41,7 +41,10 @@ export function wholeTurnTarget(
 /** Scroll mode keeps this much of the stage above a page's top when it counts as current. */
 const scrollPageInset = 24;
 
-/** The page whose top sits nearest the top of the stage, or `fallback` when no page is laid out. */
+/**
+ * The page whose top sits nearest `scrollPageInset` below the top of the stage, or `fallback` when
+ * no page is laid out.
+ */
 export function closestScrollPage(stageTop: number, pageTops: number[], fallback: number): number {
   let closestPage = fallback;
   let closestDistance = Number.POSITIVE_INFINITY;
