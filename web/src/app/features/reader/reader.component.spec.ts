@@ -1,109 +1,22 @@
 import { ElementRef, QueryList, signal } from '@angular/core';
-import { Location } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
-import { TestBed } from '@angular/core/testing';
-import {
-  ActivatedRoute,
-  DefaultUrlSerializer,
-  Navigation,
-  Router,
-  convertToParamMap,
-} from '@angular/router';
-import { NEVER, of, Subject, throwError } from 'rxjs';
+import { Subject } from 'rxjs';
+import { DefaultUrlSerializer, Navigation } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiService } from '../../core/api.service';
-import { Piece, ReaderState } from '../../core/models';
+import { ReaderState } from '../../core/models';
 import { ReaderComponent } from './reader.component';
 import {
-  halfTurnFromPosition,
-  halfTurnPosition,
-  lastHalfTurnPosition,
-  loadSpreadPreference,
-  nextSpreadPreference,
-  pageDeltaForKey,
-  saveSpreadPreference,
-  spreadActive,
-  spreadStartPage,
-  trackFinePointerMovement,
-} from './reader.utils';
+  chromeOf,
+  createReaderComponent,
+  destroyConstructedReaders,
+  layoutOf,
+  renderVisibleOf,
+  renderedPageOf,
+  saveReaderStateNow,
+  spyOnCanvasPublishing,
+} from './reader-testing';
+import { loadSpreadPreference } from './reader.utils';
 
-function configureReaderTestBed(
-  api: object,
-  router: object = { navigate: vi.fn() },
-  location: object = { back: vi.fn() },
-): void {
-  TestBed.resetTestingModule();
-  TestBed.configureTestingModule({
-    providers: [
-      { provide: ApiService, useValue: api },
-      {
-        provide: ActivatedRoute,
-        useValue: { snapshot: { paramMap: convertToParamMap({ pieceId: 'piece' }) } },
-      },
-      { provide: Router, useValue: router },
-      { provide: Location, useValue: location },
-    ],
-  });
-}
-
-// Readers built outside the TestBed's component lifecycle. They are destroyed after each test so
-// no render frame or save timer outlives it.
-const constructedReaders: ReaderComponent[] = [];
-
-afterEach(() => {
-  for (const reader of constructedReaders.splice(0)) {
-    if (Reflect.get(reader, 'destroyed')) continue;
-    // Teardown must not save reader state, which would call the test's API stub again.
-    Reflect.get(reader, 'loading').set(true);
-    reader.ngOnDestroy();
-  }
-  vi.unstubAllGlobals();
-});
-
-function createReaderComponent(
-  api: object = {},
-  router: object = { navigate: vi.fn() },
-  location: object = { back: vi.fn() },
-): ReaderComponent {
-  configureReaderTestBed(api, router, location);
-  const reader = TestBed.runInInjectionContext(() => new ReaderComponent());
-  constructedReaders.push(reader);
-  return reader;
-}
-
-/**
- * Mounts the reader through the TestBed, so its real template and styles are in the document and
- * the TestBed destroys it. Page rendering is stubbed out; the canvases stay empty.
- */
-function mountReader(api: object = { piece: () => NEVER, readerState: () => NEVER }) {
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe(): void {}
-      disconnect(): void {}
-    },
-  );
-  configureReaderTestBed(api);
-  const fixture = TestBed.createComponent(ReaderComponent);
-  Reflect.set(fixture.componentInstance, 'scheduleRender', () => undefined);
-  return fixture;
-}
-
-/** The canvases the reader shows, with the CSS the browser would clip and place them by. */
-function shownCanvases(root: HTMLElement) {
-  return Array.from(root.querySelectorAll('canvas')).map((canvas) => {
-    const style = getComputedStyle(canvas);
-    return { page: canvas.dataset['page'], clipPath: style.clipPath, gridArea: style.gridArea };
-  });
-}
-
-function spyOnCanvasPublishing(canvas: HTMLCanvasElement) {
-  const drawImage = vi.fn();
-  vi.spyOn(canvas, 'getContext').mockReturnValue({
-    drawImage,
-  } as unknown as CanvasRenderingContext2D);
-  return drawImage;
-}
+afterEach(destroyConstructedReaders);
 
 describe('ReaderComponent back', () => {
   afterEach(() => sessionStorage.clear());
@@ -143,504 +56,6 @@ describe('ReaderComponent back', () => {
     const router = routerFrom(null);
     createReaderComponent({}, router).back();
     expect(router.navigate).toHaveBeenCalledWith(['/'], { queryParams: {} });
-  });
-});
-
-describe('ReaderComponent', () => {
-  it('caches a completed page render against its captured page request', async () => {
-    const component = createReaderComponent();
-    const canvas = document.createElement('canvas');
-    spyOnCanvasPublishing(canvas);
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    canvases.reset([new ElementRef(canvas)]);
-    Reflect.set(component, 'canvases', canvases);
-    Reflect.set(component, 'stage', {
-      nativeElement: { clientWidth: 1024, clientHeight: 1366 },
-    });
-    Reflect.get(component, 'loading').set(false);
-
-    let finishFirstRender!: () => void;
-    const renderPage = vi
-      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
-      .mockReturnValueOnce(new Promise<void>((resolve) => (finishFirstRender = resolve)))
-      .mockResolvedValue(undefined);
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
-
-    const firstRender = renderVisible();
-    Reflect.get(component, 'currentPage').set(2);
-    finishFirstRender();
-    await firstRender;
-
-    expect(Reflect.get(component, 'renderedPage')).toBeUndefined();
-
-    await renderVisible();
-    expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2]);
-    component.ngOnDestroy();
-  });
-
-  it('rerenders a page when returning to it on the shared page-mode canvas', async () => {
-    const component = createReaderComponent();
-    const canvas = document.createElement('canvas');
-    spyOnCanvasPublishing(canvas);
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    canvases.reset([new ElementRef(canvas)]);
-    Reflect.set(component, 'canvases', canvases);
-    Reflect.set(component, 'stage', {
-      nativeElement: { clientWidth: 1024, clientHeight: 1366 },
-    });
-    Reflect.get(component, 'loading').set(false);
-    const renderPage = vi
-      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
-      .mockResolvedValue(undefined);
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
-
-    await renderVisible();
-    Reflect.get(component, 'currentPage').set(2);
-    await renderVisible();
-    Reflect.get(component, 'currentPage').set(1);
-    await renderVisible();
-
-    expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2, 1]);
-    expect(Reflect.get(component, 'renderedPage')).toEqual({
-      pageNumber: 1,
-      span: 1,
-      columns: 1,
-      key: 1000,
-    });
-    component.ngOnDestroy();
-  });
-
-  it('publishes only the current page render to the visible canvas', async () => {
-    vi.useFakeTimers();
-    try {
-      const component = createReaderComponent();
-      const canvas = document.createElement('canvas');
-      const drawImage = spyOnCanvasPublishing(canvas);
-      const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-      canvases.reset([new ElementRef(canvas)]);
-      Reflect.set(component, 'canvases', canvases);
-      Reflect.set(component, 'stage', {
-        nativeElement: { clientWidth: 1024, clientHeight: 1366 },
-      });
-      Reflect.get(component, 'loading').set(false);
-      Reflect.get(component, 'metrics').set([
-        { page: 1, ratio: 0.75 },
-        { page: 2, ratio: 0.75 },
-      ]);
-
-      let finishSecondRender!: () => void;
-      vi.spyOn(Reflect.get(component, 'pdf'), 'renderPage').mockImplementation(
-        (...args: unknown[]) => {
-          const [target, pageNumber] = args as [HTMLCanvasElement, number];
-          target.width = 100;
-          target.height = 200;
-          target.dataset['page'] = String(pageNumber);
-          return pageNumber === 2
-            ? new Promise<void>((resolve) => (finishSecondRender = resolve))
-            : Promise.resolve();
-        },
-      );
-      const renderVisible = Reflect.get(component, 'renderVisible').bind(
-        component,
-      ) as () => Promise<void>;
-
-      await renderVisible();
-      expect(canvas.width).toBe(100);
-      expect(drawImage.mock.calls.map((call) => call[0].dataset['page'])).toEqual(['1']);
-
-      component.turnPage(1);
-      expect(canvas.width).toBe(0);
-      const staleRender = renderVisible();
-      component.turnPage(-1);
-      finishSecondRender();
-      await staleRender;
-
-      expect(canvas.width).toBe(0);
-      expect(drawImage.mock.calls.map((call) => call[0].dataset['page'])).toEqual(['1']);
-
-      await renderVisible();
-      expect(canvas.width).toBe(100);
-      expect(drawImage.mock.calls.map((call) => call[0].dataset['page'])).toEqual(['1', '1']);
-      component.ngOnDestroy();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not cache a scroll render from the document superseded by reload', async () => {
-    vi.useFakeTimers();
-    try {
-      const checksum = 'a'.repeat(64);
-      const api = {
-        piece: vi.fn(() =>
-          of({
-            id: 'piece',
-            title: 'Reloaded score',
-            composer: '',
-            favorite: false,
-            status: 'playing',
-            sourceUrl: '',
-            listeningUrl: '',
-            notes: '',
-            aliases: '',
-            opus: '',
-            musicKey: '',
-            createdAt: '',
-            updatedAt: '',
-            pdf: {
-              originalFilename: 'score.pdf',
-              sizeBytes: 100,
-              checksumSha256: checksum,
-              pageCount: 1,
-              uploadedAt: '',
-              contentUrl: '/api/pieces/piece/pdf',
-            },
-            lastPlayedAt: null,
-          } satisfies Piece),
-        ),
-        readerState: vi.fn(() =>
-          of({
-            pieceId: 'piece',
-            pdfChecksumSha256: checksum,
-            mode: 'scroll',
-            lastPage: 1,
-            scrollPosition: 0,
-            zoom: 1,
-            scrollSpeed: 5,
-            scrollPaused: true,
-          } satisfies ReaderState),
-        ),
-        saveReaderState: vi.fn((_id: string, _state: ReaderState) => of({})),
-      };
-      const component = createReaderComponent(api);
-      const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
-      Reflect.set(component, 'stage', {
-        nativeElement: {
-          clientWidth: 200,
-          clientHeight: 100,
-          scrollHeight: 100,
-          scrollTop: 0,
-          getBoundingClientRect: () => stageRect,
-        },
-      });
-      Reflect.set(component, 'pieceId', 'piece');
-      Reflect.get(component, 'loading').set(false);
-      Reflect.get(component, 'mode').set('scroll');
-
-      const scrollPage = () =>
-        new ElementRef({
-          clientWidth: 200,
-          getBoundingClientRect: () => ({ top: 0, bottom: 100 }) as DOMRect,
-        } as HTMLElement);
-      const oldPages = new QueryList<ElementRef<HTMLElement>>();
-      oldPages.reset([scrollPage()]);
-      const oldCanvas = document.createElement('canvas');
-      const oldCanvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-      oldCanvases.reset([new ElementRef(oldCanvas)]);
-      Reflect.set(component, 'scrollPages', oldPages);
-      Reflect.set(component, 'canvases', oldCanvases);
-
-      let finishOldRender!: () => void;
-      const pdf = Reflect.get(component, 'pdf');
-      const renderPage = vi
-        .spyOn(pdf, 'renderPage')
-        .mockReturnValueOnce(new Promise<void>((resolve) => (finishOldRender = resolve)))
-        .mockResolvedValue(undefined);
-      vi.spyOn(pdf, 'load').mockResolvedValue([{ page: 1, ratio: 0.75 }]);
-      const renderVisible = Reflect.get(component, 'renderVisible').bind(
-        component,
-      ) as () => Promise<void>;
-      const load = Reflect.get(component, 'load').bind(component) as () => Promise<void>;
-
-      const oldRender = renderVisible();
-      await load();
-      finishOldRender();
-
-      const newPages = new QueryList<ElementRef<HTMLElement>>();
-      newPages.reset([scrollPage()]);
-      const newCanvas = document.createElement('canvas');
-      const newCanvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-      newCanvases.reset([new ElementRef(newCanvas)]);
-      Reflect.set(component, 'scrollPages', newPages);
-      Reflect.set(component, 'canvases', newCanvases);
-      await oldRender;
-
-      const renderedWidths = Reflect.get(component, 'renderedWidths') as Map<number, number>;
-      expect(renderedWidths.has(1)).toBe(false);
-
-      await renderVisible();
-
-      expect(renderPage).toHaveBeenCalledTimes(2);
-      expect(renderPage.mock.calls[1][0]).toBe(newCanvas);
-      expect(renderedWidths.get(1)).toBe(200);
-      Reflect.get(component, 'loading').set(true);
-      component.ngOnDestroy();
-      vi.clearAllTimers();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('lets a slow scroll render finish while scrolling refreshes the visible pages', async () => {
-    const component = createReaderComponent();
-    const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
-    Reflect.set(component, 'stage', { nativeElement: { getBoundingClientRect: () => stageRect } });
-    let pageWidth = 200;
-    const pages = new QueryList<ElementRef<HTMLElement>>();
-    pages.reset([
-      new ElementRef({
-        get clientWidth() {
-          return pageWidth;
-        },
-        getBoundingClientRect: () => ({ top: 0, bottom: 100 }) as DOMRect,
-      } as HTMLElement),
-    ]);
-    const canvas = document.createElement('canvas');
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    canvases.reset([new ElementRef(canvas)]);
-    Reflect.set(component, 'scrollPages', pages);
-    Reflect.set(component, 'canvases', canvases);
-    Reflect.get(component, 'loading').set(false);
-    Reflect.get(component, 'mode').set('scroll');
-    const finishes: (() => void)[] = [];
-    const renderPage = vi
-      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
-      .mockImplementation(() => new Promise<void>((resolve) => finishes.push(resolve)));
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
-    const renderedWidths = Reflect.get(component, 'renderedWidths') as Map<number, number>;
-
-    const slowRender = renderVisible();
-    for (let refresh = 0; refresh < 5; refresh++) await renderVisible();
-    expect(renderPage).toHaveBeenCalledTimes(1);
-    finishes[0]();
-    await slowRender;
-    expect(renderedWidths.get(1)).toBe(200);
-
-    renderedWidths.clear();
-    const narrowRender = renderVisible();
-    pageWidth = 180;
-    const resizedRender = renderVisible();
-    expect(renderPage.mock.calls.map((call) => call[2])).toEqual([200, 200, 180]);
-    finishes[1]();
-    finishes[2]();
-    await Promise.all([narrowRender, resizedRender]);
-    expect(renderedWidths.get(1)).toBe(180);
-    component.ngOnDestroy();
-  });
-
-  it('evicts distant scroll canvases and renders them again when they return', async () => {
-    const component = createReaderComponent();
-    const stageRect = { top: 0, bottom: 100, height: 100 } as DOMRect;
-    const stage = {
-      nativeElement: {
-        getBoundingClientRect: () => stageRect,
-      },
-    };
-    const firstPage = {
-      nativeElement: {
-        clientWidth: 200,
-        getBoundingClientRect: () => ({ top: 0, bottom: 100 }) as DOMRect,
-      },
-    };
-    let secondTop = 400;
-    const secondPage = {
-      nativeElement: {
-        clientWidth: 200,
-        getBoundingClientRect: () => ({ top: secondTop, bottom: secondTop + 100 }) as DOMRect,
-      },
-    };
-    const pages = new QueryList<ElementRef<HTMLElement>>();
-    pages.reset([
-      firstPage as unknown as ElementRef<HTMLElement>,
-      secondPage as unknown as ElementRef<HTMLElement>,
-    ]);
-    const firstCanvas = document.createElement('canvas');
-    const secondCanvas = document.createElement('canvas');
-    secondCanvas.width = 1200;
-    secondCanvas.height = 1600;
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    canvases.reset([new ElementRef(firstCanvas), new ElementRef(secondCanvas)]);
-    Reflect.set(component, 'stage', stage);
-    Reflect.set(component, 'scrollPages', pages);
-    Reflect.set(component, 'canvases', canvases);
-    Reflect.get(component, 'loading').set(false);
-    Reflect.get(component, 'mode').set('scroll');
-    const renderedWidths = Reflect.get(component, 'renderedWidths') as Map<number, number>;
-    renderedWidths.set(2, 200);
-    const renderPage = vi
-      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
-      .mockResolvedValue(undefined);
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
-
-    await renderVisible();
-
-    expect(secondCanvas.width).toBe(0);
-    expect(secondCanvas.height).toBe(0);
-    expect(renderedWidths.has(2)).toBe(false);
-
-    secondTop = 100;
-    await renderVisible();
-
-    expect(renderPage.mock.calls.some((call) => call[1] === 2)).toBe(true);
-    expect(renderedWidths.get(2)).toBe(200);
-    component.ngOnDestroy();
-  });
-
-  it('checkpoints reader state during uninterrupted auto-scroll activity', async () => {
-    vi.useFakeTimers();
-    try {
-      const saveReaderState = vi.fn((_id: string, _state: ReaderState) => of({}));
-      const component = createReaderComponent({ saveReaderState });
-      const scrollPages = new QueryList<ElementRef<HTMLElement>>();
-      scrollPages.reset([]);
-      Reflect.set(component, 'scrollPages', scrollPages);
-      Reflect.set(component, 'stage', {
-        nativeElement: {
-          scrollTop: 240,
-          getBoundingClientRect: () => ({ top: 0 }) as DOMRect,
-        },
-      });
-      Reflect.set(component, 'pieceId', 'piece');
-      Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
-      Reflect.get(component, 'loading').set(false);
-      Reflect.get(component, 'mode').set('scroll');
-
-      for (let elapsed = 0; elapsed < 10_000; elapsed += 500) {
-        component.onStageScroll();
-        await vi.advanceTimersByTimeAsync(500);
-      }
-
-      expect(saveReaderState).toHaveBeenCalledOnce();
-      expect(saveReaderState.mock.calls[0][1]).toMatchObject({
-        pieceId: 'piece',
-        pdfChecksumSha256: 'a'.repeat(64),
-        mode: 'scroll',
-        scrollPosition: 240,
-        scrollSpeed: 5,
-      });
-      component.ngOnDestroy();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('stops stale saves and asks for a reload after a PDF checksum conflict', () => {
-    const saveReaderState = vi.fn((_id: string, _state: ReaderState) =>
-      throwError(
-        () =>
-          new HttpErrorResponse({
-            status: 409,
-            error: { error: 'score PDF changed; reload before saving reader state' },
-          }),
-      ),
-    );
-    const component = createReaderComponent({ saveReaderState });
-    Reflect.set(component, 'stage', { nativeElement: { scrollTop: 0 } });
-    Reflect.set(component, 'pieceId', 'piece');
-    Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
-    Reflect.get(component, 'loading').set(false);
-    const saveNow = Reflect.get(component, 'saveNow').bind(component) as () => void;
-
-    saveNow();
-    saveNow();
-
-    expect(saveReaderState).toHaveBeenCalledOnce();
-    expect(saveReaderState.mock.calls[0][1]).toMatchObject({
-      pieceId: 'piece',
-      pdfChecksumSha256: 'a'.repeat(64),
-    });
-    expect(Reflect.get(component, 'error')()).toContain('Reload');
-    expect(Reflect.get(component, 'readerStateSaveBlocked')).toBe(true);
-    component.ngOnDestroy();
-  });
-
-  it('serializes reader-state saves and coalesces queued changes to the latest snapshot', () => {
-    const firstSave = new Subject<void>();
-    const secondSave = new Subject<void>();
-    const saveReaderState = vi
-      .fn((_id: string, _state: ReaderState) => firstSave)
-      .mockReturnValueOnce(firstSave)
-      .mockReturnValueOnce(secondSave);
-    const component = createReaderComponent({ saveReaderState });
-    Reflect.set(component, 'stage', { nativeElement: { scrollTop: 100 } });
-    Reflect.set(component, 'pieceId', 'piece');
-    Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
-    Reflect.get(component, 'loading').set(false);
-    Reflect.get(component, 'mode').set('scroll');
-    Reflect.get(component, 'paused').set(false);
-    Reflect.get(component, 'currentPage').set(1);
-    const saveNow = Reflect.get(component, 'saveNow').bind(component) as () => void;
-
-    saveNow();
-    Reflect.set(component, 'stage', { nativeElement: { scrollTop: 240 } });
-    Reflect.get(component, 'paused').set(true);
-    saveNow();
-    Reflect.get(component, 'mode').set('page');
-    Reflect.get(component, 'currentPage').set(3);
-    saveNow();
-
-    expect(saveReaderState).toHaveBeenCalledOnce();
-    expect(saveReaderState.mock.calls[0][1]).toMatchObject({
-      mode: 'scroll',
-      lastPage: 1,
-      scrollPosition: 100,
-      scrollPaused: false,
-    });
-
-    firstSave.complete();
-
-    expect(saveReaderState).toHaveBeenCalledTimes(2);
-    expect(saveReaderState.mock.calls[1][1]).toMatchObject({
-      mode: 'page',
-      lastPage: 3,
-      scrollPosition: 0,
-      scrollPaused: true,
-    });
-
-    secondSave.complete();
-    Reflect.get(component, 'loading').set(true);
-    component.ngOnDestroy();
-  });
-
-  it('saves immediately when auto-scroll pauses or the reader mode changes', async () => {
-    vi.useFakeTimers();
-    try {
-      const saveReaderState = vi.fn((_id: string, _state: ReaderState) => of({}));
-      const component = createReaderComponent({ saveReaderState });
-      const scrollPages = new QueryList<ElementRef<HTMLElement>>();
-      scrollPages.reset([]);
-      Reflect.set(component, 'scrollPages', scrollPages);
-      Reflect.set(component, 'stage', {
-        nativeElement: {
-          scrollTop: 240,
-          getBoundingClientRect: () => ({ top: 0 }) as DOMRect,
-        },
-      });
-      Reflect.set(component, 'pieceId', 'piece');
-      Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
-      Reflect.get(component, 'loading').set(false);
-      Reflect.get(component, 'mode').set('scroll');
-      Reflect.get(component, 'paused').set(false);
-
-      component.togglePause();
-      expect(saveReaderState).toHaveBeenCalledOnce();
-
-      component.setMode('page');
-      await vi.advanceTimersByTimeAsync(0);
-      expect(saveReaderState).toHaveBeenCalledTimes(2);
-      expect(saveReaderState.mock.calls[1][1].mode).toBe('page');
-      component.ngOnDestroy();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 
@@ -710,13 +125,13 @@ describe('ReaderComponent metronome overlay', () => {
       Reflect.set(component, 'metronome', new ElementRef(panel));
 
       button.focus();
-      component.onChromeActivity();
+      chromeOf(component).activity();
       vi.advanceTimersByTime(3100);
-      expect(Reflect.get(component, 'controlsVisible')()).toBe(true);
+      expect(chromeOf(component).controlsVisible()).toBe(true);
 
       button.blur();
       vi.advanceTimersByTime(3100);
-      expect(Reflect.get(component, 'controlsVisible')()).toBe(false);
+      expect(chromeOf(component).controlsVisible()).toBe(false);
       panel.remove();
       component.ngOnDestroy();
     } finally {
@@ -743,14 +158,13 @@ describe('ReaderComponent two-page spread', () => {
     Reflect.get(component, 'metrics').set(
       Array.from({ length: pages }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
     );
-    Reflect.get(component, 'viewport').set({ width, height });
+    layoutOf(component).viewport.set({ width, height });
     Reflect.get(component, 'currentPage').set(page);
     Reflect.get(component, 'loading').set(false);
     return component;
   }
 
-  const visible = (component: ReaderComponent): number[] =>
-    Reflect.get(component, 'visiblePages')();
+  const visible = (component: ReaderComponent): number[] => layoutOf(component).visiblePages();
 
   it('shows two pages in landscape and one in portrait', () => {
     expect(visible(readerIn(1366, 1024, 6))).toEqual([1, 2]);
@@ -793,7 +207,7 @@ describe('ReaderComponent two-page spread', () => {
     expect(visible(component)).toEqual([3, 4]);
     component.turnPage(1);
     expect(visible(component)).toEqual([5]);
-    expect(Reflect.get(component, 'pageLabel')()).toBe('5');
+    expect(layoutOf(component).pageLabel()).toBe('5');
     component.turnPage(1);
     expect(visible(component)).toEqual([5]);
     component.turnPage(-1);
@@ -804,7 +218,7 @@ describe('ReaderComponent two-page spread', () => {
     const component = readerIn(1366, 1024, 6, 4);
     Reflect.get(component, 'mode').set('scroll');
     expect(visible(component)).toEqual([4]);
-    expect(Reflect.get(component, 'pageLabel')()).toBe('4');
+    expect(layoutOf(component).pageLabel()).toBe('4');
   });
 
   it('saves the left page of the spread so a narrower screen resumes there', () => {
@@ -813,12 +227,12 @@ describe('ReaderComponent two-page spread', () => {
     Reflect.get(component, 'metrics').set(
       Array.from({ length: 6 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
     );
-    Reflect.get(component, 'viewport').set({ width: 1366, height: 1024 });
+    layoutOf(component).viewport.set({ width: 1366, height: 1024 });
     Reflect.get(component, 'currentPage').set(4);
     Reflect.set(component, 'pieceId', 'piece');
     Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
     Reflect.get(component, 'loading').set(false);
-    (Reflect.get(component, 'saveNow') as () => void).call(component);
+    saveReaderStateNow(component);
 
     expect(saveReaderState.mock.calls[0][1]).toMatchObject({ mode: 'page', lastPage: 3 });
     Reflect.get(component, 'loading').set(true);
@@ -828,22 +242,22 @@ describe('ReaderComponent two-page spread', () => {
   it('pairs from an odd page when a spread opens on an even page', () => {
     const component = readerIn(1366, 1024, 6, 4);
     expect(visible(component)).toEqual([3, 4]);
-    expect(Reflect.get(component, 'pageLabel')()).toBe('3–4');
+    expect(layoutOf(component).pageLabel()).toBe('3–4');
   });
 
   it('turns one page at a time when the spread is switched off', () => {
     const component = readerIn(1366, 1024, 6);
-    Reflect.get(component, 'spreadPreference').set('single');
+    layoutOf(component).spreadPreference.set('single');
     component.turnPage(1);
     expect(visible(component)).toEqual([2]);
   });
 
   it('forces a spread in portrait and a single page in landscape', () => {
     const component = readerIn(1024, 1366, 6);
-    Reflect.get(component, 'spreadPreference').set('spread');
+    layoutOf(component).spreadPreference.set('spread');
     expect(visible(component)).toEqual([1, 2]);
-    Reflect.get(component, 'viewport').set({ width: 1366, height: 1024 });
-    Reflect.get(component, 'spreadPreference').set('single');
+    layoutOf(component).viewport.set({ width: 1366, height: 1024 });
+    layoutOf(component).spreadPreference.set('single');
     expect(visible(component)).toEqual([1]);
   });
 
@@ -854,7 +268,7 @@ describe('ReaderComponent two-page spread', () => {
   it('remembers the layout choice on this device', () => {
     const component = readerIn(1366, 1024, 6);
     component.cycleSpread();
-    expect(Reflect.get(component, 'spreadPreference')()).toBe('single');
+    expect(layoutOf(component).spreadPreference()).toBe('single');
     expect(loadSpreadPreference()).toBe('single');
     component.cycleSpread();
     component.cycleSpread();
@@ -876,16 +290,14 @@ describe('ReaderComponent two-page spread', () => {
     const renderPage = vi
       .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
       .mockResolvedValue(undefined);
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
+    const renderVisible = renderVisibleOf(component);
 
     await renderVisible();
 
     expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2]);
     // Each page gets half the stage, less the padding and the gap between them.
     expect(renderPage.mock.calls.map((call) => call[2])).toEqual([667, 667]);
-    expect(Reflect.get(component, 'renderedPage')).toEqual({
+    expect(renderedPageOf(component)).toEqual({
       pageNumber: 1,
       span: 2,
       columns: 2,
@@ -908,532 +320,9 @@ describe('ReaderComponent two-page spread', () => {
       .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
       .mockResolvedValue(undefined);
 
-    await (Reflect.get(component, 'renderVisible').bind(component) as () => Promise<void>)();
+    await renderVisibleOf(component)();
 
     expect(renderPage).not.toHaveBeenCalled();
     component.ngOnDestroy();
-  });
-});
-
-describe('ReaderComponent half-page turns', () => {
-  afterEach(() => localStorage.clear());
-
-  function halfReader(pages: number, page = 1, width = 1366, height = 1024) {
-    const component = createReaderComponent();
-    Reflect.get(component, 'metrics').set(
-      Array.from({ length: pages }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
-    );
-    Reflect.get(component, 'viewport').set({ width, height });
-    Reflect.get(component, 'currentPage').set(page);
-    Reflect.get(component, 'spreadPreference').set('half');
-    Reflect.get(component, 'loading').set(false);
-    return component;
-  }
-
-  const visible = (component: ReaderComponent): number[] =>
-    Reflect.get(component, 'visiblePages')();
-  const turned = (component: ReaderComponent): boolean => Reflect.get(component, 'halfShown')();
-  const state = (component: ReaderComponent) => [
-    Reflect.get(component, 'currentPage')(),
-    turned(component),
-  ];
-
-  it('never spreads, even on a wide landscape viewport', () => {
-    expect(visible(halfReader(6))).toEqual([1]);
-    expect(turned(halfReader(6))).toBe(false);
-  });
-
-  it('turns forward half a page at a time through the whole score', () => {
-    const component = halfReader(3);
-    const seen: Array<(number | boolean)[]> = [state(component)];
-    for (let i = 0; i < 4; i++) {
-      component.turnPage(1);
-      seen.push(state(component));
-    }
-    expect(seen).toEqual([
-      [1, false],
-      [1, true],
-      [2, false],
-      [2, true],
-      [3, false],
-    ]);
-    component.turnPage(1);
-    expect(state(component)).toEqual([3, false]);
-  });
-
-  it('shows the top of the next page over the bottom of this one between turns', () => {
-    const component = halfReader(4, 2);
-    component.turnPage(1);
-    // The earlier page comes first: its bottom half stays, the later page's top half replaces its top.
-    expect(visible(component)).toEqual([2, 3]);
-    expect(Reflect.get(component, 'pageLabel')()).toBe('2–3');
-    component.turnPage(1);
-    expect(visible(component)).toEqual([3]);
-  });
-
-  it('clips the earlier page to its bottom half and the later to its top half, in one place', () => {
-    const fixture = mountReader();
-    fixture.detectChanges();
-    const component = fixture.componentInstance;
-    Reflect.get(component, 'metrics').set(
-      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
-    );
-    Reflect.get(component, 'spreadPreference').set('half');
-    Reflect.get(component, 'loading').set(false);
-    fixture.detectChanges();
-    const root = fixture.nativeElement as HTMLElement;
-
-    // Between turns the page shows whole.
-    expect(shownCanvases(root)).toEqual([{ page: '1', clipPath: '', gridArea: '' }]);
-
-    component.turnPage(1);
-    fixture.detectChanges();
-    expect(root.querySelector('.page-stage')?.classList.contains('half-turn')).toBe(true);
-    expect(shownCanvases(root)).toEqual([
-      // The earlier page keeps its bottom half; the later page's top half takes the rest.
-      { page: '1', clipPath: 'inset(50% 0 0 0)', gridArea: '1/1' },
-      { page: '2', clipPath: 'inset(0 0 50% 0)', gridArea: '1/1' },
-    ]);
-
-    component.turnPage(1);
-    fixture.detectChanges();
-    expect(root.querySelector('.page-stage')?.classList.contains('half-turn')).toBe(false);
-    expect(shownCanvases(root)).toEqual([{ page: '2', clipPath: '', gridArea: '' }]);
-  });
-
-  it('retraces the same half steps backward', () => {
-    const component = halfReader(3, 2);
-    component.turnPage(-1);
-    expect(state(component)).toEqual([1, true]);
-    expect(visible(component)).toEqual([1, 2]);
-    component.turnPage(-1);
-    expect(state(component)).toEqual([1, false]);
-    component.turnPage(-1);
-    expect(state(component)).toEqual([1, false]);
-  });
-
-  it('turns with the arrow, page and pedal keys', () => {
-    const component = halfReader(3);
-    component.onKeydown(new KeyboardEvent('keydown', { key: 'PageDown', cancelable: true }));
-    component.onKeydown(new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true }));
-    expect(state(component)).toEqual([2, false]);
-    component.onKeydown(new KeyboardEvent('keydown', { key: 'ArrowLeft', cancelable: true }));
-    expect(state(component)).toEqual([1, true]);
-  });
-
-  it('enables the page buttons by half-turn position', () => {
-    const component = halfReader(2);
-    const canBack = () => Reflect.get(component, 'canTurnBack')();
-    const canForward = () => Reflect.get(component, 'canTurnForward')();
-    expect([canBack(), canForward()]).toEqual([false, true]);
-    component.turnPage(1);
-    expect([canBack(), canForward()]).toEqual([true, true]);
-    component.turnPage(1);
-    expect([canBack(), canForward()]).toEqual([true, false]);
-  });
-
-  it('saves the earlier page so a reload resumes on a whole page', async () => {
-    const saveReaderState = vi.fn((_id: string, _state: ReaderState) => new Subject<void>());
-    const component = createReaderComponent({ saveReaderState });
-    Reflect.get(component, 'metrics').set(
-      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
-    );
-    Reflect.get(component, 'spreadPreference').set('half');
-    Reflect.set(component, 'pieceId', 'piece');
-    Reflect.set(component, 'loadedPDFChecksum', 'a'.repeat(64));
-    Reflect.get(component, 'loading').set(false);
-    for (let i = 0; i < 3; i++) component.turnPage(1);
-    expect(state(component)).toEqual([2, true]);
-    expect(visible(component)).toEqual([2, 3]);
-    (Reflect.get(component, 'saveNow') as () => void).call(component);
-
-    const saved = saveReaderState.mock.calls[0][1];
-    expect(saved).toMatchObject({ mode: 'page', lastPage: 2 });
-    Reflect.get(component, 'loading').set(true);
-    component.ngOnDestroy();
-
-    // Reopening the score from that saved state shows page 2 whole, not the half turn.
-    const checksum = 'a'.repeat(64);
-    const fixture = mountReader({
-      piece: () => of({ pdf: { checksumSha256: checksum, contentUrl: '/pdf' } }),
-      readerState: () => of({ ...saved, pdfChecksumSha256: checksum }),
-      saveReaderState: () => of({}),
-    });
-    const reopened = fixture.componentInstance;
-    Reflect.get(reopened, 'spreadPreference').set('half');
-    vi.spyOn(Reflect.get(reopened, 'pdf'), 'load').mockResolvedValue(
-      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
-    );
-    fixture.detectChanges();
-    await vi.waitFor(() => expect(Reflect.get(reopened, 'loading')()).toBe(false));
-    fixture.detectChanges();
-    expect(state(reopened)).toEqual([2, false]);
-    expect(visible(reopened)).toEqual([2]);
-    expect(shownCanvases(fixture.nativeElement)).toEqual([
-      { page: '2', clipPath: '', gridArea: '' },
-    ]);
-  });
-
-  it('leaves the half step when the layout changes', () => {
-    const component = halfReader(3);
-    component.turnPage(1);
-    component.cycleSpread();
-    expect(Reflect.get(component, 'spreadPreference')()).toBe('auto');
-    expect(turned(component)).toBe(false);
-    expect(Reflect.get(component, 'halfTurned')()).toBe(false);
-    component.ngOnDestroy();
-  });
-
-  it('leaves the half step when the mode changes, in both directions', async () => {
-    vi.useFakeTimers();
-    try {
-      const component = halfReader(3);
-      Reflect.set(component, 'stage', {
-        nativeElement: {
-          clientWidth: 1366,
-          clientHeight: 1024,
-          scrollTo: () => undefined,
-          getBoundingClientRect: () => ({ top: 0 }),
-        },
-      });
-      Reflect.set(component, 'scrollPages', new QueryList<ElementRef<HTMLElement>>());
-      component.turnPage(1);
-      expect(Reflect.get(component, 'halfTurned')()).toBe(true);
-      component.setMode('scroll');
-      await vi.advanceTimersByTimeAsync(0);
-      expect(Reflect.get(component, 'halfTurned')()).toBe(false);
-      component.setMode('page');
-      await vi.advanceTimersByTimeAsync(0);
-      expect(Reflect.get(component, 'halfTurned')()).toBe(false);
-      expect(visible(component)).toEqual([1]);
-      component.ngOnDestroy();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not affect single, spread or one-page layouts', () => {
-    const single = halfReader(4);
-    Reflect.get(single, 'spreadPreference').set('single');
-    single.turnPage(1);
-    expect(state(single)).toEqual([2, false]);
-
-    const spread = halfReader(4);
-    Reflect.get(spread, 'spreadPreference').set('spread');
-    spread.turnPage(1);
-    expect(visible(spread)).toEqual([3, 4]);
-
-    const one = halfReader(1);
-    one.turnPage(1);
-    expect(state(one)).toEqual([1, false]);
-  });
-
-  it('remembers the half-turn choice on this device', () => {
-    const component = halfReader(3);
-    Reflect.get(component, 'spreadPreference').set('spread');
-    component.cycleSpread();
-    expect(Reflect.get(component, 'spreadPreference')()).toBe('half');
-    expect(loadSpreadPreference()).toBe('half');
-    component.ngOnDestroy();
-  });
-
-  it('renders both pages of a half turn into canvases that share one page box', async () => {
-    const component = halfReader(4);
-    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 1024 } });
-    const earlier = document.createElement('canvas');
-    const later = document.createElement('canvas');
-    spyOnCanvasPublishing(earlier);
-    spyOnCanvasPublishing(later);
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    canvases.reset([new ElementRef(earlier), new ElementRef(later)]);
-    Reflect.set(component, 'canvases', canvases);
-    const renderPage = vi
-      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
-      .mockResolvedValue(undefined);
-
-    component.turnPage(1);
-    await (Reflect.get(component, 'renderVisible').bind(component) as () => Promise<void>)();
-
-    expect(renderPage.mock.calls.map((call) => call[1])).toEqual([1, 2]);
-    // Both halves use the full stage width rather than sharing it like a spread.
-    expect(renderPage.mock.calls.map((call) => call[2])).toEqual([1342, 1342]);
-    component.ngOnDestroy();
-  });
-});
-
-describe('ReaderComponent half turns with mixed page heights', () => {
-  afterEach(() => localStorage.clear());
-
-  /** Renders a half turn whose pages draw at the given CSS heights. */
-  async function renderHalfTurn(heights: Record<number, number>) {
-    const component = createReaderComponent();
-    Reflect.get(component, 'metrics').set(
-      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
-    );
-    Reflect.get(component, 'viewport').set({ width: 1366, height: 1024 });
-    Reflect.get(component, 'spreadPreference').set('half');
-    Reflect.get(component, 'loading').set(false);
-    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 1024 } });
-    const pair = [document.createElement('canvas'), document.createElement('canvas')];
-    pair.forEach(spyOnCanvasPublishing);
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    canvases.reset(pair.map((canvas) => new ElementRef(canvas)));
-    Reflect.set(component, 'canvases', canvases);
-    vi.spyOn(Reflect.get(component, 'pdf'), 'renderPage').mockImplementation(
-      async (...args: unknown[]) => {
-        const [canvas, page] = args as [HTMLCanvasElement, number];
-        canvas.style.height = `${heights[page]}px`;
-      },
-    );
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
-    component.turnPage(1);
-    await renderVisible();
-    return { component, shift: () => Reflect.get(component, 'halfShift')() as number };
-  }
-
-  it('centers the halves of a tall page and a short one on the same line', async () => {
-    // Centered on one line, the pair spans 300 px above it and 500 px below: 100 px off center.
-    const { component, shift } = await renderHalfTurn({ 1: 1000, 2: 600 });
-    expect(shift()).toBe(-100);
-    component.ngOnDestroy();
-  });
-
-  it('shifts the other way when the later page is the taller one', async () => {
-    const { component, shift } = await renderHalfTurn({ 1: 600, 2: 1000 });
-    expect(shift()).toBe(100);
-    component.ngOnDestroy();
-  });
-
-  it('needs no shift when both pages are the same height', async () => {
-    const { component, shift } = await renderHalfTurn({ 1: 800, 2: 800 });
-    expect(shift()).toBe(0);
-    component.ngOnDestroy();
-  });
-
-  it('drops the shift as soon as the turn completes', async () => {
-    const { component, shift } = await renderHalfTurn({ 1: 1000, 2: 600 });
-    component.turnPage(1);
-    expect(shift()).toBe(0);
-    component.ngOnDestroy();
-  });
-});
-
-describe('ReaderComponent half turn to spread render cache', () => {
-  afterEach(() => localStorage.clear());
-
-  it('redraws pages 1–2 for the spread after drawing them for a half turn', async () => {
-    const component = createReaderComponent();
-    Reflect.get(component, 'metrics').set(
-      Array.from({ length: 4 }, (_, i) => ({ page: i + 1, ratio: 1.4 })),
-    );
-    // Landscape and short enough that one column and two columns share a box key.
-    Reflect.get(component, 'viewport').set({ width: 1366, height: 600 });
-    Reflect.get(component, 'spreadPreference').set('half');
-    Reflect.get(component, 'loading').set(false);
-    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 600 } });
-    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
-    const pair = [document.createElement('canvas'), document.createElement('canvas')];
-    pair.forEach(spyOnCanvasPublishing);
-    canvases.reset(pair.map((canvas) => new ElementRef(canvas)));
-    Reflect.set(component, 'canvases', canvases);
-    const renderPage = vi
-      .spyOn(Reflect.get(component, 'pdf'), 'renderPage')
-      .mockResolvedValue(undefined);
-    const renderVisible = Reflect.get(component, 'renderVisible').bind(
-      component,
-    ) as () => Promise<void>;
-
-    component.turnPage(1);
-    await renderVisible();
-    expect(renderPage).toHaveBeenCalledTimes(2);
-    expect(Reflect.get(component, 'renderedPage')).toMatchObject({ pageNumber: 1, columns: 1 });
-
-    // Cycling Half turn -> Auto shows the same pages 1–2, now as a spread.
-    component.cycleSpread();
-    expect(Reflect.get(component, 'renderedPage')).toBeUndefined();
-    expect(Reflect.get(component, 'visiblePages')()).toEqual([1, 2]);
-    await renderVisible();
-    expect(renderPage).toHaveBeenCalledTimes(4);
-    expect(Reflect.get(component, 'renderedPage')).toMatchObject({ pageNumber: 1, columns: 2 });
-    component.ngOnDestroy();
-  });
-});
-
-describe('half-turn helpers', () => {
-  it('maps pages and half steps to positions and back', () => {
-    expect(halfTurnPosition(1, false)).toBe(0);
-    expect(halfTurnPosition(1, true)).toBe(1);
-    expect(halfTurnPosition(3, false)).toBe(4);
-    expect(halfTurnFromPosition(5)).toEqual({ page: 3, turned: true });
-    expect(halfTurnFromPosition(4)).toEqual({ page: 3, turned: false });
-    expect(lastHalfTurnPosition(3)).toBe(4);
-    expect(lastHalfTurnPosition(1)).toBe(0);
-  });
-
-  it('round-trips a stored half-turn choice', () => {
-    const store = new Map<string, string>();
-    saveSpreadPreference('half', { setItem: (key, value) => void store.set(key, value) });
-    expect(loadSpreadPreference({ getItem: (key) => store.get(key) ?? null })).toBe('half');
-  });
-});
-
-describe('spread helpers', () => {
-  it('spreads only in landscape wide enough, unless the choice forces it', () => {
-    expect(spreadActive('auto', 1366, 1024, 4)).toBe(true);
-    expect(spreadActive('auto', 1024, 1366, 4)).toBe(false);
-    expect(spreadActive('auto', 899, 500, 4)).toBe(false);
-    expect(spreadActive('single', 1366, 1024, 4)).toBe(false);
-    expect(spreadActive('spread', 1024, 1366, 4)).toBe(true);
-    expect(spreadActive('spread', 1366, 1024, 1)).toBe(false);
-    expect(spreadActive('half', 1366, 1024, 4)).toBe(false);
-  });
-
-  it('starts every spread on an odd page', () => {
-    expect([1, 2, 3, 4, 5].map(spreadStartPage)).toEqual([1, 1, 3, 3, 5]);
-  });
-
-  it('cycles auto, single, spread, half turn', () => {
-    expect(nextSpreadPreference('auto')).toBe('single');
-    expect(nextSpreadPreference('single')).toBe('spread');
-    expect(nextSpreadPreference('spread')).toBe('half');
-    expect(nextSpreadPreference('half')).toBe('auto');
-  });
-
-  it('falls back to auto for a missing, unknown or unreadable choice', () => {
-    expect(loadSpreadPreference({ getItem: () => null })).toBe('auto');
-    expect(loadSpreadPreference({ getItem: () => 'wide' })).toBe('auto');
-    expect(
-      loadSpreadPreference({
-        getItem: () => {
-          throw new Error('blocked');
-        },
-      }),
-    ).toBe('auto');
-  });
-
-  it('round-trips the choice and ignores storage that refuses writes', () => {
-    const store = new Map<string, string>();
-    saveSpreadPreference('spread', { setItem: (key, value) => void store.set(key, value) });
-    expect(loadSpreadPreference({ getItem: (key) => store.get(key) ?? null })).toBe('spread');
-    expect(() =>
-      saveSpreadPreference('single', {
-        setItem: () => {
-          throw new Error('quota');
-        },
-      }),
-    ).not.toThrow();
-  });
-});
-
-describe('pageDeltaForKey', () => {
-  it('maps keyboard and pedal-style navigation keys', () => {
-    expect(pageDeltaForKey('PageDown')).toBe(1);
-    expect(pageDeltaForKey('ArrowRight')).toBe(1);
-    expect(pageDeltaForKey('PageUp')).toBe(-1);
-    expect(pageDeltaForKey('Escape')).toBe(0);
-  });
-});
-
-describe('trackFinePointerMovement', () => {
-  it('recognizes genuine mouse and pen movement', () => {
-    expect(
-      trackFinePointerMovement(
-        { clientX: 15, clientY: 30, pointerType: 'mouse' },
-        {
-          clientX: 20,
-          clientY: 30,
-          pointerType: 'mouse',
-        },
-      ).moved,
-    ).toBe(true);
-    expect(
-      trackFinePointerMovement(
-        { clientX: 20, clientY: 30, pointerType: 'pen' },
-        {
-          clientX: 24,
-          clientY: 30,
-          pointerType: 'pen',
-        },
-      ).moved,
-    ).toBe(true);
-  });
-
-  it('ignores stationary pointermove events and touch panning', () => {
-    expect(
-      trackFinePointerMovement(
-        { clientX: 20, clientY: 30, pointerType: 'mouse' },
-        {
-          clientX: 20,
-          clientY: 30,
-          pointerType: 'mouse',
-        },
-      ).moved,
-    ).toBe(false);
-    expect(
-      trackFinePointerMovement(
-        { clientX: 20, clientY: 30, pointerType: 'mouse' },
-        {
-          clientX: 60,
-          clientY: 80,
-          pointerType: 'touch',
-        },
-      ),
-    ).toEqual({ baseline: undefined, moved: false });
-  });
-
-  it('accumulates successive sub-threshold moves until they qualify', () => {
-    let baseline = trackFinePointerMovement(undefined, {
-      clientX: 20,
-      clientY: 30,
-      pointerType: 'mouse',
-    }).baseline;
-
-    for (const clientX of [21, 22]) {
-      const tracking = trackFinePointerMovement(baseline, {
-        clientX,
-        clientY: 30,
-        pointerType: 'mouse',
-      });
-      expect(tracking.moved).toBe(false);
-      expect(tracking.baseline?.clientX).toBe(20);
-      baseline = tracking.baseline;
-    }
-
-    const tracking = trackFinePointerMovement(baseline, {
-      clientX: 23,
-      clientY: 30,
-      pointerType: 'mouse',
-    });
-    expect(tracking.moved).toBe(true);
-    expect(tracking.baseline?.clientX).toBe(23);
-  });
-
-  it('does not carry a touch or different fine-pointer baseline across modalities', () => {
-    const touchTracking = trackFinePointerMovement(
-      { clientX: 20, clientY: 30, pointerType: 'mouse' },
-      { clientX: 120, clientY: 130, pointerType: 'touch' },
-    );
-    expect(touchTracking).toEqual({ baseline: undefined, moved: false });
-
-    const firstMouseTracking = trackFinePointerMovement(touchTracking.baseline, {
-      clientX: 120,
-      clientY: 130,
-      pointerType: 'mouse',
-    });
-    expect(firstMouseTracking.moved).toBe(false);
-
-    const penTracking = trackFinePointerMovement(firstMouseTracking.baseline, {
-      clientX: 220,
-      clientY: 230,
-      pointerType: 'pen',
-    });
-    expect(penTracking.moved).toBe(false);
-    expect(penTracking.baseline).toEqual({
-      clientX: 220,
-      clientY: 230,
-      pointerType: 'pen',
-    });
   });
 });

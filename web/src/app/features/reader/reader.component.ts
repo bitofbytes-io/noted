@@ -12,7 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { DecimalPipe, Location } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, PRIMARY_OUTLET, Router } from '@angular/router';
 import {
   LucideArrowLeft,
@@ -33,39 +32,17 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { rememberedLibraryParams } from '../../core/library-address';
 import { Piece, ReaderMode, ReaderState } from '../../core/models';
 import { measureAsync } from '../../core/performance';
+import { AutoScroll } from './auto-scroll';
 import { MetronomeComponent } from './metronome/metronome.component';
 import { PageMetric, PdfDocument } from './pdf-document.service';
-import {
-  ReaderPointerMove,
-  SpreadPreference,
-  halfTurnFromPosition,
-  halfTurnPosition,
-  halfTurnShift,
-  lastHalfTurnPosition,
-  loadSpreadPreference,
-  nextSpreadPreference,
-  pageDeltaForKey,
-  saveSpreadPreference,
-  spreadActive,
-  spreadGap,
-  spreadLabels,
-  spreadStartPage,
-  trackFinePointerMovement,
-} from './reader.utils';
+import { ReaderChrome } from './reader-chrome';
+import { ReaderLayout } from './reader-layout';
+import { closestScrollPage } from './reader-navigation';
+import { ReaderRenderer } from './reader-renderer';
+import { ReaderStateSaver } from './reader-state-saver';
+import { SwipeTracker } from './reader-swipe';
+import { clamp, pageDeltaForKey, spreadLabels } from './reader.utils';
 import { ScreenWakeLock } from './screen-wake-lock';
-
-interface PageBox {
-  width: number;
-  height: number;
-  key: number;
-}
-
-interface ScrollRenderRequest {
-  width: number;
-  canvas: HTMLCanvasElement;
-  generation: number;
-  settled: boolean;
-}
 
 @Component({
   selector: 'app-reader',
@@ -108,82 +85,61 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   protected readonly mode = signal<ReaderMode>('page');
   protected readonly currentPage = signal(1);
   protected readonly spreadLabels = spreadLabels;
-  protected readonly spreadPreference = signal<SpreadPreference>(loadSpreadPreference());
-  private readonly viewport = signal({ width: 0, height: 0 });
-  protected readonly spreading = computed(() =>
-    spreadActive(
-      this.spreadPreference(),
-      this.viewport().width,
-      this.viewport().height,
-      this.metrics().length,
-    ),
-  );
-  /** Whether page mode turns half a page at a time; a one-page score has nothing to turn into. */
-  protected readonly halfTurning = computed(
-    () => this.mode() === 'page' && this.spreadPreference() === 'half' && this.metrics().length > 1,
-  );
-  /** Between half turns: the top of the next page shows over the bottom of the current one. */
-  protected readonly halfTurned = signal(false);
-  protected readonly halfShown = computed(() => this.halfTurning() && this.halfTurned());
-  /** Vertical nudge in CSS pixels that centers the two halves of a turn on the stage. */
-  protected readonly halfShift = signal(0);
-  private readonly halfPosition = computed(() =>
-    halfTurnPosition(this.currentPage(), this.halfShown()),
-  );
-  protected readonly canTurnBack = computed(() =>
-    this.halfTurning() ? this.halfPosition() > 0 : this.visiblePages()[0] > 1,
-  );
-  protected readonly canTurnForward = computed(() =>
-    this.halfTurning()
-      ? this.halfPosition() < lastHalfTurnPosition(this.metrics().length)
-      : this.visiblePages()[this.visiblePages().length - 1] < this.metrics().length,
-  );
-  /**
-   * The pages page mode shows: one, or a pair that starts on an odd page and may end alone. In a
-   * half turn the pair is the current page and the next, drawn in the same place.
-   */
-  protected readonly visiblePages = computed(() => {
-    if (this.halfShown()) return [this.currentPage(), this.currentPage() + 1];
-    if (this.mode() !== 'page' || !this.spreading()) return [this.currentPage()];
-    const start = spreadStartPage(this.currentPage());
-    return start < this.metrics().length ? [start, start + 1] : [start];
-  });
-  protected readonly pageLabel = computed(() => {
-    const pages = this.visiblePages();
-    return pages.length > 1 ? `${pages[0]}–${pages[1]}` : String(pages[0]);
+  protected readonly layout = new ReaderLayout({
+    mode: this.mode,
+    currentPage: this.currentPage,
+    pageCount: computed(() => this.metrics().length),
   });
   protected readonly zoom = signal(1);
   protected readonly speed = signal(5);
   protected readonly paused = signal(true);
   protected readonly metronomeOpen = signal(false);
   protected readonly metronomeRunning = signal(false);
-  protected readonly controlsVisible = signal(true);
-  protected readonly controlsBubbleVisible = signal(false);
-  protected readonly chromeVisible = computed(
-    () => this.loading() || Boolean(this.error()) || this.controlsVisible(),
-  );
+  protected readonly chrome = new ReaderChrome({
+    held: computed(() => this.loading() || Boolean(this.error())),
+    focusInside: () => {
+      const active = document.activeElement;
+      return [this.topbar, this.controls, this.metronome].some((region) =>
+        active ? region?.nativeElement.contains(active) : false,
+      );
+    },
+    focusFirstControl: () => this.topbar?.nativeElement.querySelector('button')?.focus(),
+  });
+  private readonly renderer = new ReaderRenderer(this.pdf, {
+    stage: () => this.stage.nativeElement,
+    canvases: () => this.canvases,
+    scrollPages: () => this.scrollPages,
+    mode: () => this.mode(),
+    zoom: () => this.zoom(),
+    visiblePages: () => this.layout.visiblePages(),
+    halfShown: () => this.layout.halfShown(),
+    setHalfShift: (shift) => this.layout.halfShift.set(shift),
+    requestRender: () => this.scheduleRender(),
+  });
+  private readonly autoScroll = new AutoScroll({
+    running: () => this.mode() === 'scroll' && !this.paused() && !this.destroyed,
+    stage: () => this.stage.nativeElement,
+    speed: () => this.speed(),
+    reachedEnd: () => {
+      this.paused.set(true);
+      this.readerState.saveNow();
+    },
+  });
+  private readonly readerState = new ReaderStateSaver(this.api, {
+    capture: () => this.captureReaderState(),
+    onConflict: (state) => {
+      if (this.loadedPDFChecksum !== state.pdfChecksumSha256) return false;
+      this.paused.set(true);
+      this.autoScroll.sync();
+      this.error.set('This score changed while it was open. Reload it before continuing.');
+      return true;
+    },
+  });
   private resizeObserver?: ResizeObserver;
   private renderFrame?: number;
   private scrollFrame?: number;
-  private autoScrollFrame?: number;
-  private autoScrollTimestamp = 0;
-  private autoScrollRemainder = 0;
-  private hideTimer?: number;
-  private saveTimer?: number;
-  private saveCheckpointTimer?: number;
-  private pointerStart?: { x: number; y: number };
-  private pointerMovementBaseline?: ReaderPointerMove;
-  private swiped = false;
-  private renderedPage?: { pageNumber: number; span: number; columns: number; key: number };
-  private renderedWidths = new Map<number, number>();
-  private pageRenderInFlight = false;
-  private pageRenderPending = false;
-  private renderGeneration = 0;
-  private scrollRenderRequests = new Map<number, ScrollRenderRequest>();
+  protected readonly swipe = new SwipeTracker();
   private destroyed = false;
-  private readerStateSaveBlocked = false;
-  private readerStateSaveInFlight = false;
-  private pendingReaderState?: ReaderState;
   private loadedPDFChecksum = '';
   private pieceId = '';
 
@@ -194,29 +150,25 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.scrollPages.changes.subscribe(() => this.scheduleRender());
     this.resizeObserver = new ResizeObserver(() => {
       const stage = this.stage.nativeElement;
-      this.viewport.set({ width: stage.clientWidth, height: stage.clientHeight });
-      this.renderGeneration++;
-      this.scrollRenderRequests.clear();
-      this.renderedPage = undefined;
-      this.renderedWidths.clear();
+      this.layout.viewport.set({ width: stage.clientWidth, height: stage.clientHeight });
+      this.renderer.reset();
       this.scheduleRender();
     });
     this.resizeObserver.observe(this.stage.nativeElement);
     await this.load();
-    this.scheduleHide();
+    this.chrome.scheduleHide();
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
     this.wakeLock.stop();
-    this.saveNow();
+    this.readerState.saveNow();
     this.resizeObserver?.disconnect();
     if (this.renderFrame) cancelAnimationFrame(this.renderFrame);
     if (this.scrollFrame) cancelAnimationFrame(this.scrollFrame);
-    if (this.autoScrollFrame) cancelAnimationFrame(this.autoScrollFrame);
-    if (this.hideTimer) window.clearTimeout(this.hideTimer);
-    if (this.saveTimer) window.clearTimeout(this.saveTimer);
-    if (this.saveCheckpointTimer) window.clearTimeout(this.saveCheckpointTimer);
+    this.autoScroll.stop();
+    this.chrome.dispose();
+    this.readerState.dispose();
     void this.pdf.dispose();
   }
 
@@ -224,13 +176,9 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     await measureAsync('noted.reader.load', async () => {
       this.loading.set(true);
       this.error.set('');
-      this.readerStateSaveBlocked = false;
-      this.pendingReaderState = undefined;
+      this.readerState.reset();
       this.loadedPDFChecksum = '';
-      this.renderGeneration++;
-      this.scrollRenderRequests.clear();
-      this.renderedPage = undefined;
-      this.renderedWidths.clear();
+      this.renderer.reset();
       try {
         const [piece, state] = await Promise.all([
           firstValueFrom(this.api.piece(this.pieceId)),
@@ -249,14 +197,14 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         const metrics = await this.pdf.load(piece.pdf.contentUrl);
         this.metrics.set(metrics);
         this.currentPage.set(clamp(Math.round(state.lastPage), 1, metrics.length));
-        this.halfTurned.set(false);
+        this.layout.halfTurned.set(false);
         this.loading.set(false);
         setTimeout(() => {
           if (this.mode() === 'scroll') {
             this.stage.nativeElement.scrollTop = Math.max(0, state.scrollPosition);
           }
           this.scheduleRender();
-          this.syncAutoScroll();
+          this.autoScroll.sync();
         });
       } catch (error) {
         this.wakeLock.stop();
@@ -281,97 +229,66 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   reload(): void {
     this.wakeLock.start();
-    void this.load().then(() => this.scheduleHide());
+    void this.load().then(() => this.chrome.scheduleHide());
   }
 
   setMode(mode: ReaderMode): void {
     if (mode === this.mode()) return;
     if (this.mode() === 'scroll') this.updateCurrentPage();
     this.mode.set(mode);
-    this.halfTurned.set(false);
-    this.renderGeneration++;
-    this.scrollRenderRequests.clear();
-    this.renderedPage = undefined;
-    this.renderedWidths.clear();
+    this.layout.halfTurned.set(false);
+    this.renderer.reset();
     setTimeout(() => {
       if (mode === 'scroll') this.scrollToPage(this.currentPage(), false);
       this.scheduleRender();
-      this.syncAutoScroll();
-      this.saveNow();
+      this.autoScroll.sync();
+      this.readerState.saveNow();
     });
   }
 
   turnPage(delta: number): void {
-    if (this.mode() !== 'page') return;
-    if (this.halfTurning()) {
-      this.turnHalfPage(delta);
-      return;
-    }
-    const start = this.visiblePages()[0];
-    const last = this.metrics().length;
-    // A spread turns two pages at a time; a trailing single page still counts as one spread.
-    const next = this.spreading()
-      ? spreadStartPage(clamp(start + delta * 2, 1, last))
-      : clamp(start + delta, 1, last);
-    if (next === start) return;
-    this.currentPage.set(next);
-    this.clearVisiblePage();
+    if (this.mode() !== 'page' || !this.layout.turn(delta)) return;
+    this.renderer.clearVisiblePage();
     this.scheduleRender();
-    this.queueSave();
-  }
-
-  /** Moves one half page: whole page, then the next page's top over this one's bottom, and so on. */
-  private turnHalfPage(delta: number): void {
-    const position = this.halfPosition();
-    const next = clamp(position + delta, 0, lastHalfTurnPosition(this.metrics().length));
-    if (next === position) return;
-    const { page, turned } = halfTurnFromPosition(next);
-    this.currentPage.set(page);
-    this.halfTurned.set(turned);
-    this.clearVisiblePage();
-    this.scheduleRender();
-    this.queueSave();
+    this.readerState.queue();
   }
 
   cycleSpread(event?: MouseEvent): void {
-    const next = nextSpreadPreference(this.spreadPreference());
-    this.spreadPreference.set(next);
-    this.halfTurned.set(false);
-    saveSpreadPreference(next);
-    this.renderedPage = undefined;
+    this.layout.cycleSpread();
+    this.renderer.forgetPage();
     this.scheduleRender();
-    // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
-    if (event && event.detail > 0) (event.currentTarget as HTMLElement | null)?.blur();
+    this.releaseFocusAfterPointerPress(event);
   }
 
   changeZoom(delta: number): void {
     const next = clamp(Math.round((this.zoom() + delta) * 10) / 10, 0.5, 2.5);
     if (next === this.zoom()) return;
     this.zoom.set(next);
-    this.renderGeneration++;
-    this.scrollRenderRequests.clear();
-    this.renderedPage = undefined;
-    this.renderedWidths.clear();
+    this.renderer.reset();
     this.scheduleRender();
-    this.queueSave();
+    this.readerState.queue();
   }
 
   toggleMetronome(event?: MouseEvent): void {
     this.metronomeOpen.update((open) => !open);
-    // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
+    this.releaseFocusAfterPointerPress(event);
+  }
+
+  /** A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages. */
+  private releaseFocusAfterPointerPress(event?: MouseEvent): void {
     if (event && event.detail > 0) (event.currentTarget as HTMLElement | null)?.blur();
   }
 
   changeSpeed(event: Event): void {
     this.speed.set(Number((event.target as HTMLInputElement).value));
-    this.queueSave();
+    this.readerState.queue();
   }
 
   togglePause(): void {
     if (this.mode() !== 'scroll') return;
     this.paused.update((paused) => !paused);
-    this.syncAutoScroll();
-    this.saveNow();
+    this.autoScroll.sync();
+    this.readerState.saveNow();
   }
 
   onStageScroll(): void {
@@ -383,51 +300,23 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
         this.scheduleRender();
       });
     }
-    this.queueSave();
-  }
-
-  onPointerDown(event: PointerEvent): void {
-    this.pointerStart = { x: event.clientX, y: event.clientY };
-    this.swiped = false;
-  }
-
-  onPointerMove(event: PointerEvent): void {
-    if (this.trackPointerMovement(event)) this.offerControls();
-  }
-
-  onChromePointerMove(event: PointerEvent): void {
-    event.stopPropagation();
-    if (this.trackPointerMovement(event)) this.onChromeActivity();
+    this.readerState.queue();
   }
 
   onPointerUp(event: PointerEvent): void {
-    if (!this.pointerStart) return;
-    const deltaX = event.clientX - this.pointerStart.x;
-    const deltaY = event.clientY - this.pointerStart.y;
-    this.pointerStart = undefined;
-    if (Math.hypot(deltaX, deltaY) > 12) this.swiped = true;
-    if (this.mode() === 'page' && Math.abs(deltaX) > 60 && Math.abs(deltaY) < 80) {
-      this.turnPage(deltaX < 0 ? 1 : -1);
-    }
-  }
-
-  onPointerCancel(): void {
-    this.pointerStart = undefined;
-    this.swiped = false;
+    const delta = this.swipe.up(event);
+    if (delta !== 0 && this.mode() === 'page') this.turnPage(delta);
   }
 
   onScoreTap(event: MouseEvent): void {
-    if (this.swiped) {
-      this.swiped = false;
-      return;
-    }
+    if (this.swipe.consumeDrag()) return;
     if (
       (event.target as HTMLElement).closest(
         '.reader-controls, .reader-topbar, .reader-controls-bubble, .reader-metronome',
       )
     )
       return;
-    this.offerControls();
+    this.chrome.offer();
     if (this.mode() === 'scroll') {
       this.togglePause();
       return;
@@ -442,7 +331,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   onKeydown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select, button')) return;
-    this.offerControls();
+    this.chrome.offer();
     if (this.mode() === 'scroll' && [' ', 'Enter'].includes(event.key)) {
       event.preventDefault();
       this.togglePause();
@@ -457,35 +346,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   @HostListener('document:visibilitychange')
   onVisibilityChange(): void {
-    if (document.visibilityState === 'hidden') this.saveNow();
-  }
-
-  showControls(event?: Event): void {
-    event?.preventDefault();
-    event?.stopPropagation();
-    const keyboardActivation = event instanceof MouseEvent && event.detail === 0;
-    this.controlsBubbleVisible.set(false);
-    this.controlsVisible.set(true);
-    this.scheduleHide();
-    if (keyboardActivation) {
-      setTimeout(() => this.topbar?.nativeElement.querySelector('button')?.focus());
-    }
-  }
-
-  onChromeActivity(): void {
-    this.controlsVisible.set(true);
-    this.scheduleHide();
-  }
-
-  private offerControls(): void {
-    if (this.loading() || this.error() || this.controlsVisible()) return;
-    this.controlsBubbleVisible.set(true);
-  }
-
-  private trackPointerMovement(event: PointerEvent): boolean {
-    const tracking = trackFinePointerMovement(this.pointerMovementBaseline, event);
-    this.pointerMovementBaseline = tracking.baseline;
-    return tracking.moved;
+    if (document.visibilityState === 'hidden') this.readerState.saveNow();
   }
 
   scrollPageWidth(): number {
@@ -497,216 +358,14 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     if (this.renderFrame || this.loading()) return;
     this.renderFrame = requestAnimationFrame(() => {
       this.renderFrame = undefined;
-      void this.renderVisible();
-    });
-  }
-
-  private async renderVisible(): Promise<void> {
-    if (!this.canvases?.length) return;
-    if (this.mode() === 'page') {
-      if (this.pageRenderInFlight) {
-        this.pageRenderPending = true;
-        return;
-      }
-      const pageNumbers = this.visiblePages();
-      const targets = this.canvases.toArray().map((canvas) => canvas.nativeElement);
-      // The canvases follow the pages after change detection, which schedules another render.
-      if (targets.length !== pageNumbers.length) return;
-      // A half turn and a spread show the same page numbers, but size them for different columns.
-      const columns = this.pageColumns();
-      const box = this.pageBox(columns);
-      const generation = this.renderGeneration;
-      if (
-        this.renderedPage?.pageNumber === pageNumbers[0] &&
-        this.renderedPage.span === pageNumbers.length &&
-        this.renderedPage.columns === columns &&
-        this.renderedPage.key === box.key
-      )
-        return;
-      const renderCanvases = pageNumbers.map(() => document.createElement('canvas'));
-      this.pageRenderInFlight = true;
-      this.pageRenderPending = false;
-      this.clearVisiblePage();
-      try {
-        await Promise.all(
-          pageNumbers.map((pageNumber, index) =>
-            this.pdf.renderPage(renderCanvases[index], pageNumber, box.width, box.height),
-          ),
-        );
-        if (
-          this.renderGeneration === generation &&
-          this.mode() === 'page' &&
-          this.pageColumns() === columns &&
-          this.pageBox(columns).key === box.key &&
-          this.visiblePages().join() === pageNumbers.join() &&
-          this.canvases.length === targets.length &&
-          this.canvases.toArray().every((canvas, index) => canvas.nativeElement === targets[index])
-        ) {
-          targets.forEach((canvas, index) => {
-            const renderCanvas = renderCanvases[index];
-            canvas.width = renderCanvas.width;
-            canvas.height = renderCanvas.height;
-            canvas.style.width = renderCanvas.style.width;
-            canvas.style.height = renderCanvas.style.height;
-            const context = canvas.getContext('2d');
-            if (!context) throw new Error('Canvas rendering is unavailable.');
-            context.drawImage(renderCanvas, 0, 0);
-          });
-          this.halfShift.set(this.halfShown() ? halfTurnShift(renderCanvases) : 0);
-          this.renderedPage = {
-            pageNumber: pageNumbers[0],
-            span: pageNumbers.length,
-            columns,
-            key: box.key,
-          };
-        }
-      } finally {
-        // Safari counts canvas backing stores against a memory budget until they are collected.
-        renderCanvases.forEach((canvas) => {
-          canvas.width = 0;
-          canvas.height = 0;
-        });
-        this.pageRenderInFlight = false;
-        const requestChanged =
-          this.renderGeneration !== generation ||
-          this.mode() !== 'page' ||
-          this.visiblePages().join() !== pageNumbers.join() ||
-          this.pageColumns() !== columns ||
-          this.pageBox(columns).key !== box.key;
-        if (this.pageRenderPending || requestChanged) {
-          this.pageRenderPending = false;
-          this.scheduleRender();
-        }
-      }
-      return;
-    }
-    const stageRect = this.stage.nativeElement.getBoundingClientRect();
-    const pages = this.scrollPages.toArray();
-    const canvases = this.canvases.toArray();
-    const pending: Promise<void>[] = [];
-    pages.forEach((page, index) => {
-      const rect = page.nativeElement.getBoundingClientRect();
-      const canvas = canvases[index]?.nativeElement;
-      if (!canvas) return;
-      const nearby =
-        rect.bottom >= stageRect.top - stageRect.height &&
-        rect.top <= stageRect.bottom + stageRect.height;
-      const pageNumber = index + 1;
-      if (!nearby) {
-        const retained =
-          rect.bottom >= stageRect.top - stageRect.height * 2 &&
-          rect.top <= stageRect.bottom + stageRect.height * 2;
-        if (!retained) {
-          if (canvas.width || canvas.height) {
-            canvas.width = 0;
-            canvas.height = 0;
-          }
-          this.renderedWidths.delete(pageNumber);
-          this.scrollRenderRequests.delete(pageNumber);
-        }
-        return;
-      }
-      const width = Math.round(page.nativeElement.clientWidth);
-      if (this.renderedWidths.get(pageNumber) === width) return;
-      const generation = this.renderGeneration;
-      const active = this.scrollRenderRequests.get(pageNumber);
-      // Scroll refreshes outpace slow pages; restarting would starve them, so let it finish.
-      if (
-        active &&
-        !active.settled &&
-        active.width === width &&
-        active.canvas === canvas &&
-        active.generation === generation
-      )
-        return;
-      const request: ScrollRenderRequest = { width, canvas, generation, settled: false };
-      this.scrollRenderRequests.set(pageNumber, request);
-      const forgetFailedRequest = (error: unknown) => {
-        request.settled = true;
-        if (this.scrollRenderRequests.get(pageNumber) === request)
-          this.scrollRenderRequests.delete(pageNumber);
-        throw error;
-      };
-      pending.push(
-        this.pdf.renderPage(canvas, pageNumber, width).then(() => {
-          request.settled = true;
-          const currentStageRect = this.stage.nativeElement.getBoundingClientRect();
-          const currentRect = page.nativeElement.getBoundingClientRect();
-          const retained =
-            currentRect.bottom >= currentStageRect.top - currentStageRect.height * 2 &&
-            currentRect.top <= currentStageRect.bottom + currentStageRect.height * 2;
-          const activeRequest = this.scrollRenderRequests.get(pageNumber);
-          const requestIsCurrent = activeRequest === request;
-          const pageIsCurrent = this.scrollPages.get(index)?.nativeElement === page.nativeElement;
-          const currentCanvas = this.canvases.get(index)?.nativeElement;
-          const canvasIsCurrent = currentCanvas === canvas;
-          if (
-            this.renderGeneration === generation &&
-            this.mode() === 'scroll' &&
-            requestIsCurrent &&
-            pageIsCurrent &&
-            canvasIsCurrent &&
-            Math.round(page.nativeElement.clientWidth) === width &&
-            retained
-          ) {
-            this.renderedWidths.set(pageNumber, width);
-          } else {
-            const newerRequestOwnsCanvas =
-              canvasIsCurrent && activeRequest !== undefined && activeRequest !== request;
-            if (!newerRequestOwnsCanvas) {
-              canvas.width = 0;
-              canvas.height = 0;
-            }
-            if (requestIsCurrent) {
-              this.renderedWidths.delete(pageNumber);
-              this.scrollRenderRequests.delete(pageNumber);
-            }
-          }
-        }, forgetFailedRequest),
-      );
-    });
-    await Promise.all(pending);
-  }
-
-  /** How many pages sit side by side; the two halves of a half turn share one page's place. */
-  private pageColumns(): number {
-    return this.halfShown() ? 1 : this.visiblePages().length;
-  }
-
-  /** The size each of `count` side-by-side pages may take, and the key identifying it. */
-  private pageBox(count: number): PageBox {
-    const stage = this.stage.nativeElement;
-    const width = Math.max(
-      240,
-      ((stage.clientWidth - 24 - spreadGap * (count - 1)) / count) * this.zoom(),
-    );
-    const height = Math.max(240, (stage.clientHeight - 24) * this.zoom());
-    return { width, height, key: Math.round(Math.min(width, height)) };
-  }
-
-  private clearVisiblePage(): void {
-    this.renderedPage = undefined;
-    this.halfShift.set(0);
-    if (this.mode() !== 'page') return;
-    this.canvases?.forEach(({ nativeElement: canvas }) => {
-      if (!canvas.width && !canvas.height) return;
-      canvas.width = 0;
-      canvas.height = 0;
+      void this.renderer.renderVisible();
     });
   }
 
   private updateCurrentPage(): void {
     const stageTop = this.stage.nativeElement.getBoundingClientRect().top;
-    let closestPage = this.currentPage();
-    let closestDistance = Number.POSITIVE_INFINITY;
-    this.scrollPages.forEach((page, index) => {
-      const distance = Math.abs(page.nativeElement.getBoundingClientRect().top - stageTop - 24);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestPage = index + 1;
-      }
-    });
-    this.currentPage.set(closestPage);
+    const pageTops = this.scrollPages.map((page) => page.nativeElement.getBoundingClientRect().top);
+    this.currentPage.set(closestScrollPage(stageTop, pageTops, this.currentPage()));
   }
 
   private scrollToPage(page: number, smooth: boolean): void {
@@ -718,122 +377,19 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  private syncAutoScroll(): void {
-    if (this.autoScrollFrame) cancelAnimationFrame(this.autoScrollFrame);
-    this.autoScrollFrame = undefined;
-    this.autoScrollTimestamp = 0;
-    this.autoScrollRemainder = 0;
-    if (this.mode() !== 'scroll' || this.paused() || this.destroyed) return;
-    const tick = (timestamp: number): void => {
-      if (this.mode() !== 'scroll' || this.paused() || this.destroyed) return;
-      if (this.autoScrollTimestamp) {
-        const elapsed = Math.min(0.1, (timestamp - this.autoScrollTimestamp) / 1000);
-        const stage = this.stage.nativeElement;
-        const distance = this.autoScrollRemainder + this.speed() * elapsed;
-        const wholePixels = Math.floor(distance);
-        this.autoScrollRemainder = distance - wholePixels;
-        if (wholePixels > 0) stage.scrollTop += wholePixels;
-        const reachedEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
-        if (reachedEnd) {
-          this.paused.set(true);
-          this.saveNow();
-          return;
-        }
-      }
-      this.autoScrollTimestamp = timestamp;
-      this.autoScrollFrame = requestAnimationFrame(tick);
-    };
-    this.autoScrollFrame = requestAnimationFrame(tick);
-  }
-
-  private scheduleHide(): void {
-    if (this.hideTimer) window.clearTimeout(this.hideTimer);
-    if (this.loading() || this.error()) return;
-    this.hideTimer = window.setTimeout(() => {
-      const activeElement = document.activeElement;
-      if (
-        (activeElement && this.topbar?.nativeElement.contains(activeElement)) ||
-        (activeElement && this.controls?.nativeElement.contains(activeElement)) ||
-        (activeElement && this.metronome?.nativeElement.contains(activeElement))
-      ) {
-        this.scheduleHide();
-        return;
-      }
-      this.controlsVisible.set(false);
-    }, 3000);
-  }
-
-  private queueSave(): void {
-    if (this.readerStateSaveBlocked) return;
-    if (this.saveTimer) window.clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => this.saveNow(), 650);
-    this.saveCheckpointTimer ??= window.setTimeout(() => this.saveNow(), 10_000);
-  }
-
-  private saveNow(): void {
-    if (
-      !this.pieceId ||
-      !this.loadedPDFChecksum ||
-      this.loading() ||
-      this.error() ||
-      this.readerStateSaveBlocked
-    )
-      return;
-    if (this.saveTimer) window.clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    if (this.saveCheckpointTimer) window.clearTimeout(this.saveCheckpointTimer);
-    this.saveCheckpointTimer = undefined;
-    const state: ReaderState = {
+  /** The state to save, or nothing until a score is loaded and while the reader is failing. */
+  private captureReaderState(): ReaderState | undefined {
+    if (!this.pieceId || !this.loadedPDFChecksum || this.loading() || this.error())
+      return undefined;
+    return {
       pieceId: this.pieceId,
       pdfChecksumSha256: this.loadedPDFChecksum,
       mode: this.mode(),
-      lastPage: this.mode() === 'page' ? this.visiblePages()[0] : this.currentPage(),
+      lastPage: this.mode() === 'page' ? this.layout.visiblePages()[0] : this.currentPage(),
       scrollPosition: this.mode() === 'scroll' ? this.stage.nativeElement.scrollTop : 0,
       zoom: this.zoom(),
       scrollSpeed: this.speed(),
       scrollPaused: this.paused(),
     };
-    this.pendingReaderState = state;
-    this.flushReaderStateSave();
   }
-
-  private flushReaderStateSave(): void {
-    if (this.readerStateSaveInFlight || this.readerStateSaveBlocked || !this.pendingReaderState)
-      return;
-
-    const state = this.pendingReaderState;
-    this.pendingReaderState = undefined;
-    this.readerStateSaveInFlight = true;
-    let finished = false;
-    const finish = (): void => {
-      if (finished) return;
-      finished = true;
-      this.readerStateSaveInFlight = false;
-      this.flushReaderStateSave();
-    };
-
-    this.api.saveReaderState(this.pieceId, state).subscribe({
-      error: (error: unknown) => {
-        if (
-          error instanceof HttpErrorResponse &&
-          error.status === 409 &&
-          this.loadedPDFChecksum === state.pdfChecksumSha256
-        ) {
-          this.readerStateSaveBlocked = true;
-          this.pendingReaderState = undefined;
-          this.paused.set(true);
-          this.syncAutoScroll();
-          this.error.set('This score changed while it was open. Reload it before continuing.');
-        } else {
-          console.warn('Reader state could not be saved', error);
-        }
-        finish();
-      },
-      complete: finish,
-    });
-  }
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
 }
