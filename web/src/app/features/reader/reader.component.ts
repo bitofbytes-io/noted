@@ -40,6 +40,7 @@ import {
   SpreadPreference,
   halfTurnFromPosition,
   halfTurnPosition,
+  halfTurnShift,
   lastHalfTurnPosition,
   loadSpreadPreference,
   nextSpreadPreference,
@@ -124,6 +125,8 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
   /** Between half turns: the top of the next page shows over the bottom of the current one. */
   protected readonly halfTurned = signal(false);
   protected readonly halfShown = computed(() => this.halfTurning() && this.halfTurned());
+  /** Vertical nudge in CSS pixels that centers the two halves of a turn on the stage. */
+  protected readonly halfShift = signal(0);
   private readonly halfPosition = computed(() =>
     halfTurnPosition(this.currentPage(), this.halfShown()),
   );
@@ -335,6 +338,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
     this.spreadPreference.set(next);
     this.halfTurned.set(false);
     saveSpreadPreference(next);
+    this.renderedPage = undefined;
     this.scheduleRender();
     // A pointer press leaves the button focused, and pedal keys sent to a button don't turn pages.
     if (event && event.detail > 0) (event.currentTarget as HTMLElement | null)?.blur();
@@ -548,6 +552,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
             if (!context) throw new Error('Canvas rendering is unavailable.');
             context.drawImage(renderCanvas, 0, 0);
           });
+          this.halfShift.set(this.halfShown() ? halfTurnShift(renderCanvases) : 0);
           this.renderedPage = {
             pageNumber: pageNumbers[0],
             span: pageNumbers.length,
@@ -681,6 +686,7 @@ export class ReaderComponent implements AfterViewInit, OnDestroy {
 
   private clearVisiblePage(): void {
     this.renderedPage = undefined;
+    this.halfShift.set(0);
     if (this.mode() !== 'page') return;
     this.canvases?.forEach(({ nativeElement: canvas }) => {
       if (!canvas.width && !canvas.height) return;

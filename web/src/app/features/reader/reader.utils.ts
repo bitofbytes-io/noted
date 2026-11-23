@@ -60,6 +60,17 @@ export function lastHalfTurnPosition(pageCount: number): number {
   return Math.max(0, 2 * (pageCount - 1));
 }
 
+/**
+ * The vertical shift that centers a half turn's two halves in the stage. Both pages are centered
+ * on one middle line, so the later page's top half ends and the earlier page's bottom half begins
+ * there; the pair spans from `later / 2` above it to `earlier / 2` below it, which is
+ * `(earlier - later) / 4` off center when the pages differ in height.
+ */
+export function halfTurnShift(pages: readonly Pick<HTMLElement, 'style'>[]): number {
+  const [earlier, later] = pages.map((page) => Number.parseFloat(page.style.height) || 0);
+  return later === undefined ? 0 : (later - earlier) / 4;
+}
+
 const spreadStorageKey = 'noted.reader.spread';
 
 /** Reads this device's layout choice; anything missing or malformed means auto. */

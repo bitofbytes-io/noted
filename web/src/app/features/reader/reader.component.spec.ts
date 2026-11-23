@@ -952,7 +952,7 @@ describe('ReaderComponent half-page turns', () => {
     expect([canBack(), canForward()]).toEqual([true, false]);
   });
 
-  it('saves the earlier page so a reload resumes on a whole page', () => {
+  it('saves the earlier page so a reload resumes on a whole page', async () => {
     const saveReaderState = vi.fn((_id: string, _state: ReaderState) => new Subject<void>());
     const component = createReaderComponent({ saveReaderState });
     Reflect.get(component, 'metrics').set(
@@ -967,9 +967,27 @@ describe('ReaderComponent half-page turns', () => {
     expect(visible(component)).toEqual([2, 3]);
     (Reflect.get(component, 'saveNow') as () => void).call(component);
 
-    expect(saveReaderState.mock.calls[0][1]).toMatchObject({ mode: 'page', lastPage: 2 });
+    const saved = saveReaderState.mock.calls[0][1];
+    expect(saved).toMatchObject({ mode: 'page', lastPage: 2 });
     Reflect.get(component, 'loading').set(true);
     component.ngOnDestroy();
+
+    // Reopening the score from that saved state shows page 2 whole, not the half turn.
+    const checksum = 'a'.repeat(64);
+    const reopened = createReaderComponent({
+      piece: () => of({ pdf: { checksumSha256: checksum, contentUrl: '/pdf' } }),
+      readerState: () => of({ ...saved, pdfChecksumSha256: checksum }),
+      saveReaderState: () => of({}),
+    });
+    Reflect.set(reopened, 'pieceId', 'piece');
+    Reflect.get(reopened, 'spreadPreference').set('half');
+    vi.spyOn(Reflect.get(reopened, 'pdf'), 'load').mockResolvedValue(
+      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
+    );
+    await (Reflect.get(reopened, 'load') as () => Promise<void>).call(reopened);
+    expect(state(reopened)).toEqual([2, false]);
+    expect(visible(reopened)).toEqual([2]);
+    reopened.ngOnDestroy();
   });
 
   it('leaves the half step when the layout changes', () => {
@@ -1059,6 +1077,65 @@ describe('ReaderComponent half-page turns', () => {
   });
 });
 
+describe('ReaderComponent half turns with mixed page heights', () => {
+  afterEach(() => localStorage.clear());
+
+  /** Renders a half turn whose pages draw at the given CSS heights. */
+  async function renderHalfTurn(heights: Record<number, number>) {
+    const component = createReaderComponent();
+    Reflect.get(component, 'metrics').set(
+      Array.from({ length: 3 }, (_, i) => ({ page: i + 1, ratio: 0.75 })),
+    );
+    Reflect.get(component, 'viewport').set({ width: 1366, height: 1024 });
+    Reflect.get(component, 'spreadPreference').set('half');
+    Reflect.get(component, 'loading').set(false);
+    Reflect.set(component, 'stage', { nativeElement: { clientWidth: 1366, clientHeight: 1024 } });
+    const pair = [document.createElement('canvas'), document.createElement('canvas')];
+    pair.forEach(spyOnCanvasPublishing);
+    const canvases = new QueryList<ElementRef<HTMLCanvasElement>>();
+    canvases.reset(pair.map((canvas) => new ElementRef(canvas)));
+    Reflect.set(component, 'canvases', canvases);
+    vi.spyOn(Reflect.get(component, 'pdf'), 'renderPage').mockImplementation(
+      async (...args: unknown[]) => {
+        const [canvas, page] = args as [HTMLCanvasElement, number];
+        canvas.style.height = `${heights[page]}px`;
+      },
+    );
+    const renderVisible = Reflect.get(component, 'renderVisible').bind(
+      component,
+    ) as () => Promise<void>;
+    component.turnPage(1);
+    await renderVisible();
+    return { component, shift: () => Reflect.get(component, 'halfShift')() as number };
+  }
+
+  it('centers the halves of a tall page and a short one on the same line', async () => {
+    // Centered on one line, the pair spans 300 px above it and 500 px below: 100 px off center.
+    const { component, shift } = await renderHalfTurn({ 1: 1000, 2: 600 });
+    expect(shift()).toBe(-100);
+    component.ngOnDestroy();
+  });
+
+  it('shifts the other way when the later page is the taller one', async () => {
+    const { component, shift } = await renderHalfTurn({ 1: 600, 2: 1000 });
+    expect(shift()).toBe(100);
+    component.ngOnDestroy();
+  });
+
+  it('needs no shift when both pages are the same height', async () => {
+    const { component, shift } = await renderHalfTurn({ 1: 800, 2: 800 });
+    expect(shift()).toBe(0);
+    component.ngOnDestroy();
+  });
+
+  it('drops the shift as soon as the turn completes', async () => {
+    const { component, shift } = await renderHalfTurn({ 1: 1000, 2: 600 });
+    component.turnPage(1);
+    expect(shift()).toBe(0);
+    component.ngOnDestroy();
+  });
+});
+
 describe('ReaderComponent half turn to spread render cache', () => {
   afterEach(() => localStorage.clear());
 
@@ -1091,6 +1168,7 @@ describe('ReaderComponent half turn to spread render cache', () => {
 
     // Cycling Half turn -> Auto shows the same pages 1–2, now as a spread.
     component.cycleSpread();
+    expect(Reflect.get(component, 'renderedPage')).toBeUndefined();
     expect(Reflect.get(component, 'visiblePages')()).toEqual([1, 2]);
     await renderVisible();
     expect(renderPage).toHaveBeenCalledTimes(4);

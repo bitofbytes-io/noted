@@ -99,9 +99,11 @@
 }
 
 /* The halves of a turn in progress share one page's place: the earlier page's bottom half under
-   the later page's top half. */
+   the later page's top half. Both are centered on the same line, so they meet whatever their
+   heights; `--half-shift` (reader.utils.ts) then centers the pair when the heights differ. */
 .page-stage.half-turn canvas {
   grid-area: 1 / 1;
+  transform: translateY(var(--half-shift, 0px));
 }
 
 .page-stage.half-turn canvas:first-child {

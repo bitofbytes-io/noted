@@ -53,6 +53,7 @@
       class="page-stage"
       [class.spread]="visiblePages().length > 1 && !halfShown()"
       [class.half-turn]="halfShown()"
+      [style.--half-shift.px]="halfShift()"
       [attr.aria-label]="visiblePages().length > 1 ? 'PDF pages' : 'PDF page'"
     >
       @for (page of visiblePages(); track $index) {
