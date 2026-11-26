@@ -73,7 +73,7 @@ jobs:
           : "${MANAGER_REPO_PATH:?Missing crystal1 variable MANAGER_REPO_PATH}"
 
       - name: Connect to Tailscale
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           audience: ${{ vars.TS_AUDIENCE }}
@@ -107,7 +107,7 @@ jobs:
           driver-opts: network=host
 
       - name: Log in to registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ${{ env.IMAGE_REG }}
           username: ${{ secrets.REGISTRY_USERNAME }}
