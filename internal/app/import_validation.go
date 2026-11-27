@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -31,7 +32,7 @@ func ValidateImportBytes(data []byte) (string, int, int, int, error) {
 		disablePDFCPUConfig.Do(api.DisableConfigDir)
 		conf := model.NewDefaultConfiguration()
 		conf.ValidationMode = model.ValidationRelaxed
-		parsed, err := api.ReadAndValidate(bytes.NewReader(data), conf)
+		parsed, err := api.ReadAndValidate(context.Background(), bytes.NewReader(data), conf)
 		if err != nil {
 			// pdfcpu's reason names its internals; keep it for the log only.
 			return "", 0, 0, 0, &ValidationError{Message: "PDF must be readable and unencrypted", Cause: err}
