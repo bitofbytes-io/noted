@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -19,19 +19,19 @@ import (
 	"golang.org/x/image/ccitt"
 )
 
-var disablePDFCPUConfig sync.Once
-
 func ValidateImportBytes(data []byte) (string, int, int, int, error) {
 	if len(data) == 0 {
 		return "", 0, 0, 0, invalid("source must contain a PDF, JPEG or PNG")
 	}
 	if bytes.HasPrefix(data, []byte("%PDF-")) {
-		// Validation uses pdfcpu's built-in settings and core fonts only. Disable its
-		// optional user config directory so the API can run with a read-only home.
-		disablePDFCPUConfig.Do(api.DisableConfigDir)
-		conf := model.NewDefaultConfiguration()
+		// Validation uses pdfcpu's built-in settings and core fonts only, with no
+		// user config directory, so the API can run with a read-only home.
+		conf, err := api.LoadConfiguration(api.ConfigurationOptions{Mode: api.ConfigurationModeStateless})
+		if err != nil {
+			return "", 0, 0, 0, err
+		}
 		conf.ValidationMode = model.ValidationRelaxed
-		parsed, err := api.ReadAndValidate(bytes.NewReader(data), conf)
+		parsed, err := api.ReadAndValidate(context.Background(), bytes.NewReader(data), conf)
 		if err != nil {
 			// pdfcpu's reason names its internals; keep it for the log only.
 			return "", 0, 0, 0, &ValidationError{Message: "PDF must be readable and unencrypted", Cause: err}

@@ -46,8 +46,7 @@
                 @if (piece.hasPdf) {
                   <a [routerLink]="['/reader', piece.id]">{{ piece.title }}</a>
                 } @else {
-                  <span>{{ piece.title }}</span
-                  ><small>No PDF yet</small>
+                  <span>{{ piece.title }}</span><small>No PDF yet</small>
                 }
               </li>
             }
@@ -76,14 +75,12 @@
       Review {{ preview.count }} {{ preview.count === 1 ? 'piece' : 'pieces' }}
     </h3>
     <p>
-      Set composer to <strong>{{ target().trim() }}</strong
-      >.
+      Set composer to <strong>{{ target().trim() }}</strong>.
     </p>
     <ul class="preview">
       @for (piece of preview.pieces; track piece.id) {
         <li>
-          <strong>{{ piece.title }}</strong
-          ><span>{{ piece.composer || 'Composer unknown' }}</span>
+          <strong>{{ piece.title }}</strong><span>{{ piece.composer || 'Composer unknown' }}</span>
         </li>
       }
     </ul>
