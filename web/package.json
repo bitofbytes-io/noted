@@ -2,7 +2,7 @@
   "name": "noted-web",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "npm@11.6.2",
+  "packageManager": "npm@11.21.3",
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
@@ -33,7 +33,7 @@
     "@lucide/angular": "^1.26.0",
     "@techstark/opencv-js": "4.12.0-release.1",
     "pdf-lib": "1.17.1",
-    "pdfjs-dist": "6.3.289",
+    "pdfjs-dist": "6.5.438",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },
