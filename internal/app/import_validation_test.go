@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,14 +38,23 @@ func TestImportRealFixtures(t *testing.T) {
 }
 
 func TestPDFValidationDoesNotRequireAUserConfigDirectory(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()+"/missing-home")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir()+"/missing-config")
+	// A regular file where the config root should be: no directory can be
+	// created beneath it, so a disk-backed pdfcpu configuration would fail.
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", blocker)
+	t.Setenv("XDG_CONFIG_HOME", blocker)
 	data, err := os.ReadFile("../../testdata/fixtures/noted-valid-ccitt.pdf")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, _, err = ValidateImportBytes(data); err != nil {
 		t.Fatal(err)
+	}
+	if info, err := os.Stat(blocker); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("config path was replaced: %v %v", info, err)
 	}
 }
 
