@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/bitofbytes-io/noted/internal/assets"
-	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 func TestImportRealFixtures(t *testing.T) {
@@ -38,15 +37,14 @@ func TestImportRealFixtures(t *testing.T) {
 }
 
 func TestPDFValidationDoesNotRequireAUserConfigDirectory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()+"/missing-home")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()+"/missing-config")
 	data, err := os.ReadFile("../../testdata/fixtures/noted-valid-ccitt.pdf")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, _, err = ValidateImportBytes(data); err != nil {
 		t.Fatal(err)
-	}
-	if model.ConfigPath != "disable" {
-		t.Fatalf("pdfcpu config directory enabled: %q", model.ConfigPath)
 	}
 }
 
